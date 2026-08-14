@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Intentionally empty: AppTheme.Launcher (values/styles.xml) uses the androidx
+         core-splashscreen compat theme, which resolves correctly on API 31+ without a
+         separate platform-attribute override. A second definition here would risk a
+         duplicate/inconsistent splash configuration. -->
+</resources>

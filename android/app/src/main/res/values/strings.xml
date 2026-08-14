@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Appryvo</string>
+    <string name="title_activity_main">Appryvo</string>
+    <string name="package_name">com.appryvo.ryvo</string>
+    <string name="custom_url_scheme">com.appryvo.ryvo</string>
+</resources>

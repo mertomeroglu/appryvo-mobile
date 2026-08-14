@@ -1,0 +1,1 @@
+const c=[{code:"tr",label:"Türkçe"},{code:"en",label:"İngilizce"},{code:"de",label:"Almanca"},{code:"fr",label:"Fransızca"},{code:"it",label:"İtalyanca"},{code:"pt",label:"Portekizce"},{code:"ru",label:"Rusça"},{code:"es",label:"İspanyolca"}];function o(e){var a;return((a=c.find(l=>l.code===e))==null?void 0:a.label)||e.toUpperCase()}export{c as C,o as c};

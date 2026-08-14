@@ -1,0 +1,94 @@
+import { apiClient } from '../api/apiClient';
+import { secureStorage } from '../../native/secureStorage';
+
+export interface RegisterPayload {
+  email: string;
+  password: string;
+  name: string;
+  username?: string;
+  birthDate: string;
+  gender: string;
+  targetGender: string;
+  city?: string;
+  job?: string;
+  bio?: string;
+  interests?: string[];
+  relationshipGoal?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+export interface LoginPayload {
+  /** Email or username. `email` is also still accepted alone for older call sites. */
+  identifier?: string;
+  email?: string;
+  password: string;
+}
+
+export const authService = {
+  async register(payload: RegisterPayload) {
+    const res = await apiClient.post('/api/auth/register', payload, { skipAuth: true });
+    if (res?.status === 'success' && res?.data) {
+      // Backend sends `accessToken`, not `token` -- reading the wrong key here meant the
+      // access token never got stored at register/login time, so the very next request
+      // (getCurrentUser, right below in useAuthStore) always went out unauthenticated, always
+      // 401'd, and only succeeded after apiClient's refresh-token fallback round-trip. That
+      // guaranteed extra failed request + refresh was silently adding latency to every signup.
+      const { accessToken, refreshToken, user } = res.data;
+      if (accessToken) await secureStorage.setAccessToken(accessToken);
+      if (refreshToken) await secureStorage.setRefreshToken(refreshToken);
+      if (user) await secureStorage.setUserData(user);
+    }
+    return res;
+  },
+
+  async login(payload: LoginPayload) {
+    const res = await apiClient.post('/api/auth/login', payload, { skipAuth: true });
+    if (res?.status === 'success' && res?.data) {
+      const { accessToken, refreshToken, user } = res.data;
+      if (accessToken) await secureStorage.setAccessToken(accessToken);
+      if (refreshToken) await secureStorage.setRefreshToken(refreshToken);
+      if (user) await secureStorage.setUserData(user);
+    }
+    return res;
+  },
+
+  async getCurrentUser() {
+    const res = await apiClient.get('/api/me');
+    if (res?.status === 'success' && res?.data) {
+      await secureStorage.setUserData(res.data);
+    }
+    return res;
+  },
+
+  async logout() {
+    try {
+      // Deactivate every push token registered for this session before the access token
+      // (needed to authenticate this very call) is cleared below -- otherwise a logged-out
+      // device keeps receiving this account's pushes until the next login overwrites the row.
+      await apiClient.delete('/api/devices/push-token').catch(() => {});
+      const refreshToken = await secureStorage.getRefreshToken();
+      await apiClient.post('/api/auth/logout', { refreshToken });
+    } catch {
+      // Ignore logout request failure
+    } finally {
+      await secureStorage.clearAll();
+    }
+  },
+
+  async restoreSession() {
+    const token = await secureStorage.getAccessToken();
+    if (!token) return null;
+    try {
+      const res = await this.getCurrentUser();
+      return res?.data || null;
+    } catch {
+      await secureStorage.clearAll();
+      return null;
+    }
+  },
+
+  async forgotPassword(email: string) {
+    return await apiClient.post('/api/auth/password/forgot', { email }, { skipAuth: true });
+  },
+};

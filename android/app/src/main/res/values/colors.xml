@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ryvo_dark_bg">#0F1115</color>
+    <color name="ic_launcher_background">#0F1115</color>
+
+    <!-- General Activity window background (day). Matches the CSS color-bg light token.
+         Also used by AppTheme.Launcher's windowSplashScreenBackground (qualifier-based, resolved
+         from system dark-mode config before any app code runs; see values-night/colors.xml)
+         so the native splash and the JS bootstrap screen share one background. -->
+    <color name="ryvo_window_background">#F7F7FB</color>
+</resources>

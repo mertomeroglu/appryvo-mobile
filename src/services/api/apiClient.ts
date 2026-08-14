@@ -1,0 +1,165 @@
+import { secureStorage } from '../../native/secureStorage';
+
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api.appryvo.online';
+
+export class ApiException extends Error {
+  statusCode: number;
+  code?: string;
+  rawDetails?: any;
+
+  constructor(message: string, statusCode: number, code?: string, rawDetails?: any) {
+    super(message);
+    this.name = 'ApiException';
+    this.statusCode = statusCode;
+    this.code = code;
+    this.rawDetails = rawDetails;
+  }
+}
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const token = await secureStorage.getAccessToken();
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+async function handleResponse(response: Response): Promise<any> {
+  const text = await response.text();
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('text/html') || text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
+    throw new ApiException('Sunucu yanıtı geçersiz HTML formatında.', response.status, 'HTML_RESPONSE');
+  }
+
+  let data: any;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (err: any) {
+    throw new ApiException('Sunucu yanıtı ayrıştırılamadı.', response.status, 'INVALID_JSON', err.message);
+  }
+
+  if (response.ok) {
+    return data;
+  }
+
+  const message = data?.message || data?.error || 'Bir sunucu hatası oluştu.';
+  const code = data?.code || (response.status === 401 ? 'UNAUTHORIZED' : 'API_ERROR');
+  throw new ApiException(message, response.status, code, data);
+}
+
+export async function refreshTokenFlow(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    try {
+      const refreshToken = await secureStorage.getRefreshToken();
+      if (!refreshToken) return false;
+
+      const res = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.status === 'success' && data?.data?.accessToken) {
+          await secureStorage.setAccessToken(data.data.accessToken);
+          if (data.data.refreshToken) {
+            await secureStorage.setRefreshToken(data.data.refreshToken);
+          }
+          return true;
+        }
+      }
+    } catch {
+      // Refresh error ignored
+    }
+
+    await secureStorage.clearAll();
+    return false;
+  })();
+
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
+}
+
+export interface RequestOptions extends RequestInit {
+  timeoutMs?: number;
+  skipAuth?: boolean;
+}
+
+export async function customFetch(path: string, options: RequestOptions = {}): Promise<any> {
+  const url = path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
+  const { timeoutMs = 15000, skipAuth = false, headers: customHeaders, body, ...rest } = options;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  const authHeaders = skipAuth ? { Accept: 'application/json' } : await getAuthHeaders();
+  const isFormData = body instanceof FormData;
+  const isJsonObject = body && typeof body === 'object' && !isFormData;
+
+  const headers: Record<string, string> = {
+    ...authHeaders,
+    ...(isJsonObject ? { 'Content-Type': 'application/json' } : {}),
+    ...(customHeaders as Record<string, string>),
+  };
+
+  const payload = isJsonObject ? JSON.stringify(body) : body;
+
+  try {
+    let response = await fetch(url, {
+      ...rest,
+      headers,
+      body: payload as BodyInit,
+      signal: controller.signal,
+    });
+
+    // 401 Unauthorized handling & automatic token refresh retry
+    if (response.status === 401 && !skipAuth && !path.includes('/api/auth/')) {
+      const refreshed = await refreshTokenFlow();
+      if (refreshed) {
+        const retryHeaders = await getAuthHeaders();
+        response = await fetch(url, {
+          ...rest,
+          headers: {
+            ...retryHeaders,
+            ...(isJsonObject ? { 'Content-Type': 'application/json' } : {}),
+            ...(customHeaders as Record<string, string>),
+          },
+          body: payload as BodyInit,
+          signal: controller.signal,
+        });
+      }
+    }
+
+    return await handleResponse(response);
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw new ApiException('İstek zaman aşımına uğradı.', 408, 'TIMEOUT');
+    }
+    if (err instanceof ApiException) {
+      throw err;
+    }
+    throw new ApiException(err.message || 'Ağ bağlantı hatası.', 0, 'NETWORK_ERROR');
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export const apiClient = {
+  get: (path: string, options?: RequestOptions) => customFetch(path, { ...options, method: 'GET' }),
+  post: (path: string, body?: any, options?: RequestOptions) => customFetch(path, { ...options, method: 'POST', body }),
+  put: (path: string, body?: any, options?: RequestOptions) => customFetch(path, { ...options, method: 'PUT', body }),
+  patch: (path: string, body?: any, options?: RequestOptions) => customFetch(path, { ...options, method: 'PATCH', body }),
+  delete: (path: string, body?: any, options?: RequestOptions) => customFetch(path, { ...options, method: 'DELETE', body }),
+};

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- General Activity window background (night). Matches the CSS color-bg dark token.
+         Also resolves AppTheme.Launcher's windowSplashScreenBackground when system dark mode
+         is active; see values/colors.xml. -->
+    <color name="ryvo_window_background">#0B0B10</color>
+</resources>

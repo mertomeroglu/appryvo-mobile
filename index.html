@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0b0b10" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Appryvo</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <!-- Paints the correct background the instant the WebView has this document, before the JS
+         bundle loads/executes/mounts React and before globals.css finishes applying -- without
+         this, the browser's default white background showed through as a multi-second flash on
+         slower devices. Values match --color-bg in globals.css; kept in sync manually since this
+         must render with zero dependency on the bundled stylesheet. -->
+    <style>
+      html, body { background-color: #F7F7FB; }
+      @media (prefers-color-scheme: dark) {
+        html, body { background-color: #0B0B10; }
+      }
+    </style>
+  </head>
+  <body class="bg-app text-app antialiased selection:bg-primary selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

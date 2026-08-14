@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- No overrides needed: AppTheme.Launcher and AppTheme.NoActionBar (defined in values/styles.xml)
+         already reference ryvo_startup_background / ryvo_window_background, which this
+         values-night/colors.xml resolves to the dark-appropriate values automatically. -->
+</resources>

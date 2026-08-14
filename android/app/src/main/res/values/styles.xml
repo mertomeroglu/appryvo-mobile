@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- System splash (Android SplashScreen API via androidx.core.splashscreen, API 24+).
+         Covers process creation until the WebView paints the JS bootstrap screen (logo + small
+         loader, see SplashScreen.tsx); that JS screen is the ONE place the Ryvo logo actually
+         appears during startup. Deliberately kept to background-color-only here (transparent
+         icon, no animation): putting the real wordmark in windowSplashScreenAnimatedIcon was
+         tried and confirmed on-device (Android 11 / One UI, where this renders through the
+         androidx compat path rather than the real API 31+ platform implementation) to render as
+         a distinct, badly-cropped circular icon badge; it read as a second, worse-looking splash
+         screen instead of a continuous one. A blank background-only flash is shorter and
+         visually safer than a second logo moment across the OEM/API-level variance here. -->
+    <style name="AppTheme.Launcher" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ryvo_window_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+    </style>
+
+    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+        <item name="colorPrimary">#131318</item>
+        <item name="colorPrimaryDark">#0b0b10</item>
+        <item name="colorAccent">#FF4D8D</item>
+    </style>
+
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <!-- Matches the app's real background token (see globals.css color-bg var) so the brief
+             WebView-creation gap inside super.onCreate() has no visible color change from the
+             splash screen above. Confirmed on-device that android:background is what actually
+             paints this gap (Capacitor's bridge_layout_main / AppCompat decor reads it via
+             ?attr/background), not android:windowBackground alone; set both so neither leaves a
+             mismatched flash regardless of which one a given launcher/OS version honors. -->
+        <item name="android:background">@color/ryvo_window_background</item>
+        <item name="android:windowBackground">@color/ryvo_window_background</item>
+    </style>
+</resources>
+

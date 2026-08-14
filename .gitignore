@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production Build
+dist/
+build/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# IDE & Editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# iOS / Xcode
+ios/App/Pods/
+ios/App/Podfile.lock
+ios/App/DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcbkptlist
+
+# Signing & Certificates (Never commit)
+*.p12
+*.pem
+*.key
+*.mobileprovision
+*.cer
+*.crt
+*.p8
+
+# Android
+android/.gradle/
+android/app/build/
+android/local.properties
+android/key.properties
+android/*.jks
+android/*.keystore
+*.jks
+*.keystore
+ui_dump*.xml
+
+# Test Coverage
+coverage/
+*.lcov

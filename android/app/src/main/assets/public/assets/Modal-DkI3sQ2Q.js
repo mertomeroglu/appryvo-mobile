@@ -1,0 +1,6 @@
+import{c as n,Q as r,r as l,I as m,X as d,a6 as p}from"./index-DEhy-A16.js";import{j as a}from"./vendor-Df5DHcyX.js";import{A as x,m as i}from"./motion-xAWFivDh.js";/**
+ * @license lucide-react v0.475.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const u=[["path",{d:"M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z",key:"i9b6wo"}],["line",{x1:"4",x2:"4",y1:"22",y2:"15",key:"1cm3nv"}]],h=n("Flag",u),j=({isOpen:t,onClose:s,children:e,className:o,showCloseButton:c=!0})=>a.jsx(x,{children:t&&a.jsxs("div",{className:"fixed inset-0 z-modal flex items-center justify-center p-4",children:[a.jsx(i.div,{className:"absolute inset-0 bg-black/60 backdrop-blur-sm",initial:{opacity:0},animate:{opacity:1},exit:{opacity:0},transition:{duration:r.micro},onClick:s}),a.jsxs(i.div,{initial:{opacity:0,scale:.94},animate:{opacity:1,scale:1},exit:{opacity:0,scale:.94},transition:l.soft,className:p("relative w-full max-w-sm bg-surface border border-app rounded-[24px] shadow-floating p-5",o),children:[c&&a.jsx(m,{"aria-label":"Kapat",variant:"ghost",size:"sm",className:"absolute top-3 right-3",onClick:s,children:a.jsx(d,{className:"w-5 h-5"})}),e]})]})});export{h as F,j as M};

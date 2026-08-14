@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "991154492801",
+    "project_id": "ryvo-3535",
+    "storage_bucket": "ryvo-3535.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:991154492801:android:fca60f8329d2f468e28480",
+        "android_client_info": {
+          "package_name": "com.appryvo.ryvo"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "991154492801-q8sclgsrpm56rrlirnnqqjfp1dflusgd.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAKrdTKesWip9S3ZAXRp92Z9WZ4Sdi4GAo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "991154492801-q8sclgsrpm56rrlirnnqqjfp1dflusgd.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "991154492801-4mt7v3ito85epft4id2d7seropre1l6t.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.ryvo.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

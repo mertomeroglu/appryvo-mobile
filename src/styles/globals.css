@@ -150,6 +150,24 @@
   .bg-input-app {
     background-color: var(--color-input);
   }
+  /* Translucent "glass" surface variants. `bg-surface`/`bg-app` are hand-authored classes, not
+     Tailwind theme colors (no matching --color-* is registered inside an @theme block), so
+     Tailwind's own `/NN` opacity-modifier syntax (e.g. `bg-surface/90`) silently compiles to NO
+     rule at all -- every sticky header, floating chip, and the bottom nav bar was rendering with
+     zero background fill, relying on backdrop-blur alone, which reads as "disappears into the
+     content behind it" over photos. These explicit color-mix() variants are the real thing. */
+  .bg-app-80 {
+    background-color: color-mix(in srgb, var(--color-bg) 80%, transparent);
+  }
+  .bg-surface-80 {
+    background-color: color-mix(in srgb, var(--color-surface) 80%, transparent);
+  }
+  .bg-surface-90 {
+    background-color: color-mix(in srgb, var(--color-surface) 90%, transparent);
+  }
+  .bg-surface-95 {
+    background-color: color-mix(in srgb, var(--color-surface) 95%, transparent);
+  }
   .text-app {
     color: var(--color-text-main);
   }

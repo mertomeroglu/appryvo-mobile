@@ -37,7 +37,7 @@ export const ActionSheet: React.FC<ActionSheetProps> = ({ isOpen, onClose, title
               onClose();
             }}
             className={cn(
-              'w-full flex items-center gap-3 px-2 py-3.5 text-body font-semibold text-left border-b border-app last:border-b-0',
+              'w-full flex items-center gap-3 px-2 py-3.5 text-body font-semibold text-start border-b border-app last:border-b-0',
               action.destructive ? 'text-[#FF4B55]' : 'text-app'
             )}
           >

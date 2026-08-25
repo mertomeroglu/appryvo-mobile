@@ -178,7 +178,7 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
                 <label className="block space-y-1.5">
                   <span className="text-caption font-bold normal-case text-app">Şifreni doğrula</span>
                   <span className="relative block">
-                    <LockKeyhole className="absolute left-3.5 top-3.5 h-4 w-4 text-app-muted" />
+                    <LockKeyhole className="absolute start-3.5 top-3.5 h-4 w-4 text-app-muted" />
                     <input
                       type="password"
                       required
@@ -187,7 +187,7 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       placeholder="Şifreni gir"
-                      className="w-full rounded-xl border border-app bg-input-app py-3 pl-10 pr-3 text-body text-app placeholder:text-app-muted focus:border-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
+                      className="w-full rounded-xl border border-app bg-input-app py-3 ps-10 pe-3 text-body text-app placeholder:text-app-muted focus:border-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
                     />
                   </span>
                 </label>

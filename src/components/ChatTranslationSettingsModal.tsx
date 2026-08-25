@@ -56,7 +56,7 @@ export const ChatTranslationSettingsModal: React.FC<ChatTranslationSettingsModal
         </div>
 
         <div className="w-full p-3.5 rounded-2xl bg-surface-elevated border border-app flex items-center justify-between">
-          <div className="min-w-0 pr-3">
+          <div className="min-w-0 pe-3">
             <p className="text-body font-bold text-app">Otomatik Çeviri</p>
             <p className="text-micro text-app-muted normal-case mt-0.5">
               Gelen mesajlar otomatik olarak seçtiğin dile çevrilir.
@@ -90,7 +90,7 @@ export const ChatTranslationSettingsModal: React.FC<ChatTranslationSettingsModal
                   key={lang.code}
                   disabled={isSaving}
                   onClick={() => save({ translationLanguage: lang.code })}
-                  className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-body font-semibold text-left disabled:opacity-50 ${
+                  className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-body font-semibold text-start disabled:opacity-50 ${
                     selected
                       ? 'border-pink-500 bg-pink-500/10 text-pink-500'
                       : 'border-app bg-surface text-app'

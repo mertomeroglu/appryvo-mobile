@@ -131,7 +131,7 @@ export const OwnProfileScreen: React.FC = () => {
         <h2 className="text-title text-app">Profilim</h2>
         <button
           onClick={() => navigate('/profile/preview')}
-          className="absolute right-0 px-3 py-2 rounded-full bg-surface border border-app text-caption font-extrabold text-app flex items-center gap-1.5 shadow-soft active:scale-95 transition-transform"
+          className="absolute end-0 px-3 py-2 rounded-full bg-surface border border-app text-caption font-extrabold text-app flex items-center gap-1.5 shadow-soft active:scale-95 transition-transform"
         >
           <Eye className="w-3.5 h-3.5" />
           <span>Önizle</span>
@@ -169,7 +169,7 @@ export const OwnProfileScreen: React.FC = () => {
               type="button"
               onClick={() => setIsCompletionOpen(true)}
               aria-haspopup="dialog"
-              className="relative z-content w-full rounded-2xl border border-app bg-surface p-3.5 text-left shadow-soft touch-manipulation active:scale-[0.98] transition-transform"
+              className="relative z-content w-full rounded-2xl border border-app bg-surface p-3.5 text-start shadow-soft touch-manipulation active:scale-[0.98] transition-transform"
             >
               <div className="mb-2 flex items-center justify-between gap-3 text-caption font-bold text-app-muted">
                 <span>Profilini tamamla</span>
@@ -272,7 +272,7 @@ export const OwnProfileScreen: React.FC = () => {
                 key={field.key}
                 type="button"
                 onClick={() => openEditModal(field.key)}
-                className="flex min-h-14 w-full touch-manipulation items-center gap-3 rounded-2xl border border-app bg-app-secondary px-4 py-3 text-left active:scale-[0.99]"
+                className="flex min-h-14 w-full touch-manipulation items-center gap-3 rounded-2xl border border-app bg-app-secondary px-4 py-3 text-start active:scale-[0.99]"
               >
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-pink-500/10 text-pink-500">
                   <CheckCircle2 className="h-4.5 w-4.5" />

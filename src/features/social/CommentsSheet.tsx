@@ -46,7 +46,7 @@ export const CommentsSheet: React.FC<CommentsSheetProps> = ({ confessionId, onCl
   };
 
   const renderComment = (comment: ConfessionComment, isReply = false): React.ReactNode => (
-    <div key={comment.id} className={isReply ? 'ml-5 border-l border-app pl-3' : ''}>
+    <div key={comment.id} className={isReply ? 'ms-5 border-s border-app ps-3' : ''}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-micro font-bold text-pink-500">{comment.anonymousBadge || 'Anonim Üye'}</p>

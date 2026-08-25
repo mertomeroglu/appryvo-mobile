@@ -163,7 +163,7 @@ export const SettingsScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full w-full bg-app text-app select-none overflow-hidden">
-      <header className="pt-safe px-4 h-16 flex items-center gap-3 border-b border-app bg-surface/80 backdrop-blur-md z-sticky shrink-0">
+      <header className="pt-safe px-4 h-16 flex items-center gap-3 border-b border-app bg-surface-80 backdrop-blur-md z-sticky shrink-0">
         <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
@@ -293,7 +293,7 @@ export const SettingsScreen: React.FC = () => {
                     setLocale(code);
                     setIsAppLanguageOpen(false);
                   }}
-                  className={`min-w-0 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl border text-body font-semibold text-left ${
+                  className={`min-w-0 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl border text-body font-semibold text-start ${
                     selected ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app'
                   }`}
                 >
@@ -319,7 +319,7 @@ export const SettingsScreen: React.FC = () => {
                 <button
                   key={lang.code}
                   onClick={() => handleSelectChatLanguage(lang.code)}
-                  className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-body font-semibold text-left ${
+                  className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-body font-semibold text-start ${
                     selected ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app'
                   }`}
                 >

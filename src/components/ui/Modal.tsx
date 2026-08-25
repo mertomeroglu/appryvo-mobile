@@ -47,7 +47,7 @@ export const Modal: React.FC<ModalProps> = ({
                 aria-label="Kapat"
                 variant="ghost"
                 size="sm"
-                className="absolute top-3 right-3"
+                className="absolute top-3 end-3"
                 onClick={onClose}
               >
                 <X className="w-5 h-5" />

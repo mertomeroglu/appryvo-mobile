@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { messages } from '../src/i18n/appLocale';
 
 const source = fs.readFileSync(path.resolve('src/features/discovery/DiscoverScreen.tsx'), 'utf8');
 
@@ -8,8 +9,10 @@ describe('Super Like zero-quota UX', () => {
   it('uses a clear quota sheet instead of a generic error or silent redirect', () => {
     expect(source).toContain("err?.code === 'SUPERLIKE_QUOTA_EXHAUSTED'");
     expect(source).toContain('setIsSuperLikeQuotaOpen(true)');
-    expect(source).toContain('Super Like Hakkın Bitti');
-    expect(source).toContain("Plus ve Gold'u İncele");
+    expect(source).toContain("t('superLikeQuotaTitle')");
+    expect(source).toContain("t('explorePlusGoldCta')");
+    expect(messages.tr.superLikeQuotaTitle).toBe('Super Like Hakkın Bitti');
+    expect(messages.tr.explorePlusGoldCta).toBe("Plus ve Gold'u İncele");
   });
 
   it('does not advertise a rewarded-ad route that the product does not support for Super Likes', () => {

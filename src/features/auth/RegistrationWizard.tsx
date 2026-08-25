@@ -17,14 +17,24 @@ import { RegistrationHeader } from './RegistrationHeader';
 import { REGISTRATION_STEPS } from './registrationSteps';
 import { SPRING, PRESS_SCALE } from '../../motion/tokens';
 import { pageTransition } from '../../motion/variants';
-import { RELATIONSHIP_GOAL_LABELS } from '../../lib/profileLabels';
+import { getRelationshipGoalLabel } from '../../lib/profileLabels';
 import { INTEREST_CATEGORIES, INTEREST_MIN, INTEREST_MAX } from '../../lib/interests';
 import { nativeKeyboard } from '../../native/keyboard';
 import { dismissKeyboardOnBackgroundPointerDown } from '../../hooks/useKeyboardViewport';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 const MAX_PHOTOS = 6;
 const MIN_PHOTOS = 2;
 const MIN_REGISTRATION_AGE = 18;
+// Mirrors auth_controller.js's passwordPolicyError() exactly -- client and server must agree
+// or the user gets blocked here only to hit the same rule again (or a laxer one) at submit.
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_MAX_LENGTH = 128;
+const EMAIL_FORMAT_REGEX = /^\S+@\S+\.\S+$/;
+
+const BASIC_STEP_INDEX = REGISTRATION_STEPS.findIndex((s) => s.id === 'basic');
+const USERNAME_STEP_INDEX = REGISTRATION_STEPS.findIndex((s) => s.id === 'username');
+const BIRTHDATE_STEP_INDEX = REGISTRATION_STEPS.findIndex((s) => s.id === 'birthdate');
 
 // Mirrors auth_controller.js's server-side computation exactly (same year/month/day logic) so
 // the client's pre-submit check and the server's authoritative check never disagree.
@@ -37,10 +47,12 @@ function computeAge(birthDateStr: string): number | null {
   if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
   return age;
 }
-const RELATIONSHIP_GOALS = Object.entries(RELATIONSHIP_GOAL_LABELS).map(([value, label]) => ({ value, label }));
+// Canonical set + order of the five selectable relationship goals (see profileLabels.ts) --
+// labels are resolved per the app's current locale so this list is never Turkish-only.
+const RELATIONSHIP_GOAL_KEYS = ['LONG_TERM', 'SHORT_TERM', 'FRIENDSHIP', 'OPEN_TO_EXPLORING', 'NOT_SURE'] as const;
 
 const inputClass =
-  'w-full h-14 bg-input-app border border-app rounded-2xl pl-12 pr-4 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 transition-colors';
+  'w-full h-14 bg-input-app border border-app rounded-2xl ps-12 pe-4 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 transition-colors';
 
 type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken' | 'invalid';
 interface DraftPhoto {
@@ -61,13 +73,24 @@ const SelectionCard: React.FC<{ label: string; selected: boolean; onSelect: () =
     whileTap={{ scale: PRESS_SCALE }}
     transition={SPRING.snappy}
     onClick={onSelect}
-    className={`w-full h-14 px-5 rounded-2xl border text-left font-bold text-body flex items-center justify-between transition-colors ${
+    className={`w-full h-14 px-5 rounded-2xl border text-start font-bold text-body flex items-center justify-between transition-colors ${
       selected ? 'border-pink-500 bg-pink-500/10 text-app shadow-soft' : 'border-app bg-surface text-app-muted'
     }`}
   >
     <span>{label}</span>
     {selected && <Check className="w-5 h-5 text-pink-500" />}
   </motion.button>
+);
+
+const PasswordRequirementRow: React.FC<{ met: boolean; label: string }> = ({ met, label }) => (
+  <div className="flex items-center gap-1.5">
+    {met ? (
+      <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />
+    ) : (
+      <span className="w-3.5 h-3.5 rounded-full border border-app-muted shrink-0" />
+    )}
+    <span className={`text-micro normal-case font-medium ${met ? 'text-green-500' : 'text-app-muted'}`}>{label}</span>
+  </div>
 );
 
 const Chip: React.FC<{ label: string; selected: boolean; onSelect: () => void; disabled?: boolean }> = ({
@@ -96,6 +119,12 @@ interface RegistrationWizardProps {
 }
 
 export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, onComplete }) => {
+  const { t, locale } = useAppTranslation();
+  const RELATIONSHIP_GOALS = RELATIONSHIP_GOAL_KEYS.map((value) => ({
+    value,
+    label: getRelationshipGoalLabel(value, locale) || value,
+  }));
+
   const [stepIndex, setStepIndex] = useState(0);
   const [direction, setDirection] = useState<'forward' | 'back'>('forward');
   const [errorMsg, setErrorMsg] = useState('');
@@ -103,6 +132,8 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   // Basic
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [emailFieldError, setEmailFieldError] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [usernameEdited, setUsernameEdited] = useState(false);
@@ -174,13 +205,16 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         if (res?.data?.username) {
           setUsername(res.data.username);
           setUsernameStatus('available');
-          setUsernameHint('Kullanılabilir');
+          setUsernameHint(t('usernameAvailableLabel'));
         }
       } catch {
         // Non-fatal — user can still type a username manually.
       }
     }, 450);
     return () => clearTimeout(handle);
+    // `t` is intentionally omitted -- it's a new closure every render (see useAppTranslation),
+    // and including it would reset this debounce timer on unrelated re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email, usernameEdited]);
 
   useEffect(() => {
@@ -198,23 +232,38 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         const data = res?.data;
         if (!data?.valid) {
           setUsernameStatus('invalid');
-          setUsernameHint(data?.message || 'Geçersiz kullanıcı adı.');
+          setUsernameHint(data?.message || t('usernameInvalidMessage'));
         } else if (data.available) {
           setUsernameStatus('available');
-          setUsernameHint('Kullanılabilir');
+          setUsernameHint(t('usernameAvailableLabel'));
         } else {
           setUsernameStatus('taken');
-          setUsernameHint(data.suggestion ? `Alınmış. Önerilen: ${data.suggestion}` : 'Bu kullanıcı adı kullanılıyor');
+          setUsernameHint(
+            data.suggestion
+              ? t('usernameTakenSuggestionTemplate').replace('{suggestion}', data.suggestion)
+              : t('usernameTakenMessage')
+          );
         }
       } catch {
         setUsernameStatus('idle');
       }
     }, 400);
     return () => clearTimeout(handle);
+    // `t` is intentionally omitted -- it's a new closure every render (see useAppTranslation),
+    // and including it would reset this debounce timer on unrelated re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username, usernameEdited]);
 
-  const canSubmitBasic =
-    name.trim().length > 0 && /^\S+@\S+\.\S+$/.test(email) && password.length >= 8 && password.length <= 128;
+  const trimmedEmail = email.trim();
+  const isEmailFormatValid = EMAIL_FORMAT_REGEX.test(trimmedEmail);
+  const showEmailFormatError = emailTouched && trimmedEmail.length > 0 && !isEmailFormatValid;
+
+  const hasMinPasswordLength = password.length >= PASSWORD_MIN_LENGTH && password.length <= PASSWORD_MAX_LENGTH;
+  const hasPasswordLetter = /[a-zA-Z]/.test(password);
+  const hasPasswordDigit = /[0-9]/.test(password);
+  const isPasswordValid = hasMinPasswordLength && hasPasswordLetter && hasPasswordDigit;
+
+  const canSubmitBasic = name.trim().length > 0 && isEmailFormatValid && isPasswordValid;
 
   const canSubmitUsername = username.length >= 3 && usernameStatus === 'available';
   const uploadedPhotoCount = photos.filter((photo) => photo.uploadStatus === 'uploaded').length;
@@ -253,7 +302,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
       const blob = await fetch(uri).then((r) => r.blob());
       enqueueForCrop([blob]);
     } catch (err: any) {
-      if (!isCancellation(err)) toast.error('Fotoğraf çekilemedi. Kamera izni verildiğinden emin ol.');
+      if (!isCancellation(err)) toast.error(t('photoCaptureFailedMessage'));
     }
   };
 
@@ -265,12 +314,12 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         try {
           blobs.push(await fetch(uri).then((r) => r.blob()));
         } catch {
-          toast.error('Fotoğraf işlenemedi.');
+          toast.error(t('photoProcessFailedMessage'));
         }
       }
       enqueueForCrop(blobs);
     } catch (err: any) {
-      if (!isCancellation(err)) toast.error('Galeriye erişilemedi. Fotoğraf izni verildiğinden emin ol.');
+      if (!isCancellation(err)) toast.error(t('galleryAccessFailedMessage'));
     }
   };
 
@@ -350,7 +399,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         .map((photo) => photo.uploadToken)
         .filter((token): token is string => !!token);
       if (photoUploadTokens.length < MIN_PHOTOS) {
-        throw new Error('Devam etmek için en az 2 profil fotoğrafı eklemelisin.');
+        throw new Error(t('minPhotosRequirementMessage'));
       }
       await register({
         email,
@@ -367,7 +416,27 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
       await fetchMe();
       onComplete();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Kayıt tamamlanamadı.');
+      const message: string = err?.message || t('registrationFailedMessage');
+      const code: string | undefined = err?.code;
+      if (code === 'NETWORK_ERROR' || code === 'TIMEOUT') {
+        setErrorMsg(t('networkConnectionFailedMessage'));
+      } else if (/e-posta adresi zaten kullanımda/i.test(message)) {
+        setEmailFieldError(message);
+        setEmailTouched(true);
+        setDirection('back');
+        setStepIndex(BASIC_STEP_INDEX);
+      } else if (/kullanıcı adı kullanılıyor/i.test(message)) {
+        setUsernameStatus('taken');
+        setUsernameHint(message);
+        setDirection('back');
+        setStepIndex(USERNAME_STEP_INDEX);
+      } else if (/18 yaşında/i.test(message)) {
+        setBirthDateError(message);
+        setDirection('back');
+        setStepIndex(BIRTHDATE_STEP_INDEX);
+      } else {
+        setErrorMsg(message);
+      }
       setIsSubmitting(false);
     }
   };
@@ -404,8 +473,8 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
             {step.id === 'basic' && (
               <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                 <div>
-                  <h2 className="text-title text-app">Hesap Oluştur</h2>
-                  <p className="text-caption text-app-muted mt-1 normal-case">Profilini oluşturmak için başla.</p>
+                  <h2 className="text-title text-app">{t('createAccount')}</h2>
+                  <p className="text-caption text-app-muted mt-1 normal-case">{t('registrationBasicSubheading')}</p>
                 </div>
                 <form
                   onSubmit={(e) => {
@@ -415,14 +484,14 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                   className="space-y-4"
                 >
                   <div className="relative">
-                    <User className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
+                    <User className="absolute start-4 top-4 w-5 h-5 text-app-muted" />
                     <input
                       type="text"
                       name="name"
                       required
                       autoComplete="name"
                       enterKeyHint="next"
-                      placeholder="İsmin"
+                      placeholder={t('namePlaceholder')}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       onKeyDown={(e) => {
@@ -434,45 +503,69 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                       className={inputClass}
                     />
                   </div>
-                  <div className="relative">
-                    <Mail className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
-                    <input
-                      type="email"
-                      ref={emailInputRef}
-                      name="email"
-                      required
-                      inputMode="email"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      autoComplete="email"
-                      enterKeyHint="next"
-                      placeholder="E-posta Adresi"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value.trim())}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          passwordInputRef.current?.focus();
-                        }
-                      }}
-                      className={inputClass}
-                    />
+                  <div>
+                    <div className="relative">
+                      <Mail className="absolute start-4 top-4 w-5 h-5 text-app-muted" />
+                      <input
+                        type="email"
+                        ref={emailInputRef}
+                        name="email"
+                        required
+                        inputMode="email"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        autoComplete="email"
+                        enterKeyHint="next"
+                        placeholder={t('emailAddressPlaceholder')}
+                        value={email}
+                        onChange={(e) => {
+                          setEmail(e.target.value.trim());
+                          if (emailFieldError) setEmailFieldError('');
+                        }}
+                        onBlur={() => setEmailTouched(true)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            setEmailTouched(true);
+                            passwordInputRef.current?.focus();
+                          }
+                        }}
+                        aria-invalid={showEmailFormatError || !!emailFieldError}
+                        className={`${inputClass} ${showEmailFormatError || emailFieldError ? 'border-red-500' : ''}`}
+                      />
+                    </div>
+                    {(showEmailFormatError || emailFieldError) && (
+                      <p role="alert" className="text-micro mt-1.5 ms-1 normal-case font-medium text-red-500">
+                        {emailFieldError || t('invalidEmailMessage')}
+                      </p>
+                    )}
                   </div>
-                  <div className="relative">
-                    <Lock className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
-                    <input
-                      type="password"
-                      ref={passwordInputRef}
-                      name="password"
-                      required
-                      minLength={6}
-                      autoComplete="new-password"
-                      enterKeyHint="done"
-                      placeholder="Şifre"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className={inputClass}
-                    />
+                  <div>
+                    <div className="relative">
+                      <Lock className="absolute start-4 top-4 w-5 h-5 text-app-muted" />
+                      <input
+                        type="password"
+                        ref={passwordInputRef}
+                        name="password"
+                        required
+                        minLength={PASSWORD_MIN_LENGTH}
+                        maxLength={PASSWORD_MAX_LENGTH}
+                        autoComplete="new-password"
+                        enterKeyHint="done"
+                        placeholder={t('passwordPlaceholder')}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div className="mt-2 ms-1 flex flex-wrap gap-x-3 gap-y-1">
+                      <PasswordRequirementRow
+                        met={hasMinPasswordLength}
+                        label={t('passwordMinLengthRequirementTemplate').replace('{count}', String(PASSWORD_MIN_LENGTH))}
+                      />
+                      <PasswordRequirementRow met={hasPasswordLetter} label={t('passwordLetterRequirement')} />
+                      <PasswordRequirementRow met={hasPasswordDigit} label={t('passwordDigitRequirement')} />
+                    </div>
                   </div>
                   <AppButton
                     type="submit"
@@ -482,7 +575,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                     disabled={!canSubmitBasic}
                     rightIcon={<ChevronRight className="w-5 h-5" />}
                   >
-                    Devam Et
+                    {t('continueButton')}
                   </AppButton>
                 </form>
               </div>
@@ -492,7 +585,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
             {step.id === 'username' && (
               <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                 <div>
-                  <h2 className="text-title text-app">Kullanıcı Adın</h2>
+                  <h2 className="text-title text-app">{t('usernameStepHeading')}</h2>
                 </div>
                 <form
                   onSubmit={(e) => {
@@ -503,7 +596,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                 >
                   <div>
                     <div className="relative">
-                      <AtSign className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
+                      <AtSign className="absolute start-4 top-4 w-5 h-5 text-app-muted" />
                       <input
                         type="text"
                         name="username"
@@ -515,13 +608,13 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                         spellCheck={false}
                         autoComplete="username"
                         enterKeyHint="next"
-                        placeholder="Kullanıcı Adı"
+                        placeholder={t('usernamePlaceholder')}
                         value={username}
                         onChange={(e) => {
                           setUsernameEdited(true);
                           setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, ''));
                         }}
-                        className={`${inputClass} pr-10 ${
+                        className={`${inputClass} pe-10 ${
                           usernameStatus === 'taken' || usernameStatus === 'invalid'
                             ? 'border-red-500'
                             : usernameStatus === 'available'
@@ -530,15 +623,15 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                         }`}
                       />
                       {usernameStatus === 'checking' && (
-                        <Loader2 className="absolute right-4 top-4 w-5 h-5 text-app-muted animate-spin" />
+                        <Loader2 className="absolute end-4 top-4 w-5 h-5 text-app-muted animate-spin" />
                       )}
                       {usernameStatus === 'available' && (
-                        <Check className="absolute right-4 top-4 w-5 h-5 text-green-500" />
+                        <Check className="absolute end-4 top-4 w-5 h-5 text-green-500" />
                       )}
                     </div>
                     {usernameHint && (
                       <p
-                        className={`text-micro mt-1.5 ml-1 normal-case font-medium ${
+                        className={`text-micro mt-1.5 ms-1 normal-case font-medium ${
                           usernameStatus === 'taken' || usernameStatus === 'invalid'
                             ? 'text-red-500'
                             : usernameStatus === 'available'
@@ -558,7 +651,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                     disabled={!canSubmitUsername}
                     rightIcon={<ChevronRight className="w-5 h-5" />}
                   >
-                    Devam Et
+                    {t('continueButton')}
                   </AppButton>
                 </form>
               </div>
@@ -568,8 +661,8 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
             {step.id === 'birthdate' && (
               <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                 <div>
-                  <h2 className="text-title text-app">Doğum Tarihin</h2>
-                  <p className="text-caption text-app-muted mt-1 normal-case">Yaşın profilinde gösterilecek.</p>
+                  <h2 className="text-title text-app">{t('birthdateStepHeading')}</h2>
+                  <p className="text-caption text-app-muted mt-1 normal-case">{t('birthdateStepSubheading')}</p>
                 </div>
                 <form
                   onSubmit={(e) => {
@@ -579,7 +672,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                     if (age === null || age < MIN_REGISTRATION_AGE) {
                       // Same message the server would otherwise return after a full submit --
                       // shown immediately, before the user gets to the end of the wizard.
-                      const message = 'Kayıt olmak için en az 18 yaşında olmalısınız.';
+                      const message = t('minAgeRequirementMessage');
                       setBirthDateError(message);
                       toast.error(message);
                       return;
@@ -590,7 +683,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                   className="space-y-4"
                 >
                   <div className="relative">
-                    <Calendar className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
+                    <Calendar className="absolute start-4 top-4 w-5 h-5 text-app-muted" />
                     <input
                       type="date"
                       name="birthdate"
@@ -612,7 +705,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                     </p>
                   )}
                   <AppButton type="submit" variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />}>
-                    Devam Et
+                    {t('continueButton')}
                   </AppButton>
                 </form>
               </div>
@@ -622,20 +715,20 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
             {step.id === 'gender' && (
               <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                 <div>
-                  <h2 className="text-title text-app">Cinsiyetin</h2>
-                  <p className="text-caption text-app-muted mt-1 normal-case">Seni en iyi tanımlayan seçeneği belirle.</p>
+                  <h2 className="text-title text-app">{t('genderStepHeading')}</h2>
+                  <p className="text-caption text-app-muted mt-1 normal-case">{t('genderStepSubheading')}</p>
                 </div>
                 <div className="space-y-3">
                   {[
-                    { value: 'FEMALE', label: 'Kadın' },
-                    { value: 'MALE', label: 'Erkek' },
-                    { value: 'OTHER', label: 'Diğer / Belirtmek İstemiyorum' },
+                    { value: 'FEMALE', label: t('genderOptionFemale') },
+                    { value: 'MALE', label: t('genderOptionMale') },
+                    { value: 'OTHER', label: t('genderOptionOther') },
                   ].map((opt) => (
                     <SelectionCard key={opt.value} label={opt.label} selected={gender === opt.value} onSelect={() => setGender(opt.value)} />
                   ))}
                 </div>
                 <AppButton variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />} onClick={goNext}>
-                  Devam Et
+                  {t('continueButton')}
                 </AppButton>
               </div>
             )}
@@ -644,20 +737,20 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
             {step.id === 'interestedIn' && (
               <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                 <div>
-                  <h2 className="text-title text-app">Kimi Arıyorsun?</h2>
-                  <p className="text-caption text-app-muted mt-1 normal-case">Keşfet akışını tercihlerine göre şekillendireceğiz.</p>
+                  <h2 className="text-title text-app">{t('interestedInStepHeading')}</h2>
+                  <p className="text-caption text-app-muted mt-1 normal-case">{t('interestedInStepSubheading')}</p>
                 </div>
                 <div className="space-y-3">
                   {[
-                    { value: 'FEMALE', label: 'Kadınlar' },
-                    { value: 'MALE', label: 'Erkekler' },
-                    { value: 'EVERYONE', label: 'Herkes' },
+                    { value: 'FEMALE', label: t('interestedInOptionFemale') },
+                    { value: 'MALE', label: t('interestedInOptionMale') },
+                    { value: 'EVERYONE', label: t('interestedInOptionEveryone') },
                   ].map((opt) => (
                     <SelectionCard key={opt.value} label={opt.label} selected={targetGender === opt.value} onSelect={() => setTargetGender(opt.value)} />
                   ))}
                 </div>
                 <AppButton variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />} onClick={goNext}>
-                  Devam Et
+                  {t('continueButton')}
                 </AppButton>
               </div>
             )}
@@ -666,8 +759,8 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
             {step.id === 'relationshipGoal' && (
               <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                 <div>
-                  <h2 className="text-title text-app">İlişki Hedefin</h2>
-                  <p className="text-caption text-app-muted mt-1 normal-case">Ne tür bir ilişki aradığını belirt.</p>
+                  <h2 className="text-title text-app">{t('relationshipGoalStepHeading')}</h2>
+                  <p className="text-caption text-app-muted mt-1 normal-case">{t('relationshipGoalStepSubheading')}</p>
                 </div>
                 <div className="space-y-3">
                   {RELATIONSHIP_GOALS.map((opt) => (
@@ -675,7 +768,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                   ))}
                 </div>
                 <AppButton variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />} onClick={goNext}>
-                  Devam Et
+                  {t('continueButton')}
                 </AppButton>
               </div>
             )}
@@ -684,9 +777,12 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
             {step.id === 'interests' && (
               <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                 <div>
-                  <h2 className="text-title text-app">İlgi Alanların</h2>
+                  <h2 className="text-title text-app">{t('interestsStepHeading')}</h2>
                   <p className="text-caption text-app-muted mt-1 normal-case">
-                    {INTEREST_MIN}–{INTEREST_MAX} ilgi alanı seç · {interests.length} seçili
+                    {t('interestsCountTemplate')
+                      .replace('{min}', String(INTEREST_MIN))
+                      .replace('{max}', String(INTEREST_MAX))
+                      .replace('{count}', String(interests.length))}
                   </p>
                 </div>
                 <div className="space-y-5">
@@ -718,7 +814,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                   disabled={interests.length < INTEREST_MIN}
                   onClick={goNext}
                 >
-                  Devam Et
+                  {t('continueButton')}
                 </AppButton>
               </div>
             )}
@@ -727,8 +823,8 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
             {step.id === 'photos' && (
               <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                 <div>
-                  <h2 className="text-title text-app">Fotoğraflarını Ekle</h2>
-                  <p className="text-caption text-app-muted mt-1 normal-case">Devam etmek için en az 2 profil fotoğrafı eklemelisin.</p>
+                  <h2 className="text-title text-app">{t('photosStepHeading')}</h2>
+                  <p className="text-caption text-app-muted mt-1 normal-case">{t('minPhotosRequirementMessage')}</p>
                 </div>
 
                 <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInputChange} />
@@ -747,14 +843,14 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                           onClick={() => void uploadDraftPhoto(photo.id, photo.blob)}
                           className="absolute inset-x-2 bottom-2 z-10 rounded-xl bg-black/70 px-2 py-1.5 text-micro font-bold text-white"
                         >
-                          Tekrar Yükle
+                          {t('retryUploadButton')}
                         </button>
                       )}
-                      <img src={photo.previewUrl} alt="Profil fotoğrafı" className="w-full h-full object-cover" />
+                      <img src={photo.previewUrl} alt={t('profilePhotoAlt')} className="w-full h-full object-cover" />
                       <button
                         type="button"
                         onClick={() => removePhoto(photo.id)}
-                        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center"
+                        className="absolute top-1.5 end-1.5 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center before:absolute before:-inset-2 before:content-['']"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -776,10 +872,10 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                 </div>
 
                 <p className={`text-micro normal-case ${uploadedPhotoCount >= MIN_PHOTOS ? 'text-[#32D583]' : 'text-app-muted'}`}>
-                  {uploadedPhotoCount}/{MIN_PHOTOS} fotoğraf yüklendi
+                  {t('photosUploadedCountTemplate').replace('{count}', String(uploadedPhotoCount)).replace('{min}', String(MIN_PHOTOS))}
                 </p>
                 <AppButton variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />} disabled={uploadedPhotoCount < MIN_PHOTOS} loading={isSubmitting} onClick={handleCreateAccount}>
-                  {isSubmitting ? 'Hesabın oluşturuluyor...' : 'Devam Et'}
+                  {isSubmitting ? t('creatingAccountLabel') : t('continueButton')}
                 </AppButton>
               </div>
             )}
@@ -790,10 +886,10 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
       <ActionSheet
         isOpen={isPhotoSheetOpen}
         onClose={() => setIsPhotoSheetOpen(false)}
-        title="Fotoğraf Ekle"
+        title={t('addPhotoSheetTitle')}
         actions={[
-          { label: 'Fotoğraf Çek', icon: <CameraIcon className="w-4 h-4" />, onSelect: handleTakePhoto },
-          { label: 'Kütüphaneden Seç', icon: <Images className="w-4 h-4" />, onSelect: handlePickFromGallery },
+          { label: t('takePhotoAction'), icon: <CameraIcon className="w-4 h-4" />, onSelect: handleTakePhoto },
+          { label: t('pickFromGalleryAction'), icon: <Images className="w-4 h-4" />, onSelect: handlePickFromGallery },
         ]}
       />
 

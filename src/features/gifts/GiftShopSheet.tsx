@@ -128,7 +128,7 @@ const CoinShop: React.FC<{
                   type="button"
                   onClick={() => void buy(pack)}
                   disabled={!priceReady || !!buyingPack}
-                  className="rounded-3xl border border-app bg-surface p-4 text-left shadow-soft transition active:scale-[.98] disabled:opacity-60"
+                  className="rounded-3xl border border-app bg-surface p-4 text-start shadow-soft transition active:scale-[.98] disabled:opacity-60"
                 >
                   <div className="flex items-center gap-2"><CoinIcon className="h-7 w-7" /><span className="text-heading font-black text-app">{pack.coinAmount.toLocaleString(locale)}</span></div>
                   <div className="mt-3 min-h-5">
@@ -261,7 +261,7 @@ export const GiftShopSheet: React.FC<{
                   const active = selected?.id === gift.id;
                   return (
                     <button key={gift.id} type="button" onClick={() => setSelected(gift)} className={`relative flex min-h-32 flex-col items-center rounded-3xl border p-2.5 text-center transition active:scale-[.97] ${active ? 'border-pink-500 bg-pink-500/10 shadow-elevated' : 'border-app bg-surface shadow-soft'}`}>
-                      {gift.tier === 'EPIC' && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#F5B942] shadow-premium" />}
+                      {gift.tier === 'EPIC' && <span className="absolute end-2 top-2 h-2 w-2 rounded-full bg-[#F5B942] shadow-premium" />}
                       <GiftAsset gift={gift} eager={active} className="h-16 w-16" />
                       <span className="mt-1 line-clamp-1 text-caption font-extrabold text-app">{gift.name}</span>
                       <span className="mt-1 flex items-center gap-1 text-micro font-black text-[#A86E08]"><CoinIcon className="h-3.5 w-3.5" />{gift.coinCost}</span>

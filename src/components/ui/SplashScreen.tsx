@@ -90,7 +90,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onDismiss }) => {
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="absolute bottom-16 inset-x-6 z-10 flex flex-col items-center justify-center p-5 rounded-2xl bg-surface/90 backdrop-blur-md border border-app shadow-2xl text-center"
+              className="absolute bottom-16 inset-x-6 z-10 flex flex-col items-center justify-center p-5 rounded-2xl bg-surface-90 backdrop-blur-md border border-app shadow-2xl text-center"
             >
               <p className="text-sm font-medium text-app mb-3">Bağlantı kurulamadı</p>
               <button

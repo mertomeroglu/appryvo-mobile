@@ -69,7 +69,7 @@ export const ConversationRow: React.FC<ConversationRowProps> = ({ match, online,
           if (actionOpen) setActionOpen(false);
           else onOpen();
         }}
-        className={`relative flex w-full items-center gap-3 rounded-2xl px-2.5 py-3 text-left transition-colors active:bg-surface-elevated ${unreadCount > 0 ? 'touch-pan-y bg-pink-500/[0.055]' : 'bg-transparent'}`}
+        className={`relative flex w-full items-center gap-3 rounded-2xl px-2.5 py-3 text-start transition-colors active:bg-surface-elevated ${unreadCount > 0 ? 'touch-pan-y bg-pink-500/[0.055]' : 'bg-transparent'}`}
       >
         <ProfileAvatarFrame
           photoUrl={getPhotoUrl(user.photos?.[0]) || user.photoUrl}
@@ -183,8 +183,8 @@ export const MessagesScreen: React.FC = () => {
         {mode === 'chats' && (
           <label className="relative mt-3 block w-full">
             <span className="sr-only">Sohbetlerde ara</span>
-            <Search className="absolute left-4 top-3.5 h-4 w-4 text-app-muted" />
-            <input type="search" placeholder="Sohbetlerde ara" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="w-full rounded-2xl border border-app bg-input-app py-2.5 pl-11 pr-4 text-body font-semibold text-app placeholder:text-app-muted focus:border-pink-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
+            <Search className="absolute start-4 top-3.5 h-4 w-4 text-app-muted" />
+            <input type="search" placeholder="Sohbetlerde ara" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="w-full rounded-2xl border border-app bg-input-app py-2.5 ps-11 pe-4 text-body font-semibold text-app placeholder:text-app-muted focus:border-pink-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
           </label>
         )}
       </header>
@@ -218,7 +218,7 @@ export const MessagesScreen: React.FC = () => {
 
           <section className="my-2 space-y-1" aria-label="Sohbet listesi">
             {latestOfficialMessage && !searchQuery && (
-              <button type="button" onClick={() => navigate('/messages/ryvo')} className={`flex w-full items-center gap-3 rounded-2xl px-2.5 py-3 text-left transition-colors active:bg-surface-elevated ${officialUnread ? 'bg-pink-500/[0.065]' : 'bg-transparent'}`}>
+              <button type="button" onClick={() => navigate('/messages/ryvo')} className={`flex w-full items-center gap-3 rounded-2xl px-2.5 py-3 text-start transition-colors active:bg-surface-elevated ${officialUnread ? 'bg-pink-500/[0.065]' : 'bg-transparent'}`}>
                 <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white"><AppLogo variant="icon" size="md" /></span>
                 <span className="min-w-0 flex-1">
                   <span className="mb-0.5 flex items-baseline justify-between gap-3">

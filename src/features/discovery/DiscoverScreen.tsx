@@ -140,8 +140,8 @@ export const DiscoverScreen: React.FC = () => {
   const continueWithGlobalDiscovery = useCallback(() => {
     localStorage.setItem(DISCOVER_LOCATION_KEY, 'global');
     setLocationPromptDismissed(true);
-    toast.show('Konum olmadan global keşfete devam ediyorsun.', 'neutral');
-  }, []);
+    toast.show(t('discoverContinueGlobalToast'), 'neutral');
+  }, [t]);
 
   const resolveDiscoverLocation = useCallback(async (
     requestPermission: boolean,
@@ -230,13 +230,13 @@ export const DiscoverScreen: React.FC = () => {
         setHasMore(true);
         await refetch();
       }
-      if (announceSuccess) toast.success('Keşfet akışı yakın çevrene göre güncellendi.');
+      if (announceSuccess) toast.success(t('discoverLocationUpdatedToast'));
     } catch {
       setLocationGate('unavailable');
     } finally {
       locationRequestInFlightRef.current = false;
     }
-  }, [refetch]);
+  }, [refetch, t]);
 
   const requestDiscoverLocation = useCallback(() => {
     void resolveDiscoverLocation(true, true);
@@ -364,13 +364,13 @@ export const DiscoverScreen: React.FC = () => {
         // Super Like (e.g. out of credits) silently does nothing and the user never finds out.
         if (isRetryableDiscoveryError(err) && viewerId) {
           enqueueDiscoveryAction({ viewerId, targetUserId: profile.id, direction, createdAt: Date.now() });
-          toast.show('Bağlantı gelince işlemin otomatik tamamlanacak.', 'neutral');
+          toast.show(t('discoveryQueuedOfflineToast'), 'neutral');
         } else if (direction === 'up' && err?.code === 'SUPERLIKE_QUOTA_EXHAUSTED') {
           setIsSuperLikeQuotaOpen(true);
         } else if (err?.code === 'LIKE_QUOTA_EXHAUSTED' && err?.rawDetails?.canWatchAdForLike) {
           setIsRewardedAdOpen(true);
         } else {
-          toast.error(err?.message || 'İşlem tamamlanamadı.');
+          toast.error(err?.message || t('discoveryActionFailedToast'));
         }
       }
     } else {
@@ -380,10 +380,10 @@ export const DiscoverScreen: React.FC = () => {
         console.error('[PASS ERROR]', err);
         if (isRetryableDiscoveryError(err) && viewerId) {
           enqueueDiscoveryAction({ viewerId, targetUserId: profile.id, direction, createdAt: Date.now() });
-          toast.show('Bağlantı gelince işlemin otomatik tamamlanacak.', 'neutral');
+          toast.show(t('discoveryQueuedOfflineToast'), 'neutral');
           return;
         }
-        toast.error(err?.message || 'İşlem tamamlanamadı.');
+        toast.error(err?.message || t('discoveryActionFailedToast'));
       }
     }
   };
@@ -397,8 +397,8 @@ export const DiscoverScreen: React.FC = () => {
       setCurrentIndex((value) => Math.max(0, value - 1));
       setLastSwiped(null);
     } catch (err: any) {
-      if (err?.code === 'REWIND_QUOTA_EXHAUSTED') toast.show('1 Geri Alma için ödüllü reklam hakkını kullanabilir veya Plus’a geçebilirsin.', 'neutral');
-      else toast.error(err?.message || 'Geri Alma tamamlanamadı.');
+      if (err?.code === 'REWIND_QUOTA_EXHAUSTED') toast.show(t('rewindQuotaToast'), 'neutral');
+      else toast.error(err?.message || t('rewindFailedToast'));
     }
   };
 
@@ -450,38 +450,38 @@ export const DiscoverScreen: React.FC = () => {
   const locationIssue = {
     prompt: {
       icon: <LocateFixed className="h-6 w-6" aria-hidden="true" />,
-      banner: 'Yakındakiler için konum izni ver',
-      title: 'Yakınındakileri Keşfet',
-      description: 'Yakınındaki kişileri gösterebilmemiz için uygulamaya konum izni vermen gerekiyor.',
-      action: 'Konum İzni Ver',
+      banner: t('discoverLocationPromptBanner'),
+      title: t('discoverLocationPromptTitle'),
+      description: t('discoverLocationPromptDescription'),
+      action: t('discoverGrantLocationAction'),
     },
     permissionDenied: {
       icon: <MapPinOff className="h-6 w-6" aria-hidden="true" />,
-      banner: 'Konum iznini etkinleştir',
-      title: 'Konum İzni Gerekli',
-      description: 'Cihaz konumu açık olsa bile uygulama izni olmadan yakınındaki profilleri belirleyemeyiz.',
-      action: Capacitor.isNativePlatform() ? 'Uygulama Ayarlarını Aç' : 'Konum İzni Ver',
+      banner: t('discoverLocationDeniedBanner'),
+      title: t('permissionLocationTitle'),
+      description: t('discoverLocationDeniedDescription'),
+      action: Capacitor.isNativePlatform() ? t('discoverOpenAppSettingsAction') : t('discoverGrantLocationAction'),
     },
     servicesDisabled: {
       icon: <MapPinOff className="h-6 w-6" aria-hidden="true" />,
-      banner: 'Cihaz konum servisini aç',
-      title: 'Cihaz Konumu Kapalı',
-      description: 'Uygulama iznin hazır. Yakınındaki profilleri bulmak için cihazın konum servisini aç.',
-      action: 'Konum Ayarlarını Aç',
+      banner: t('discoverServicesDisabledBanner'),
+      title: t('discoverServicesDisabledTitle'),
+      description: t('discoverServicesDisabledDescription'),
+      action: t('discoverOpenLocationSettingsAction'),
     },
     unavailable: {
       icon: <Crosshair className="h-6 w-6" aria-hidden="true" />,
-      banner: 'Konumu yeniden dene',
-      title: 'Konum Alınamadı',
-      description: 'İzin ve cihaz konumu açık, ancak şu anda bir konum sinyali alınamadı. Birazdan tekrar deneyebilirsin.',
-      action: 'Tekrar Dene',
+      banner: t('discoverLocationUnavailableBanner'),
+      title: t('discoverLocationUnavailableTitle'),
+      description: t('discoverLocationUnavailableDescription'),
+      action: t('retryButton'),
     },
     syncFailed: {
       icon: <CloudOff className="h-6 w-6" aria-hidden="true" />,
-      banner: 'Konumu yeniden eşitle',
-      title: 'Konum Eşitlenemedi',
-      description: 'Cihaz konumu alındı ancak Ryvo ile eşitlenemedi. Bağlantını kontrol edip tekrar dene.',
-      action: 'Yeniden Eşitle',
+      banner: t('discoverSyncFailedBanner'),
+      title: t('discoverSyncFailedTitle'),
+      description: t('discoverSyncFailedDescription'),
+      action: t('discoverResyncAction'),
     },
   }[locationGate as Exclude<LocationGateState, 'checking' | 'requesting' | 'located'>];
   const canSuperLike =
@@ -492,19 +492,19 @@ export const DiscoverScreen: React.FC = () => {
   return (
     <div className="relative h-full w-full bg-app text-app flex flex-col justify-between overflow-hidden select-none">
       {/* Top Bar Header */}
-      <header className="pt-safe px-4 h-16 flex items-center justify-between z-sticky bg-app/80 backdrop-blur-md">
+      <header className="pt-safe px-4 h-16 flex items-center justify-between z-sticky bg-app-80 backdrop-blur-md">
         <AppLogo variant="icon" size="md" />
 
         <div className="flex items-center gap-2">
-          <IconButton aria-label="Bildirimler" variant="surface" size="md" onClick={() => navigate('/notifications')} className="relative">
+          <IconButton aria-label={t('notifications')} variant="surface" size="md" onClick={() => navigate('/notifications')} className="relative">
             <Bell className="w-5 h-5" />
             {unreadNotificationCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-brand-gradient text-white text-[10px] font-extrabold flex items-center justify-center border-2 border-app">
+              <span className="absolute -top-1 -end-1 min-w-[18px] h-[18px] px-1 rounded-full bg-brand-gradient text-white text-[10px] font-extrabold flex items-center justify-center border-2 border-app">
                 {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
               </span>
             )}
           </IconButton>
-          <IconButton aria-label="Filtreler" variant="surface" size="md" onClick={() => setIsFilterOpen(true)}>
+          <IconButton aria-label={t('discoverFiltersAriaLabel')} variant="surface" size="md" onClick={() => setIsFilterOpen(true)}>
             <SlidersHorizontal className="w-5 h-5" />
           </IconButton>
         </div>
@@ -531,27 +531,27 @@ export const DiscoverScreen: React.FC = () => {
           requiresProfilePhotos ? (
             <EmptyState
               icon={<Camera className="h-8 w-8" aria-hidden="true" />}
-              title="Profil Fotoğraflarını Tamamla"
-              subtitle="Keşfet’e katılmak ve gerçek profilleri görmek için en az iki profil fotoğrafı eklemelisin."
-              actionLabel="Profilime Git"
+              title={t('discoverCompletePhotosTitle')}
+              subtitle={t('discoverCompletePhotosDescription')}
+              actionLabel={t('discoverGoToProfileAction')}
               onAction={() => navigate('/profile')}
             />
           ) : (
             <ErrorState
               icon={<TriangleAlert className="h-8 w-8" aria-hidden="true" />}
-              title={feedErrorCode === 'NETWORK_ERROR' || feedErrorCode === 'TIMEOUT' ? 'Bağlantı Kurulamadı' : 'Keşfet Akışı Yüklenemedi'}
-              message="Kartların korunuyor. Bağlantını kontrol edip yeniden deneyebilirsin."
+              title={feedErrorCode === 'NETWORK_ERROR' || feedErrorCode === 'TIMEOUT' ? t('discoverConnectionErrorTitle') : t('discoverFeedErrorTitle')}
+              message={t('discoverFeedErrorMessage')}
               onRetry={() => void refetch()}
             />
           )
         ) : !currentProfile ? (
           <EmptyState
             icon={<SearchX className="h-8 w-8" aria-hidden="true" />}
-            title={hasActiveFilters ? 'Filtrelerine Uygun Profil Bulunamadı' : 'Şimdilik Yeni Profil Yok'}
+            title={hasActiveFilters ? t('discoverNoMatchTitle') : t('discoverNoProfilesTitle')}
             subtitle={hasActiveFilters
-              ? 'Kayıtlı profiller var, ancak etkin arama tercihlerinle eşleşen yeni bir profil bulunamadı.'
-              : 'Yeni profiller eklendiğinde burada görünecek. Mevcut kartları yeniden tarayabilirsin.'}
-            actionLabel={hasActiveFilters ? 'Filtreleri Gözden Geçir' : 'Yeniden Tara'}
+              ? t('discoverNoMatchDescription')
+              : t('discoverNoProfilesDescription')}
+            actionLabel={hasActiveFilters ? t('discoverReviewFiltersAction') : t('discoverRescanAction')}
             onAction={hasActiveFilters ? () => setIsFilterOpen(true) : handleReset}
           />
         ) : (
@@ -580,10 +580,10 @@ export const DiscoverScreen: React.FC = () => {
       {/* Action Control Floating Buttons */}
       {currentProfile && (
         <div className="flex items-center justify-around max-w-sm mx-auto w-full py-2 mb-20 z-sticky">
-          <button onClick={handleRewind} disabled={!lastSwiped} aria-label="Son kaydırmayı geri al" className="w-11 h-11 rounded-full bg-surface border border-app text-amber-500 flex items-center justify-center shadow-elevated disabled:opacity-35 active:scale-90 transition-transform"><RotateCcw className="w-5 h-5" /></button>
+          <button onClick={handleRewind} disabled={!lastSwiped} aria-label={t('discoverRewindAriaLabel')} className="w-11 h-11 rounded-full bg-surface border border-app text-amber-500 flex items-center justify-center shadow-elevated disabled:opacity-35 active:scale-90 transition-transform"><RotateCcw className="w-5 h-5" /></button>
           <button
             onClick={() => handleAction('left')}
-            aria-label="Geç"
+            aria-label={t('discoverPassAriaLabel')}
             className="w-14 h-14 rounded-full bg-surface border border-app text-[#FF4B55] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
           >
             <X className="w-7 h-7 stroke-[2.5]" />
@@ -591,7 +591,7 @@ export const DiscoverScreen: React.FC = () => {
 
           <button
             onClick={() => handleAction('up')}
-            aria-label="Super Like gönder"
+            aria-label={t('discoverSuperLikeAriaLabel')}
             className="w-12 h-12 rounded-full bg-surface border border-app text-[#25D9D0] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
           >
             <Star className="w-6 h-6 fill-current" />
@@ -599,7 +599,7 @@ export const DiscoverScreen: React.FC = () => {
 
           <button
             onClick={() => handleAction('right')}
-            aria-label="Beğen"
+            aria-label={t('discoverLikeAriaLabel')}
             className="w-16 h-16 rounded-full bg-brand-gradient text-white flex items-center justify-center shadow-xl shadow-pink-500/30 active:scale-90 transition-transform"
           >
             <Heart className="w-8 h-8 fill-current" />
@@ -607,7 +607,7 @@ export const DiscoverScreen: React.FC = () => {
 
           <button
             onClick={() => navigate('/boost')}
-            aria-label="Boost"
+            aria-label={t('discoverBoostAriaLabel')}
             className="w-12 h-12 rounded-full bg-surface border border-app text-[#F5B942] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
           >
             <Zap className="w-6 h-6 fill-current" />
@@ -623,9 +623,9 @@ export const DiscoverScreen: React.FC = () => {
           <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-cyan-500/10 text-[#25D9D0]">
             <Star className="h-7 w-7 fill-current" />
           </span>
-          <h2 className="mt-4 text-title text-app">Super Like Hakkın Bitti</h2>
+          <h2 className="mt-4 text-title text-app">{t('superLikeQuotaTitle')}</h2>
           <p className="mt-2 text-caption normal-case leading-relaxed text-app-muted">
-            Plus haftada 3, Gold haftada 5 Super Like hakkı verir. Yeni hakkını bekleyebilir veya planları inceleyebilirsin.
+            {t('superLikeQuotaDescription')}
           </p>
           <div className="mt-5 space-y-2.5">
             <AppButton
@@ -637,10 +637,10 @@ export const DiscoverScreen: React.FC = () => {
                 navigate('/premium');
               }}
             >
-              Plus ve Gold'u İncele
+              {t('explorePlusGoldCta')}
             </AppButton>
             <AppButton fullWidth size="md" variant="ghost" onClick={() => setIsSuperLikeQuotaOpen(false)}>
-              Şimdi Değil
+              {t('notNowLabel')}
             </AppButton>
           </div>
         </div>
@@ -671,10 +671,10 @@ export const DiscoverScreen: React.FC = () => {
                 ? <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
                 : locationIssue?.icon}
             </div>
-            <h2 className="text-title text-app">{locationGate === 'requesting' ? 'Konum Alınıyor' : locationIssue?.title}</h2>
+            <h2 className="text-title text-app">{locationGate === 'requesting' ? t('discoverLocatingTitle') : locationIssue?.title}</h2>
             <p className="mt-2 text-caption normal-case leading-relaxed text-app-muted">
               {locationGate === 'requesting'
-                ? 'İzin, cihaz servisi ve konum sinyali ayrı ayrı kontrol ediliyor.'
+                ? t('discoverCheckingDescription')
                 : locationIssue?.description}
             </p>
             <div className="mt-6 space-y-2.5">
@@ -689,10 +689,10 @@ export const DiscoverScreen: React.FC = () => {
                     ? openPermissionSettings
                     : requestDiscoverLocation}
               >
-                {locationGate === 'requesting' ? 'Kontrol Ediliyor' : locationIssue?.action}
+                {locationGate === 'requesting' ? t('discoverCheckingAction') : locationIssue?.action}
               </AppButton>
               <AppButton fullWidth size="md" variant="ghost" disabled={locationGate === 'requesting'} onClick={continueWithGlobalDiscovery}>
-                Global Keşfet ile Devam Et
+                {t('discoverContinueGlobalAction')}
               </AppButton>
             </div>
           </div>

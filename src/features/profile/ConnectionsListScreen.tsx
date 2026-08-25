@@ -108,7 +108,7 @@ export const ConnectionsListScreen: React.FC = () => {
                 key={item.userId}
                 type="button"
                 onClick={() => openProfile(item.userId)}
-                className="flex w-full items-center gap-3 py-3 text-left active:bg-surface-elevated"
+                className="flex w-full items-center gap-3 py-3 text-start active:bg-surface-elevated"
               >
                 <Avatar src={item.photoUrl ? normalizeMediaUrl(item.photoUrl) : undefined} name={item.name} size="md" />
                 <span className="min-w-0 flex-1">

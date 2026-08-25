@@ -29,7 +29,7 @@ export const GiftCelebrationOverlay: React.FC<{
             animate={{ scale: 1, y: 0 }}
             exit={{ scale: 0.92, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-            className="w-full max-w-xs rounded-[30px] border border-[#F5B942]/60 bg-surface/95 p-6 text-center shadow-floating backdrop-blur-xl"
+            className="w-full max-w-xs rounded-[30px] border border-[#F5B942]/60 bg-surface-95 p-6 text-center shadow-floating backdrop-blur-xl"
           >
             <GiftAsset gift={gift} eager className="mx-auto h-32 w-32 drop-shadow-xl" />
             <p className="mt-2 text-title text-app">{gift.name}</p>

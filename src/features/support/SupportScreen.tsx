@@ -38,7 +38,7 @@ export const SupportScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full w-full bg-app text-app select-none overflow-hidden">
-      <header className="pt-safe px-4 h-16 flex items-center gap-3 border-b border-app bg-surface/80 backdrop-blur-md z-sticky shrink-0">
+      <header className="pt-safe px-4 h-16 flex items-center gap-3 border-b border-app bg-surface-80 backdrop-blur-md z-sticky shrink-0">
         <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-5 h-5" />
         </IconButton>

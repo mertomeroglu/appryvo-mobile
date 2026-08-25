@@ -20,7 +20,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
     <header
       className={cn(
         'pt-safe px-4 h-16 flex items-center justify-between z-sticky',
-        !transparent && 'border-b border-app bg-surface/80 backdrop-blur-md',
+        !transparent && 'border-b border-app bg-surface-80 backdrop-blur-md',
         className
       )}
     >

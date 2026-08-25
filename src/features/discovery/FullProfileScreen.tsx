@@ -71,7 +71,7 @@ export const FullProfileScreen: React.FC = () => {
           variant="surface"
           size="md"
           onClick={() => navigate(-1)}
-          className="absolute top-safe left-4 mt-2 z-10"
+          className="absolute top-safe start-4 mt-2 z-10"
         >
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
@@ -170,13 +170,13 @@ export const FullProfileScreen: React.FC = () => {
           </>
         )}
 
-        <div className="absolute top-4 left-4 z-20">
+        <div className="absolute top-4 start-4 z-20">
           <IconButton aria-label="Geri" variant="overlay" size="md" onClick={() => navigate(-1)}>
             <ArrowLeft className="w-5 h-5" />
           </IconButton>
         </div>
 
-        <div className="absolute top-4 right-4 z-20">
+        <div className="absolute top-4 end-4 z-20">
           <IconButton
             aria-label="Profili paylaş"
             variant="overlay"
@@ -232,7 +232,7 @@ export const FullProfileScreen: React.FC = () => {
           <button
             type="button"
             onClick={() => userId && navigate(`/connections/${userId}`)}
-            className="min-w-0 text-left"
+            className="min-w-0 text-start"
           >
             <span className="block text-caption font-bold text-app normal-case">
               {followStatus ? `${followStatus.followersCount} takipçi · ${followStatus.followingCount} takip` : 'Bağlantılar'}
@@ -372,7 +372,7 @@ export const FullProfileScreen: React.FC = () => {
         <button
           type="button"
           onClick={() => setIsReportOpen(true)}
-          className="w-full flex items-center gap-3 p-4 rounded-2xl border border-red-500/20 bg-red-500/5 text-left active:scale-[0.99] transition-transform"
+          className="w-full flex items-center gap-3 p-4 rounded-2xl border border-red-500/20 bg-red-500/5 text-start active:scale-[0.99] transition-transform"
         >
           <Flag className="w-5 h-5 text-[#FF4B55] shrink-0" />
           <span className="min-w-0">

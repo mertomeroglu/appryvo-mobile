@@ -45,7 +45,7 @@ const ToggleChip: React.FC<{
   >
     {icon}
     <span>{label}</span>
-    {locked ? <LockKeyhole className="ml-auto h-3.5 w-3.5 shrink-0 text-gold" /> : active && <Check className="w-3.5 h-3.5 ml-auto shrink-0" />}
+    {locked ? <LockKeyhole className="ms-auto h-3.5 w-3.5 shrink-0 text-gold" /> : active && <Check className="w-3.5 h-3.5 ms-auto shrink-0" />}
   </button>
 );
 
@@ -200,7 +200,7 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
                 !hasAdvancedFilters ? 'border-gold/35 bg-gold/5 text-app-muted' : relationshipGoal === null ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app-muted'
               }`}
             >
-              Fark etmez {!hasAdvancedFilters && <LockKeyhole className="ml-1 inline h-3 w-3 text-gold" />}
+              Fark etmez {!hasAdvancedFilters && <LockKeyhole className="ms-1 inline h-3 w-3 text-gold" />}
             </button>
             {Object.entries(RELATIONSHIP_GOAL_LABELS).map(([key, label]) => (
               <button
@@ -211,7 +211,7 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
                   !hasAdvancedFilters ? 'border-gold/35 bg-gold/5 text-app-muted' : relationshipGoal === key ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app-muted'
                 }`}
               >
-                {label} {!hasAdvancedFilters && <LockKeyhole className="ml-1 inline h-3 w-3 text-gold" />}
+                {label} {!hasAdvancedFilters && <LockKeyhole className="ms-1 inline h-3 w-3 text-gold" />}
               </button>
             ))}
           </div>

@@ -57,7 +57,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({ selected, on
                 whileTap={{ scale: PRESS_SCALE }}
                 transition={SPRING.snappy}
                 onClick={() => toggle(name)}
-                className="flex items-center gap-1.5 pl-3 pr-2 py-2 rounded-full text-caption font-bold bg-brand-gradient text-white"
+                className="flex items-center gap-1.5 ps-3 pe-2 py-2 rounded-full text-caption font-bold bg-brand-gradient text-white"
               >
                 <span>{lang ? `${lang.flag} ${getLocalizedLanguageName(lang, locale)}` : formatLanguageName(name)}</span>
                 <X className="w-3.5 h-3.5" />
@@ -68,13 +68,13 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({ selected, on
       )}
 
       <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-app-muted" />
+        <Search className="absolute start-4 top-1/2 -translate-y-1/2 w-4 h-4 text-app-muted" />
         <input
           type="text"
           placeholder={t('searchLanguagePlaceholder')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full h-11 bg-input-app border border-app rounded-2xl pl-10 pr-4 text-caption font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
+          className="w-full h-11 bg-input-app border border-app rounded-2xl ps-10 pe-4 text-caption font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
         />
       </div>
 

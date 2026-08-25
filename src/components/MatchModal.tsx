@@ -58,7 +58,7 @@ export const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, matched
               aria-label="Kapat"
               variant="ghost"
               size="sm"
-              className="absolute -top-2 -right-2 text-white"
+              className="absolute -top-2 -end-2 text-white"
               onClick={onClose}
             >
               <X className="w-5 h-5" />

@@ -619,7 +619,7 @@ export const ChatScreen: React.FC = () => {
     <div className="relative flex flex-col h-full w-full bg-app text-app select-none overflow-hidden">
       <GiftCelebrationOverlay gift={giftCelebration} senderName={partner?.name} onDone={() => setGiftCelebration(null)} />
       {/* Top Header */}
-      <header className="z-sticky flex min-h-16 shrink-0 items-center justify-between border-b border-app bg-surface/95 px-3 pb-2 pt-[calc(var(--safe-top)+8px)] backdrop-blur-xl">
+      <header className="z-sticky flex min-h-16 shrink-0 items-center justify-between border-b border-app bg-surface-95 px-3 pb-2 pt-[calc(var(--safe-top)+8px)] backdrop-blur-xl">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate('/messages')}>
             <ArrowLeft className="w-5 h-5" />
@@ -629,7 +629,7 @@ export const ChatScreen: React.FC = () => {
             type="button"
             aria-label={`${partner?.name || 'Eşleşme'} profilini aç`}
             onClick={() => partnerId && navigate(`/discover/${partnerId}`)}
-            className="flex min-w-0 items-center gap-2.5 rounded-xl pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex min-w-0 items-center gap-2.5 rounded-xl pe-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <ProfileAvatarFrame
               photoUrl={getPhotoUrl(partner?.photos?.[0]) || partner?.photoUrl}
@@ -647,7 +647,7 @@ export const ChatScreen: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-2">
           <IconButton
             aria-label="Çeviri Ayarları"
             variant="surface"
@@ -788,7 +788,7 @@ export const ChatScreen: React.FC = () => {
         </div>
       ) : (
         /* Input Controls Bar */
-        <div className="flex items-end gap-1.5 border-t border-app bg-surface/95 px-2.5 pt-2.5 pb-[calc(var(--safe-bottom)+10px)] backdrop-blur-xl">
+        <div className="flex items-end gap-1.5 border-t border-app bg-surface-95 px-2.5 pt-2.5 pb-[calc(var(--safe-bottom)+10px)] backdrop-blur-xl">
           <input
             ref={fileInputRef}
             type="file"
@@ -861,7 +861,7 @@ export const ChatScreen: React.FC = () => {
 
       <Modal isOpen={isUnmatchConfirmOpen} onClose={() => !unmatchMutation.isPending && setIsUnmatchConfirmOpen(false)}>
         <div className="space-y-4">
-          <div className="flex items-center gap-3 pr-8">
+          <div className="flex items-center gap-3 pe-8">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-red-500/10 text-red-500">
               <Unlink className="h-5 w-5" />
             </span>

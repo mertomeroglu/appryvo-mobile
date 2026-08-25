@@ -35,7 +35,7 @@ export const AppLanguagePicker: React.FC<AppLanguagePickerProps> = ({ showTrigge
           type="button"
           aria-label="Choose app language"
           onClick={() => setIsOpen(true)}
-          className="absolute right-5 top-[calc(var(--safe-top)+1rem)] z-20 flex h-10 items-center gap-2 rounded-full border border-app bg-surface/90 px-3 text-caption font-extrabold uppercase text-app shadow-soft backdrop-blur-md active:scale-95"
+          className="absolute end-5 top-[calc(var(--safe-top)+1rem)] z-20 flex h-10 items-center gap-2 rounded-full border border-app bg-surface-90 px-3 text-caption font-extrabold uppercase text-app shadow-soft backdrop-blur-md active:scale-95"
         >
           <Globe2 className="h-4 w-4 text-pink-500" />
           <span>{locale}</span>
@@ -69,7 +69,7 @@ export const AppLanguagePicker: React.FC<AppLanguagePickerProps> = ({ showTrigge
                 role="option"
                 aria-selected={selected}
                 onClick={() => selectLocale(option.code)}
-                className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left active:scale-[0.99] ${
+                className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-start active:scale-[0.99] ${
                   selected
                     ? 'border-pink-500 bg-pink-500/10 text-pink-500'
                     : 'border-app bg-surface text-app'

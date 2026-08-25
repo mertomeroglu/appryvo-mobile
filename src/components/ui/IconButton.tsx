@@ -20,7 +20,10 @@ const VARIANT_CLASSES: Record<IconButtonVariant, string> = {
 };
 
 const SIZE_CLASSES: Record<IconButtonSize, string> = {
-  sm: 'w-9 h-9',
+  // Visual size stays a compact 36px chip (dense contexts rely on that), but `relative` plus the
+  // invisible ::before pad the actual tappable area out to the ~44dp minimum mobile touch target
+  // without growing the icon or shifting sibling layout.
+  sm: "relative w-9 h-9 before:absolute before:-inset-1 before:content-['']",
   md: 'w-11 h-11',
   lg: 'w-14 h-14',
 };

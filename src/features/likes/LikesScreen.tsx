@@ -112,7 +112,7 @@ export const LikesScreen: React.FC = () => {
                 />
 
                 {item.isSuperLike && (
-                  <span className="absolute top-2 right-2 w-7 h-7 rounded-full bg-[#25D9D0] border-2 border-white/80 flex items-center justify-center shadow-md z-10">
+                  <span className="absolute top-2 end-2 w-7 h-7 rounded-full bg-[#25D9D0] border-2 border-white/80 flex items-center justify-center shadow-md z-10">
                     <Star className="w-3.5 h-3.5 text-white fill-current" />
                   </span>
                 )}
@@ -130,7 +130,7 @@ export const LikesScreen: React.FC = () => {
                 ) : (
                   <button
                     onClick={() => navigate(`/discover/${user.id}`)}
-                    className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-3 text-white text-left"
+                    className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-3 text-white text-start"
                   >
                     <div className="flex items-baseline gap-1.5">
                       <h4 className="text-body font-extrabold">{user.name}</h4>

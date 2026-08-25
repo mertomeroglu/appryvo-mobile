@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { messages } from '../src/i18n/appLocale';
 
 const root = path.resolve(__dirname, '..');
 const source = (relativePath: string) => fs.readFileSync(path.join(root, 'src', relativePath), 'utf8');
@@ -30,8 +31,10 @@ describe('P0 Discover recovery contract', () => {
     const screen = source('features/discovery/DiscoverScreen.tsx');
 
     expect(screen).toContain("feedErrorCode === 'MIN_PROFILE_PHOTOS'");
-    expect(screen).toContain('Profil Fotoğraflarını Tamamla');
-    expect(screen).toContain('Filtrelerine Uygun Profil Bulunamadı');
+    expect(screen).toContain("t('discoverCompletePhotosTitle')");
+    expect(screen).toContain("t('discoverNoMatchTitle')");
+    expect(messages.tr.discoverCompletePhotosTitle).toBe('Profil Fotoğraflarını Tamamla');
+    expect(messages.tr.discoverNoMatchTitle).toBe('Filtrelerine Uygun Profil Bulunamadı');
     expect(screen).toContain("feedErrorCode === 'NETWORK_ERROR'");
     expect(screen).toContain('onRetry={() => void refetch()}');
   });
@@ -46,7 +49,8 @@ describe('P0 Discover recovery contract', () => {
     expect(screen).toContain('Geolocation.checkPermissions()');
     expect(screen).toContain("setLocationGate(isLocationServicesDisabled(error) ? 'servicesDisabled' : 'unavailable')");
     expect(screen).toContain("setLocationGate('syncFailed')");
-    expect(screen).toContain('Cihaz konum servisini aç');
+    expect(screen).toContain("t('discoverServicesDisabledBanner')");
+    expect(messages.tr.discoverServicesDisabledBanner).toBe('Cihaz konum servisini aç');
     expect(screen).toContain('void resolveDiscoverLocation(false, announceSuccess, false)');
     expect(screen).not.toContain('Yakındakileri görmek için konumu aç');
   });

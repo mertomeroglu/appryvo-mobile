@@ -346,7 +346,7 @@ export const CallOverlay: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className="flex items-center justify-around bg-surface/90 backdrop-blur-xl border border-app rounded-3xl p-4 shadow-floating">
+          <div className="flex items-center justify-around bg-surface-90 backdrop-blur-xl border border-app rounded-3xl p-4 shadow-floating">
             <IconButton
               aria-label={isMuted ? 'Sesi Aç' : 'Sesi Kapat'}
               variant={isMuted ? 'gradient' : 'surface'}

@@ -55,13 +55,13 @@ export const NotificationsScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full w-full bg-app text-app overflow-hidden select-none">
-      <header className="pt-safe px-4 h-16 flex items-center gap-3 z-sticky bg-app/80 backdrop-blur-md border-b border-app">
+      <header className="pt-safe px-4 h-16 flex items-center gap-3 z-sticky bg-app-80 backdrop-blur-md border-b border-app">
         <IconButton aria-label="Geri" variant="surface" size="md" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
         <h2 className="text-title text-app">Bildirimler</h2>
         {!isLoading && data?.unreadCount > 0 && (
-          <span className="ml-auto px-2.5 py-1 rounded-full bg-brand-gradient text-white text-micro font-extrabold">
+          <span className="ms-auto px-2.5 py-1 rounded-full bg-brand-gradient text-white text-micro font-extrabold">
             {data.unreadCount} yeni
           </span>
         )}
@@ -91,7 +91,7 @@ export const NotificationsScreen: React.FC = () => {
                   key={n.id}
                   onTap={() => handleOpen(n)}
                   whileTap={{ scale: 0.98 }}
-                  className={`flex items-start gap-3 p-3.5 rounded-2xl border text-left transition-colors ${
+                  className={`flex items-start gap-3 p-3.5 rounded-2xl border text-start transition-colors ${
                     n.is_read ? 'bg-surface border-app' : 'bg-surface border-pink-500/30 shadow-soft'
                   }`}
                 >

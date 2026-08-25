@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { messages } from '../src/i18n/appLocale';
 
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
@@ -28,9 +29,11 @@ describe('registration photo persistence', () => {
     const discover = source('src/features/discovery/DiscoverScreen.tsx');
     expect(discover).toContain("'permissionDenied'");
     expect(discover).toContain("'servicesDisabled'");
-    expect(discover).toContain('Konum Ayarlarını Aç');
+    expect(discover).toContain("t('discoverOpenLocationSettingsAction')");
     expect(discover).toContain('addStateChangeListener');
-    expect(discover).toContain('Global Keşfet ile Devam Et');
+    expect(discover).toContain("t('discoverContinueGlobalAction')");
+    expect(messages.tr.discoverOpenLocationSettingsAction).toBe('Konum Ayarlarını Aç');
+    expect(messages.tr.discoverContinueGlobalAction).toBe('Global Keşfet ile Devam Et');
   });
 
   it('enforces the 100-210 height domain without printing it below the input', () => {

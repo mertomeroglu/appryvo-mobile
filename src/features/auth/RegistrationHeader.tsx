@@ -3,6 +3,7 @@ import { ArrowLeft, X } from 'lucide-react';
 import { IconButton } from '../../components/ui/IconButton';
 import { AppLogo } from '../../components/ui/AppLogo';
 import { REGISTRATION_STEP_COUNT } from './registrationSteps';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 interface RegistrationHeaderProps {
   stepIndex: number; // 0-based
@@ -16,11 +17,12 @@ interface RegistrationHeaderProps {
  * without making the flow feel like a checklist or exposing a discouraging step count.
  */
 export const RegistrationHeader: React.FC<RegistrationHeaderProps> = ({ stepIndex, onBack, isFirstStep }) => {
+  const { t } = useAppTranslation();
   return (
     <div className="pt-safe px-5 z-sticky">
       <div className="h-14 flex items-center justify-between">
         <IconButton
-          aria-label={isFirstStep ? 'Kayıttan çık' : 'Geri'}
+          aria-label={isFirstStep ? t('exitRegistrationAriaLabel') : t('backButtonLabel')}
           variant="surface"
           size="md"
           onClick={onBack}

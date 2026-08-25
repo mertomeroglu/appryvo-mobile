@@ -42,7 +42,7 @@ function renderLegalConsent(
 }
 
 const inputClass =
-  'w-full h-14 bg-input-app border border-app rounded-2xl pl-12 pr-4 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40 transition-colors';
+  'w-full h-14 bg-input-app border border-app rounded-2xl ps-12 pe-4 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40 transition-colors';
 
 export const AuthScreen: React.FC = () => {
   const [mode, setMode] = useState<Mode>('welcome');
@@ -76,7 +76,7 @@ export const AuthScreen: React.FC = () => {
       await nativeKeyboard.hide();
       navigate('/discover');
     } catch (err: any) {
-      setErrorMsg(err.message || 'Giriş yapılamadı.');
+      setErrorMsg(err.message || t('loginFailedMessage'));
     }
   };
 
@@ -89,7 +89,7 @@ export const AuthScreen: React.FC = () => {
       await nativeKeyboard.hide();
       goTo('reset-sent');
     } catch (err: any) {
-      setErrorMsg(err.message || 'İstek gönderilemedi.');
+      setErrorMsg(err.message || t('requestFailedMessage'));
     } finally {
       setIsSubmittingForgot(false);
     }
@@ -116,7 +116,7 @@ export const AuthScreen: React.FC = () => {
           language control unobstructed while preserving the native back affordance. */}
       {mode !== 'welcome' && (
         <header className="pt-safe px-5 pe-24 h-16 flex items-center gap-3 z-sticky">
-          <IconButton aria-label="Geri" variant="surface" size="md" onClick={() => goTo(mode === 'forgot' ? 'login' : 'welcome')}>
+          <IconButton aria-label={t('backButtonLabel')} variant="surface" size="md" onClick={() => goTo(mode === 'forgot' ? 'login' : 'welcome')}>
             <ArrowLeft className="w-5 h-5" />
           </IconButton>
           <AppLogo variant="full" size="md" />
@@ -186,15 +186,15 @@ export const AuthScreen: React.FC = () => {
               <>
                 <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                   <div>
-                    <h2 className="text-title text-app">Hoş Geldin!</h2>
+                    <h2 className="text-title text-app">{t('loginHeading')}</h2>
                     <p className="text-caption text-app-muted mt-1 normal-case">
-                      Hesabına erişmek için bilgilerini gir.
+                      {t('loginSubheading')}
                     </p>
                   </div>
 
                   <form onSubmit={handleLogin} className="space-y-4">
                     <div className="relative">
-                      <Mail className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
+                      <Mail className="absolute start-4 top-4 w-5 h-5 text-app-muted" />
                       <input
                         type="text"
                         name="username"
@@ -217,7 +217,7 @@ export const AuthScreen: React.FC = () => {
                     </div>
 
                     <div className="relative">
-                      <Lock className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
+                      <Lock className="absolute start-4 top-4 w-5 h-5 text-app-muted" />
                       <input
                         type="password"
                         ref={loginPasswordRef}
@@ -249,12 +249,13 @@ export const AuthScreen: React.FC = () => {
                 </div>
 
                 <div className="text-center pt-4">
-                  <p className="text-caption text-app-muted normal-case">
-                    Hesabın yok mu?{' '}
-                    <button onClick={() => goTo('register')} className="font-extrabold text-pink-500 underline">
-                      Kayıt Ol
-                    </button>
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => goTo('register')}
+                    className="text-caption font-bold text-pink-500 underline"
+                  >
+                    {t('noAccount')}
+                  </button>
                 </div>
               </>
             )}
@@ -265,13 +266,13 @@ export const AuthScreen: React.FC = () => {
                 <div>
                   <h2 className="text-title text-app break-words">{t('forgotPassword')}</h2>
                   <p className="text-caption text-app-muted mt-1 normal-case">
-                    E-posta adresini gir, sana sıfırlama bağlantısı gönderelim.
+                    {t('forgotPasswordSubheading')}
                   </p>
                 </div>
 
                 <form onSubmit={handleForgotPassword} className="space-y-4">
                   <div className="relative">
-                    <Mail className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
+                    <Mail className="absolute start-4 top-4 w-5 h-5 text-app-muted" />
                     <input
                       type="email"
                       name="email"
@@ -296,7 +297,7 @@ export const AuthScreen: React.FC = () => {
                     loading={isSubmittingForgot}
                     rightIcon={<Send className="w-4 h-4" />}
                   >
-                    Sıfırlama Bağlantısı Gönder
+                    {t('sendResetLinkButton')}
                   </AppButton>
                 </form>
               </div>
@@ -309,9 +310,9 @@ export const AuthScreen: React.FC = () => {
                   <Send className="w-8 h-8 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-title text-app">E-postanı Kontrol Et</h2>
+                  <h2 className="text-title text-app">{t('checkEmailHeading')}</h2>
                   <p className="text-caption text-app-muted mt-2 normal-case max-w-xs mx-auto leading-relaxed">
-                    {forgotEmail} adresine bir şifre sıfırlama bağlantısı gönderdik. Gelen kutunu kontrol et.
+                    {t('resetLinkSentTemplate').replace('{email}', forgotEmail)}
                   </p>
                 </div>
                 <AppButton variant="secondary" size="lg" fullWidth onClick={() => goTo('login')}>

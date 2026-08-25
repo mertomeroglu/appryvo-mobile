@@ -250,7 +250,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories, startIndex, s
           {story.isPromoted && (
             <span className="rounded-full bg-amber-400/90 px-2 py-0.5 text-[10px] font-extrabold uppercase text-black">{t('sponsoredLabel')}</span>
           )}
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ms-auto flex items-center gap-1">
             {isOwn && (
               <button
                 type="button"
@@ -297,7 +297,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories, startIndex, s
                 type="submit"
                 disabled={!replyText.trim() || replySending}
                 aria-label={t('sendAriaLabel')}
-                className="w-9 h-9 shrink-0 rounded-full bg-brand-gradient text-white flex items-center justify-center disabled:opacity-40"
+                className="relative w-9 h-9 shrink-0 rounded-full bg-brand-gradient text-white flex items-center justify-center disabled:opacity-40 before:absolute before:-inset-1 before:content-['']"
               >
                 <Send className="w-4 h-4" />
               </button>

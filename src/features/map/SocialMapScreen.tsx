@@ -473,7 +473,7 @@ export const SocialMapScreen: React.FC = () => {
       {/* Floating search bar */}
       <div className="absolute top-0 inset-x-0 z-sticky pt-safe px-4 pointer-events-none">
         <div className="flex items-center gap-2 w-full max-w-md mx-auto mt-3">
-          <div className="pointer-events-auto shrink-0 w-11 h-11 rounded-full bg-surface/90 backdrop-blur-xl border border-app shadow-elevated flex items-center justify-center">
+          <div className="pointer-events-auto shrink-0 w-11 h-11 rounded-full bg-surface-90 backdrop-blur-xl border border-app shadow-elevated flex items-center justify-center">
             <AppLogo variant="icon" size="sm" />
           </div>
           <form onSubmit={handleCitySearch} className="relative flex-1 pointer-events-auto">
@@ -483,7 +483,7 @@ export const SocialMapScreen: React.FC = () => {
               placeholder="Şehir veya lokasyon ara..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-surface/90 backdrop-blur-xl border border-app rounded-full pl-12 pr-4 py-3 text-body font-semibold text-app placeholder:text-app-muted shadow-elevated focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
+              className="w-full bg-surface-90 backdrop-blur-xl border border-app rounded-full pl-12 pr-4 py-3 text-body font-semibold text-app placeholder:text-app-muted shadow-elevated focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
             />
           </form>
         </div>
@@ -507,12 +507,12 @@ export const SocialMapScreen: React.FC = () => {
       {/* Status pills — never a full-screen blocker, the map stays interactive underneath */}
       <div className="absolute inset-x-0 top-24 z-sticky flex justify-center pointer-events-none px-6">
         {locationStatus === 'pending' && (
-          <div className="px-4 py-2 rounded-full bg-surface/90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
+          <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
             Konumun alınıyor...
           </div>
         )}
         {locationStatus === 'denied' && (
-          <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface/95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
+          <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
             <span>Yakındaki kişileri görmek için konum izni gerekiyor.</span>
             <button
               onClick={() => acquireLocation(true)}
@@ -523,7 +523,7 @@ export const SocialMapScreen: React.FC = () => {
           </div>
         )}
         {locationStatus === 'error' && (
-          <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface/95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
+          <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
             <span>Konum alınamadı.</span>
             <button onClick={() => acquireLocation(true)} className="shrink-0 text-pink-500 font-bold">
               Tekrar Dene
@@ -531,12 +531,12 @@ export const SocialMapScreen: React.FC = () => {
           </div>
         )}
         {isFetching && bbox && locationStatus === 'granted' && (
-          <div className="px-4 py-2 rounded-full bg-surface/90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
+          <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
             Yakındaki kişiler yükleniyor...
           </div>
         )}
         {isEmptyViewport && (
-          <div className="px-4 py-2 rounded-full bg-surface/90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
+          <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
             Bu bölgede henüz kimse yok
           </div>
         )}

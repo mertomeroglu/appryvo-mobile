@@ -43,7 +43,7 @@ export const OfficialRyvoThread: React.FC = () => {
 
   return (
     <div className="flex h-full w-full flex-col bg-app text-app select-none">
-      <header className="pt-safe flex min-h-16 shrink-0 items-center gap-2.5 border-b border-app bg-surface/95 px-3 backdrop-blur-md">
+      <header className="pt-safe flex min-h-16 shrink-0 items-center gap-2.5 border-b border-app bg-surface-95 px-3 backdrop-blur-md">
         <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate('/messages')}>
           <ArrowLeft className="h-5 w-5" />
         </IconButton>
@@ -100,7 +100,7 @@ export const OfficialRyvoThread: React.FC = () => {
         </div>
       </main>
 
-      <footer className="shrink-0 border-t border-app bg-surface/95 px-4 pt-2.5 pb-[calc(var(--safe-bottom)+10px)]">
+      <footer className="shrink-0 border-t border-app bg-surface-95 px-4 pt-2.5 pb-[calc(var(--safe-bottom)+10px)]">
         <div className="mx-auto flex max-w-xl items-center justify-center gap-1.5 text-micro font-semibold normal-case text-app-muted">
           <LockKeyhole className="h-3.5 w-3.5 shrink-0" /> Bu, Ryvo’dan gelen güvenli ve tek yönlü bir konuşmadır.
         </div>

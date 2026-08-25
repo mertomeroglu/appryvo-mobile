@@ -55,7 +55,7 @@ export const ProfilePreviewScreen: React.FC = () => {
           </>
         )}
 
-        <div className="absolute top-4 left-4 z-20">
+        <div className="absolute top-4 start-4 z-20">
           <IconButton aria-label="Geri" variant="overlay" size="md" onClick={() => navigate(-1)}>
             <ArrowLeft className="w-5 h-5" />
           </IconButton>

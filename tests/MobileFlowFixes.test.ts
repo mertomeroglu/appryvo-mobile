@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getPhotoUrl } from '../src/services/media/mediaService';
+import { messages } from '../src/i18n/appLocale';
+import { PUBLIC_PLAN_NAMES } from '../src/features/premium/subscriptionProducts';
 
 const source = (relativePath: string) =>
   readFileSync(resolve(process.cwd(), 'src', relativePath), 'utf8');
@@ -12,8 +14,10 @@ describe('mobile onboarding and discovery flow contracts', () => {
     const steps = source('features/auth/registrationSteps.ts');
 
     expect(wizard).toContain('const MIN_PHOTOS = 2');
-    expect(wizard).toContain('Devam etmek için en az 2 profil fotoğrafı eklemelisin.');
-    expect(wizard).toContain('{uploadedPhotoCount}/{MIN_PHOTOS}');
+    expect(wizard).toContain("t('minPhotosRequirementMessage')");
+    expect(messages.tr.minPhotosRequirementMessage).toBe('Devam etmek için en az 2 profil fotoğrafı eklemelisin.');
+    expect(wizard).toContain("t('photosUploadedCountTemplate').replace('{count}', String(uploadedPhotoCount)).replace('{min}', String(MIN_PHOTOS))");
+    expect(messages.tr.photosUploadedCountTemplate).toBe('{count}/{min} fotoğraf yüklendi');
     expect(wizard).toContain('disabled={uploadedPhotoCount < MIN_PHOTOS}');
     expect(wizard).toContain('onClick={handleCreateAccount}');
     expect(steps).not.toContain("id: 'location'");
@@ -35,7 +39,8 @@ describe('mobile onboarding and discovery flow contracts', () => {
     expect(discover).toContain('latitude: lat');
     expect(discover).toContain('longitude: lng');
     expect(discover).not.toContain("apiClient.post('/api/user/location', { lat, lng })");
-    expect(discover).toContain('Global Keşfet ile Devam Et');
+    expect(discover).toContain("t('discoverContinueGlobalAction')");
+    expect(messages.tr.discoverContinueGlobalAction).toBe('Global Keşfet ile Devam Et');
     expect(discover).toContain('onClick={continueWithGlobalDiscovery}');
     expect(discover).not.toContain('Yukarı kaydırarak Süper Beğeni gönderebilirsin.');
   });
@@ -79,13 +84,17 @@ describe('profile and monetization UI contracts', () => {
     expect(flag).toContain('getFlagAssetPath');
     expect(flag).not.toContain('flagcdn.com');
     expect(flag).not.toContain('githubusercontent.com');
-    expect(premium).toContain('Ryvo Plus');
-    expect(premium).toContain('Ryvo Gold');
+    expect(premium).toContain('PUBLIC_PLAN_NAMES');
+    expect(premium).not.toContain('VIP');
+    expect(PUBLIC_PLAN_NAMES.PLUS).toBe('Ryvo Plus');
+    expect(PUBLIC_PLAN_NAMES.GOLD).toBe('Ryvo Gold');
     expect(premium).toContain("id: 'THREE_MONTH'");
     expect(premium).toContain("id: 'SIX_MONTH'");
     expect(premium).toContain('snap-x snap-mandatory');
-    expect(premium).toContain('Mağaza fiyatı yükleniyor.');
-    expect(premium).toContain('Fiyatları yenile');
+    expect(premium).toContain("t('missingStorePriceLoading')");
+    expect(premium).toContain("t('refreshPricesAction')");
+    expect(messages.tr.missingStorePriceLoading).toBe('Mağaza fiyatı yükleniyor.');
+    expect(messages.tr.refreshPricesAction).toBe('Fiyatları yenile');
     expect(premium).not.toContain('Rehber fiyat');
     expect(boost).toContain('Profilini Öne Çıkar');
     expect(boost).toContain("Profilini 30 dakika boyunca Keşfet'te daha görünür yap.");
@@ -97,7 +106,7 @@ describe('profile and monetization UI contracts', () => {
     expect(premium).toContain('snap-mandatory');
     expect(premium).toContain('data-period={id}');
     expect(premium).toContain('aria-pressed={selected}');
-    expect(premium).toContain('-mr-4 mt-4');
+    expect(premium).toContain('-me-4 mt-4');
     expect(premium).not.toContain('pl-4 pr-[15%]');
     expect(premium).not.toMatch(/[₺$]\s*\d/);
   });

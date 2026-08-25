@@ -3,14 +3,17 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { formatLanguageName, normalizeLanguageNames } from '../src/lib/languages';
 import { getRelationshipGoalLabels } from '../src/lib/profileLabels';
+import { messages } from '../src/i18n/appLocale';
 
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
 describe('edit profile production rules', () => {
   it('locks identity fields and omits the obsolete location explanation', () => {
     const editor = source('src/components/EditProfileModal.tsx');
-    expect(editor).toContain('Ad değiştirilemez');
-    expect(editor).toContain('Kullanıcı adı değiştirilemez');
+    expect(editor).toContain("t('nameLockedHint')");
+    expect(editor).toContain("t('usernameLockedHint')");
+    expect(messages.tr.nameLockedHint).toBe('Ad değiştirilemez');
+    expect(messages.tr.usernameLockedHint).toBe('Kullanıcı adı değiştirilemez');
     expect(editor.match(/readOnly/g)?.length).toBeGreaterThanOrEqual(2);
     expect(editor).not.toContain('Konum, cihaz izniyle Keşfet ekranından güncellenir.');
     expect(editor).not.toContain('const [name, setName]');
@@ -19,18 +22,27 @@ describe('edit profile production rules', () => {
   it('enforces one or two relationship goals and provides third-selection feedback', () => {
     const editor = source('src/components/EditProfileModal.tsx');
     expect(editor).toContain('relationshipGoals.length < 1 || relationshipGoals.length > 2');
-    expect(editor).toContain("toast.show('En fazla 2 ilişki hedefi seçebilirsin.'");
+    expect(editor).toContain("toast.show(t('relationshipGoalMaxToast')");
+    expect(messages.tr.relationshipGoalMaxToast).toBe('En fazla 2 ilişki hedefi seçebilirsin.');
     expect(editor).toContain('relationshipGoals,');
     expect(getRelationshipGoalLabels(['LONG_TERM', 'FRIENDSHIP'])).toHaveLength(2);
   });
 
   it('uses taxonomy chips for interests and the existing zodiac enum', () => {
     const editor = source('src/components/EditProfileModal.tsx');
-    expect(editor).toContain('INTEREST_CATEGORIES.map');
-    expect(editor).toContain('toggleInterest(item)');
+    // The full category catalog was moved out of the long edit-profile form into a dedicated
+    // InterestsEditorScreen (compact summary + "Edit Interests" entry point here instead) --
+    // see the taxonomy-chip assertions below, which now target that dedicated screen.
+    expect(editor).toContain('InterestsEditorScreen');
+    expect(editor).toContain('setIsInterestsEditorOpen(true)');
     expect(editor).not.toContain('placeholder="Yeni ilgi alanı..."');
     expect(editor).toContain('ZODIAC_OPTIONS.map');
     expect(editor).toContain('zodiac: zodiac || null');
+
+    const interestsEditor = source('src/components/InterestsEditorScreen.tsx');
+    expect(interestsEditor).toContain('INTEREST_CATEGORIES.map');
+    expect(interestsEditor).toContain('toggleInterest(item)');
+    expect(interestsEditor).not.toContain('placeholder="Yeni ilgi alanı..."');
   });
 });
 

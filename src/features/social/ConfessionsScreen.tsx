@@ -215,7 +215,7 @@ export const ConfessionsScreen: React.FC<{ embedded?: boolean }> = ({ embedded =
                     <span>{t('commentsCountTemplate').replace('{count}', String(item.commentsCount || 0))}</span>
                   </button>
 
-                  {!item.isMyPost && <button type="button" onClick={() => setMenuTarget(item)} className="ml-auto flex items-center gap-1.5 hover:text-[var(--color-error)]"><Flag className="h-4 w-4" /><span>{t('reportLabel')}</span></button>}
+                  {!item.isMyPost && <button type="button" onClick={() => setMenuTarget(item)} className="ms-auto flex items-center gap-1.5 hover:text-[var(--color-error)]"><Flag className="h-4 w-4" /><span>{t('reportLabel')}</span></button>}
                 </div>
               </motion.article>
             ))}
@@ -248,7 +248,7 @@ export const ConfessionsScreen: React.FC<{ embedded?: boolean }> = ({ embedded =
             className="w-full rounded-2xl border border-app bg-input-app p-3 text-body font-semibold text-app focus:border-pink-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           />
 
-          <p className="text-right text-micro normal-case text-app-muted" aria-live="polite">{text.length}/1000</p>
+          <p className="text-end text-micro normal-case text-app-muted" aria-live="polite">{text.length}/1000</p>
 
           <p className="rounded-2xl border border-app bg-app-secondary p-3 text-caption normal-case leading-relaxed text-app-muted">{t('confessionDisclaimerMessage')}</p>
 

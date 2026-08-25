@@ -92,13 +92,13 @@ export const PassportScreen: React.FC = () => {
         <>
           {/* Search Input */}
           <form onSubmit={handleSearch} className="relative w-full max-w-md mx-auto my-3">
-            <Search className="absolute left-4 top-3.5 w-5 h-5 text-app-muted" />
+            <Search className="absolute start-4 top-3.5 w-5 h-5 text-app-muted" />
             <input
               type="text"
               placeholder="Hedef şehir ara (örn. Paris, Tokyo...)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-input-app border border-app rounded-full pl-12 pr-4 py-3 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-purple-500 focus-visible:ring-2 focus-visible:ring-purple-500/40"
+              className="w-full bg-input-app border border-app rounded-full ps-12 pe-4 py-3 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-purple-500 focus-visible:ring-2 focus-visible:ring-purple-500/40"
             />
           </form>
 
@@ -117,7 +117,7 @@ export const PassportScreen: React.FC = () => {
                 >
                   <div className="flex items-center gap-3">
                     <MapPin className="w-5 h-5 text-purple-500" />
-                    <div className="text-left">
+                    <div className="text-start">
                       <h4 className="text-body font-extrabold text-app">{city.name}</h4>
                       <span className="text-caption text-app-muted normal-case">{city.country}</span>
                     </div>

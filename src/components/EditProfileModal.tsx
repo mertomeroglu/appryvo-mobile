@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Capacitor } from '@capacitor/core';
-import { AtSign, Camera as CameraIcon, LockKeyhole, Plus, Ruler, Sparkles, User, X } from 'lucide-react';
+import { AtSign, Camera as CameraIcon, ChevronRight, LockKeyhole, Plus, Ruler, Sparkles, User, X } from 'lucide-react';
 import { apiClient } from '../services/api/apiClient';
 import { mediaService, normalizeMediaUrl, getPhotoUrl } from '../services/media/mediaService';
 import { nativeCamera } from '../native/camera';
@@ -10,8 +10,9 @@ import { toast } from '../stores/useToastStore';
 import { AppButton } from './ui/AppButton';
 import { AppLogo } from './ui/AppLogo';
 import { IconButton } from './ui/IconButton';
-import { FilterChip } from './ui/Chip';
+import { Chip, FilterChip } from './ui/Chip';
 import { PhotoCropScreen } from './ui/PhotoCropScreen';
+import { InterestsEditorScreen } from './InterestsEditorScreen';
 import { QUERY_KEYS } from '../hooks/useQueries';
 import { LanguageSelector } from './LanguageSelector';
 import { ZodiacIcon, ZODIAC_ACCENT_CLASSES, type ZodiacSign } from './ui/ZodiacIcon';
@@ -23,7 +24,7 @@ import {
   getFamilyPlansLabel,
   getZodiacLabel,
 } from '../lib/profileLabels';
-import { ALL_INTERESTS, INTEREST_CATEGORIES, INTEREST_MAX, INTEREST_MIN } from '../lib/interests';
+import { INTEREST_MAX, INTEREST_MIN } from '../lib/interests';
 import { normalizeLanguageNames } from '../lib/languages';
 import { useAppTranslation } from '../i18n/appLocale';
 
@@ -75,7 +76,7 @@ function normalizeInitialPhotos(photos: any[] | undefined): PhotoSlot[] {
 
 export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose, focusSection }) => {
   const user = useAuthStore((s) => s.user);
-  const { locale } = useAppTranslation();
+  const { locale, t } = useAppTranslation();
   const RELATIONSHIP_GOALS = RELATIONSHIP_GOAL_KEYS.map((value) => ({ value, label: getRelationshipGoalLabel(value, locale) || value }));
   const SMOKING_OPTIONS = SMOKING_KEYS.map((value) => ({ value, label: getSmokingLabel(value, locale) || value }));
   const DRINKING_OPTIONS = DRINKING_KEYS.map((value) => ({ value, label: getDrinkingLabel(value, locale) || value }));
@@ -110,7 +111,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const isSavingRef = useRef(false);
-  const legacyInterests = interests.filter((item) => !ALL_INTERESTS.includes(item));
+  const [isInterestsEditorOpen, setIsInterestsEditorOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !focusSection) return;
@@ -129,22 +130,11 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
 
   if (!isOpen) return null;
 
-  const toggleInterest = (item: string) => {
-    setInterests((current) => {
-      if (current.includes(item)) return current.filter((interest) => interest !== item);
-      if (current.length >= INTEREST_MAX) {
-        toast.show(`En fazla ${INTEREST_MAX} ilgi alanı seçebilirsin.`, 'neutral');
-        return current;
-      }
-      return [...current, item];
-    });
-  };
-
   const toggleRelationshipGoal = (value: string) => {
     setRelationshipGoals((current) => {
       if (current.includes(value)) return current.filter((goal) => goal !== value);
       if (current.length >= 2) {
-        toast.show('En fazla 2 ilişki hedefi seçebilirsin.', 'neutral');
+        toast.show(t('relationshipGoalMaxToast'), 'neutral');
         return current;
       }
       return [...current, value];
@@ -161,7 +151,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, url, uploading: false } : p)));
     } catch {
       setPhotos((prev) => prev.filter((p) => p.id !== id));
-      toast.error('Fotoğraf yüklenemedi.');
+      toast.error(t('photoUploadFailedToast'));
     }
   };
 
@@ -183,7 +173,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
         try {
           blobs.push(await fetch(uri).then((r) => r.blob()));
         } catch {
-          toast.error('Fotoğraf işlenemedi.');
+          toast.error(t('photoProcessFailedToast'));
         }
       }
       enqueueForCrop(blobs);
@@ -224,7 +214,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
 
   const removePhoto = (id: string) => {
     if (photos.length <= MIN_PHOTOS) {
-      toast.error('Profilinde en az 2 fotoğraf kalmalı.');
+      toast.error(t('minPhotosRemainingToast'));
       return;
     }
     setPhotos((prev) => prev.filter((p) => p.id !== id));
@@ -238,19 +228,19 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     const tStart = performance.now();
     setErrorMsg('');
     if (photos.some((photo) => photo.uploading)) {
-      setErrorMsg('Fotoğrafların yüklenmesi tamamlanana kadar bekle.');
+      setErrorMsg(t('photosUploadingWaitError'));
       return;
     }
     if (photos.filter((photo) => photo.url).length < MIN_PHOTOS) {
-      setErrorMsg('Profili kullanabilmek için en az 2 fotoğraf gerekli.');
+      setErrorMsg(t('minPhotosRequiredError'));
       return;
     }
     if (relationshipGoals.length < 1 || relationshipGoals.length > 2) {
-      setErrorMsg('En az 1, en fazla 2 ilişki hedefi seçmelisin.');
+      setErrorMsg(t('relationshipGoalCountError'));
       return;
     }
     if (interests.length < INTEREST_MIN || interests.length > INTEREST_MAX) {
-      setErrorMsg(`${INTEREST_MIN}–${INTEREST_MAX} ilgi alanı seçmelisin.`);
+      setErrorMsg(t('interestsCountErrorTemplate').replace('{min}', String(INTEREST_MIN)).replace('{max}', String(INTEREST_MAX)));
       return;
     }
     const tValidated = performance.now();
@@ -259,7 +249,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     try {
       const parsedHeight = heightCm.trim() ? Number.parseInt(heightCm, 10) : undefined;
       if (parsedHeight !== undefined && (!Number.isFinite(parsedHeight) || parsedHeight < 100 || parsedHeight > 210)) {
-        setErrorMsg('Geçerli bir boy değeri gir.');
+        setErrorMsg(t('invalidHeightError'));
         setIsLoading(false);
         return;
       }
@@ -310,7 +300,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
         queryClient.setQueryData(QUERY_KEYS.me, optimisticUser);
       }
       onClose();
-      toast.success('Değişiklikler kaydedildi.');
+      toast.success(t('profileSavedToast'));
       // Timings only -- never the payload itself. UI has already closed/succeeded by this point;
       // this refetch reconciles cache in the background and never blocks the save from finishing.
       console.info('[PROFILE SAVE]', JSON.stringify({
@@ -321,7 +311,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       }));
       void fetchMe().catch(() => {});
     } catch (err: any) {
-      setErrorMsg(err.message || 'Profil kaydedilemedi.');
+      setErrorMsg(err.message || t('profileSaveFailedError'));
     } finally {
       isSavingRef.current = false;
       setIsLoading(false);
@@ -335,9 +325,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
         <header className="px-5 pb-4 pt-[calc(var(--safe-top)+16px)] sm:pt-4 border-b border-app bg-surface flex items-center justify-between gap-3 z-sticky shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <AppLogo size="sm" variant="icon" className="shrink-0" />
-            <h3 className="text-heading text-app truncate">Profili Düzenle</h3>
+            <h3 className="text-heading text-app truncate">{t('editProfileTitle')}</h3>
           </div>
-          <IconButton aria-label="Kapat" variant="ghost" size="md" onClick={onClose} className="shrink-0">
+          <IconButton aria-label={t('closeAriaLabel')} variant="ghost" size="md" onClick={onClose} className="shrink-0">
             <X className="w-5 h-5" />
           </IconButton>
         </header>
@@ -346,7 +336,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
         <form ref={formRef} onSubmit={handleSave} className="p-5 space-y-6 flex-1 overflow-y-auto no-scrollbar">
           {/* Photos — first, per the design system's mobile edit-flow order */}
           <div className="space-y-2" data-section="photos">
-            <label className="text-micro font-extrabold text-app-muted uppercase">Fotoğraflar</label>
+            <label className="text-micro font-extrabold text-app-muted uppercase">{t('photosSectionLabel')}</label>
             <input
               ref={fileInputRef}
               type="file"
@@ -369,7 +359,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
                     <>
                       <img
                         src={normalizeMediaUrl(photo.url)}
-                        alt="Profil fotoğrafı"
+                        alt={t('profilePhotoAlt')}
                         loading="lazy"
                         decoding="async"
                         className="w-full h-full object-cover"
@@ -377,7 +367,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
                       <button
                         type="button"
                         onClick={() => removePhoto(photo.id)}
-                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center"
+                        className="absolute top-1 end-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center before:absolute before:-inset-2 before:content-['']"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -400,45 +390,45 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
 
           {/* Basic Info */}
           <div className="space-y-3">
-            <label className="text-micro font-extrabold text-app-muted uppercase">Temel Bilgiler</label>
+            <label className="text-micro font-extrabold text-app-muted uppercase">{t('basicInfoLabel')}</label>
             <div className="space-y-1.5">
               <div className="relative">
-                <User className="absolute left-3.5 top-3.5 w-4 h-4 text-app-muted" />
+                <User className="absolute start-3.5 top-3.5 w-4 h-4 text-app-muted" />
                 <input
                   type="text"
-                  aria-label="Ad"
+                  aria-label={t('nameFieldAriaLabel')}
                   value={user?.name || ''}
                   readOnly
                   aria-readonly="true"
-                  className="w-full bg-input-app border border-app rounded-2xl pl-10 pr-10 py-2.5 text-body font-semibold text-app-muted cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/40"
+                  className="w-full bg-input-app border border-app rounded-2xl ps-10 pe-10 py-2.5 text-body font-semibold text-app-muted cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/40"
                 />
-                <LockKeyhole className="absolute right-3.5 top-3.5 w-4 h-4 text-app-muted/70" aria-hidden="true" />
+                <LockKeyhole className="absolute end-3.5 top-3.5 w-4 h-4 text-app-muted/70" aria-hidden="true" />
               </div>
-              <p className="px-1 text-micro normal-case text-app-muted">Ad değiştirilemez</p>
+              <p className="px-1 text-micro normal-case text-app-muted">{t('nameLockedHint')}</p>
             </div>
             <div className="space-y-1.5">
               <div className="relative">
-                <AtSign className="absolute left-3.5 top-3.5 w-4 h-4 text-app-muted" />
+                <AtSign className="absolute start-3.5 top-3.5 w-4 h-4 text-app-muted" />
                 <input
                   type="text"
-                  aria-label="Kullanıcı adı"
+                  aria-label={t('usernameFieldAriaLabel')}
                   value={user?.username || ''}
                   readOnly
                   aria-readonly="true"
-                  className="w-full bg-input-app border border-app rounded-2xl pl-10 pr-10 py-2.5 text-body font-semibold text-app-muted cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/40"
+                  className="w-full bg-input-app border border-app rounded-2xl ps-10 pe-10 py-2.5 text-body font-semibold text-app-muted cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/40"
                 />
-                <LockKeyhole className="absolute right-3.5 top-3.5 w-4 h-4 text-app-muted/70" aria-hidden="true" />
+                <LockKeyhole className="absolute end-3.5 top-3.5 w-4 h-4 text-app-muted/70" aria-hidden="true" />
               </div>
-              <p className="px-1 text-micro normal-case text-app-muted">Kullanıcı adı değiştirilemez</p>
+              <p className="px-1 text-micro normal-case text-app-muted">{t('usernameLockedHint')}</p>
             </div>
           </div>
 
           {/* Bio */}
           <div className="space-y-2" data-section="bio">
-            <label className="text-micro font-extrabold text-app-muted uppercase">Hakkımda</label>
+            <label className="text-micro font-extrabold text-app-muted uppercase">{t('bioSectionLabel')}</label>
             <textarea
               rows={3}
-              placeholder="Kendini tanıtan kısa bir biyografi yaz..."
+              placeholder={t('bioPlaceholder')}
               value={bio}
               onChange={(e) => setBio(e.target.value)}
               className="w-full bg-input-app border border-app rounded-2xl p-3 text-body font-semibold text-app focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
@@ -447,8 +437,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
 
           {/* Relationship goal */}
           <div className="space-y-2">
-            <label className="text-micro font-extrabold text-app-muted uppercase">Aradığın</label>
-            <p className="text-micro normal-case text-app-muted">En az 1, en fazla 2 seçim yapabilirsin.</p>
+            <label className="text-micro font-extrabold text-app-muted uppercase">{t('lookingForLabel')}</label>
+            <p className="text-micro normal-case text-app-muted">{t('relationshipGoalSelectionHint')}</p>
             <div className="flex flex-wrap gap-2">
               {RELATIONSHIP_GOALS.map((g) => (
                 <FilterChip
@@ -465,24 +455,24 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
 
           {/* Lifestyle */}
           <div className="space-y-3" data-section="lifestyle">
-            <label className="text-micro font-extrabold text-app-muted uppercase">Yaşam Tarzı</label>
+            <label className="text-micro font-extrabold text-app-muted uppercase">{t('lifestyleSectionLabel')}</label>
 
             <div className="relative">
-              <Ruler className="absolute left-3.5 top-3.5 w-4 h-4 text-app-muted" />
+              <Ruler className="absolute start-3.5 top-3.5 w-4 h-4 text-app-muted" />
               <input
                 type="number"
                 inputMode="numeric"
-                placeholder="Boy (cm)"
+                placeholder={t('heightPlaceholder')}
                 value={heightCm}
                 onChange={(e) => setHeightCm(e.target.value)}
-                className="w-full bg-input-app border border-app rounded-2xl pl-10 pr-4 py-2.5 text-body font-semibold text-app focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
+                className="w-full bg-input-app border border-app rounded-2xl ps-10 pe-4 py-2.5 text-body font-semibold text-app focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
               />
             </div>
 
             <div className="space-y-1.5" data-section="zodiac">
               <span className="flex items-center gap-1.5 text-caption font-bold text-app-muted normal-case">
                 <Sparkles className="h-3.5 w-3.5 text-purple-400" aria-hidden="true" />
-                Burç
+                {t('zodiacSectionLabel')}
               </span>
               <div className="flex flex-wrap gap-2">
                 {ZODIAC_OPTIONS.map((opt) => {
@@ -507,7 +497,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
             </div>
 
             <div className="space-y-1.5" data-section="smokingStatus">
-              <span className="text-caption font-bold text-app-muted normal-case">Sigara</span>
+              <span className="text-caption font-bold text-app-muted normal-case">{t('smokingSectionLabel')}</span>
               <div className="flex flex-wrap gap-2">
                 {SMOKING_OPTIONS.map((opt) => (
                   <FilterChip
@@ -523,7 +513,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
             </div>
 
             <div className="space-y-1.5" data-section="drinkingStatus">
-              <span className="text-caption font-bold text-app-muted normal-case">Alkol</span>
+              <span className="text-caption font-bold text-app-muted normal-case">{t('drinkingSectionLabel')}</span>
               <div className="flex flex-wrap gap-2">
                 {DRINKING_OPTIONS.map((opt) => (
                   <FilterChip
@@ -539,7 +529,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
             </div>
 
             <div className="space-y-1.5">
-              <span className="text-caption font-bold text-app-muted normal-case">Çocuk Durumu</span>
+              <span className="text-caption font-bold text-app-muted normal-case">{t('childrenStatusSectionLabel')}</span>
               <div className="flex flex-wrap gap-2">
                 {CHILDREN_OPTIONS.map((opt) => (
                   <FilterChip
@@ -555,7 +545,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
             </div>
 
             <div className="space-y-1.5">
-              <span className="text-caption font-bold text-app-muted normal-case">Çocuk İsteği</span>
+              <span className="text-caption font-bold text-app-muted normal-case">{t('familyPlansSectionLabel')}</span>
               <div className="flex flex-wrap gap-2">
                 {FAMILY_PLAN_OPTIONS.map((opt) => (
                   <FilterChip
@@ -575,43 +565,29 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
             </div>
           </div>
 
-          {/* Interests */}
+          {/* Interests — compact summary only; the full categorized catalog lives in the
+              dedicated InterestsEditorScreen so this form doesn't grow to several screens tall. */}
           <div className="space-y-2" data-section="interests">
-            <label className="text-micro font-extrabold text-app-muted uppercase">İlgi Alanları</label>
+            <label className="text-micro font-extrabold text-app-muted uppercase">{t('interestsSectionLabel')}</label>
             <p className="text-micro normal-case text-app-muted">
-              {INTEREST_MIN}–{INTEREST_MAX} seçim · {interests.length} seçili
+              {t('interestsSelectedCountTemplate').replace('{count}', String(interests.length))}
             </p>
-            <div className="space-y-3">
-              {legacyInterests.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-caption font-bold normal-case text-app-muted">Mevcut seçimlerin</p>
-                  <div className="flex flex-wrap gap-2">
-                    {legacyInterests.map((item) => (
-                      <FilterChip key={item} type="button" selected onClick={() => toggleInterest(item)}>
-                        {item}
-                      </FilterChip>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {INTEREST_CATEGORIES.map((category) => (
-                <div key={category.id} className="space-y-1.5">
-                  <p className="text-caption font-bold normal-case text-app-muted">{category.title}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {category.interests.map((item) => (
-                      <FilterChip
-                        key={item}
-                        type="button"
-                        selected={interests.includes(item)}
-                        onClick={() => toggleInterest(item)}
-                      >
-                        {item}
-                      </FilterChip>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+            {interests.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {interests.slice(0, 6).map((item) => (
+                  <Chip key={item}>{item}</Chip>
+                ))}
+                {interests.length > 6 && <Chip>+{interests.length - 6}</Chip>}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsInterestsEditorOpen(true)}
+              className="w-full flex items-center justify-between rounded-2xl border border-app bg-surface px-4 py-3.5 text-body font-bold text-app active:scale-[0.99] transition-transform"
+            >
+              <span>{t('editInterestsButton')}</span>
+              <ChevronRight className="w-5 h-5 text-app-muted" />
+            </button>
           </div>
 
           {errorMsg && (
@@ -622,7 +598,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
 
           {/* Submit Button */}
           <AppButton type="submit" variant="primary" size="lg" fullWidth loading={isLoading}>
-            Değişiklikleri Kaydet
+            {t('saveChangesButton')}
           </AppButton>
         </form>
       </div>
@@ -633,6 +609,17 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
           onConfirm={handleCropConfirm}
           onUseOriginal={handleUseOriginalPhoto}
           onCancel={handleCropCancel}
+        />
+      )}
+
+      {isInterestsEditorOpen && (
+        <InterestsEditorScreen
+          initialSelected={interests}
+          onCancel={() => setIsInterestsEditorOpen(false)}
+          onSave={(next) => {
+            setInterests(next);
+            setIsInterestsEditorOpen(false);
+          }}
         />
       )}
     </div>

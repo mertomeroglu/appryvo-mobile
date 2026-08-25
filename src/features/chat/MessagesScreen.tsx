@@ -1,180 +1,252 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { motion, type PanInfo } from 'framer-motion';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Search } from 'lucide-react';
-import { useMatchesQuery } from '../../hooks/useQueries';
-import { normalizeMediaUrl } from '../../services/media/mediaService';
+import { BadgeCheck, CheckCheck, MessageCircle, Search } from 'lucide-react';
+import { QUERY_KEYS, useInAppNotificationsQuery, useMatchesQuery } from '../../hooks/useQueries';
+import { getPhotoUrl } from '../../services/media/mediaService';
 import { socketService } from '../../services/socket/socketService';
 import { formatMessageTime } from '../../lib/formatMessageTime';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { Avatar } from '../../components/ui/Avatar';
+import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
 import { AppLogo } from '../../components/ui/AppLogo';
+import { StoryTray } from '../../components/StoryTray';
+import { buildOfficialRyvoThread, officialMessageTimestamp } from './officialRyvo';
+
+const ConfessionsScreen = lazy(() => import('../social/ConfessionsScreen').then((module) => ({
+  default: module.ConfessionsScreen,
+})));
+
+type HubMode = 'chats' | 'confessions';
+
+interface ConversationRowProps {
+  match: any;
+  online: boolean;
+  onOpen: () => void;
+  onMarkRead: () => void;
+}
+
+export const ConversationRow: React.FC<ConversationRowProps> = ({ match, online, onOpen, onMarkRead }) => {
+  const [actionOpen, setActionOpen] = useState(false);
+  const user = match.user || match;
+  const unreadCount = Number(match.unreadCount || 0);
+
+  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    setActionOpen(unreadCount > 0 && (info.offset.x < -38 || info.velocity.x < -350));
+  };
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl">
+      {unreadCount > 0 && (
+        <button
+          type="button"
+          aria-label={`${user.name} sohbetini okundu işaretle`}
+          onClick={() => {
+            onMarkRead();
+            setActionOpen(false);
+          }}
+          className="absolute inset-y-0 right-0 grid w-[78px] place-items-center rounded-r-2xl bg-emerald-500 text-white"
+        >
+          <span className="flex flex-col items-center gap-1 text-micro font-extrabold normal-case">
+            <CheckCheck className="h-5 w-5" />
+            Okundu
+          </span>
+        </button>
+      )}
+
+      <motion.button
+        type="button"
+        aria-label={`${user.name} sohbetini aç`}
+        drag={unreadCount > 0 ? 'x' : false}
+        dragConstraints={{ left: -78, right: 0 }}
+        dragElastic={0.04}
+        dragMomentum={false}
+        animate={{ x: actionOpen ? -78 : 0 }}
+        transition={{ type: 'spring', stiffness: 420, damping: 36 }}
+        onDragEnd={handleDragEnd}
+        onClick={() => {
+          if (actionOpen) setActionOpen(false);
+          else onOpen();
+        }}
+        className={`relative flex w-full items-center gap-3 rounded-2xl px-2.5 py-3 text-left transition-colors active:bg-surface-elevated ${unreadCount > 0 ? 'touch-pan-y bg-pink-500/[0.055]' : 'bg-transparent'}`}
+      >
+        <ProfileAvatarFrame
+          photoUrl={getPhotoUrl(user.photos?.[0]) || user.photoUrl}
+          name={user.name}
+          activeFrameId={user.activeFrameId}
+          size="md"
+          online={online}
+        />
+
+        <span className="min-w-0 flex-1">
+          <span className="mb-0.5 flex items-baseline justify-between gap-3">
+            <span className={`truncate text-body text-app ${unreadCount > 0 ? 'font-black' : 'font-bold'}`}>
+              {user.name}
+            </span>
+            <time className={`shrink-0 text-micro normal-case ${unreadCount > 0 ? 'font-bold text-pink-500' : 'text-app-muted'}`}>
+              {match.lastMessageTime ? formatMessageTime(match.lastMessageTime) : 'Yeni'}
+            </time>
+          </span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className={`min-w-0 flex-1 truncate text-caption normal-case ${unreadCount > 0 ? 'font-semibold text-app' : 'text-app-muted'}`}>
+              {match.lastMessage || 'Bir merhaba ile sohbeti başlat.'}
+            </span>
+            {unreadCount > 0 && (
+              <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-pink-500 px-1.5 text-micro font-black text-white">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </span>
+        </span>
+      </motion.button>
+    </div>
+  );
+};
 
 export const MessagesScreen: React.FC = () => {
   const { data: matches, isLoading } = useMatchesQuery();
+  const { data: notificationData } = useInAppNotificationsQuery();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [presenceMap, setPresenceMap] = useState<Record<string, boolean>>({});
+  const mode: HubMode = searchParams.get('tab') === 'confessions' ? 'confessions' : 'chats';
+
+  const setMode = (next: HubMode) => {
+    setSearchParams(next === 'confessions' ? { tab: 'confessions' } : {}, { replace: true });
+    setSearchQuery('');
+  };
 
   const matchItems = useMemo(() => matches || [], [matches]);
+  const officialMessages = useMemo(
+    () => buildOfficialRyvoThread(Array.isArray(notificationData?.notifications) ? notificationData.notifications : []),
+    [notificationData?.notifications]
+  );
+  const latestOfficialMessage = officialMessages[officialMessages.length - 1];
+  const officialUnread = officialMessages.filter((message) => !message.is_read).length;
 
   useEffect(() => {
-    const unsubMatch = socketService.on('match:updated', () => {
-      queryClient.invalidateQueries({ queryKey: ['matches'] });
-    });
-    return () => unsubMatch();
-  }, [queryClient]);
-
-  // Real live presence for every conversation partner (not just a static snapshot field).
-  useEffect(() => {
-    const partnerIds = matchItems
-      .map((m: any) => (m.user || m)?.id)
-      .filter(Boolean);
+    const partnerIds = matchItems.map((match: any) => (match.user || match)?.id).filter(Boolean);
     partnerIds.forEach((id: string) => socketService.queryPresence(id));
-
-    const unsub = socketService.on('user:presence', (data) => {
-      setPresenceMap((prev) => ({ ...prev, [data.targetUserId]: data.isOnline }));
+    const unsubscribe = socketService.on('user:presence', (data) => {
+      setPresenceMap((previous) => ({ ...previous, [data.targetUserId]: data.isOnline }));
     });
-    return unsub;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matchItems.length]);
+    return unsubscribe;
+  }, [matchItems]);
 
   const filteredMatches = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return matchItems;
-    return matchItems.filter((m: any) => {
-      const u = m.user || m;
-      return u.name?.toLowerCase().includes(q) || m.lastMessage?.toLowerCase().includes(q);
+    const query = searchQuery.trim().toLocaleLowerCase('tr-TR');
+    if (!query) return matchItems;
+    return matchItems.filter((match: any) => {
+      const user = match.user || match;
+      return user.name?.toLocaleLowerCase('tr-TR').includes(query)
+        || match.lastMessage?.toLocaleLowerCase('tr-TR').includes(query);
     });
   }, [matchItems, searchQuery]);
 
-  const isOnline = (u: any) => presenceMap[u?.id] ?? u?.isOnline ?? false;
+  const isOnline = (user: any) => presenceMap[user?.id] ?? user?.isOnline ?? false;
+
+  const markConversationRead = (matchId: string) => {
+    socketService.markMessagesRead(matchId);
+    queryClient.setQueryData<any[]>(QUERY_KEYS.matches, (current) => (
+      Array.isArray(current)
+        ? current.map((match) => match.id === matchId ? { ...match, unreadCount: 0, unread_count: 0 } : match)
+        : current
+    ));
+  };
 
   return (
-    <div className="flex flex-col h-full w-full bg-app text-app p-4 overflow-y-auto no-scrollbar pb-24 select-none">
-      {/* Search Header */}
-      <header className="pt-safe my-2">
-        <div className="flex items-center gap-2.5 mb-3">
-          <AppLogo variant="icon" size="sm" />
-          <h2 className="text-title text-app">Mesajlar</h2>
+    <div className="flex h-full w-full flex-col overflow-y-auto bg-app px-4 pb-24 text-app no-scrollbar select-none">
+      <header className="pt-safe mb-2 shrink-0">
+        <div className="mb-3 flex items-end justify-between pt-2">
+          <div className="flex items-center gap-2.5">
+            <AppLogo variant="icon" size="sm" />
+            <div>
+              <p className="text-micro font-extrabold uppercase tracking-[0.18em] text-pink-500">Bağlantıların</p>
+              <h1 className="text-title text-app">Mesajlar</h1>
+            </div>
+          </div>
+          {mode === 'chats' && matchItems.length > 0 && (
+            <span className="rounded-full border border-app bg-surface px-2.5 py-1 text-micro font-bold normal-case text-app-muted">
+              {matchItems.length} sohbet
+            </span>
+          )}
         </div>
-        <div className="relative w-full">
-          <Search className="absolute left-4 top-3.5 w-4 h-4 text-app-muted" />
-          <input
-            type="text"
-            placeholder="Sohbetlerde ara..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-input-app border border-app rounded-2xl pl-11 pr-4 py-2.5 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500"
-          />
+
+        <div className="grid grid-cols-2 gap-1 rounded-2xl border border-app bg-surface p-1 shadow-soft" role="tablist" aria-label="Mesajlar bölümü">
+          <button id="messages-chats-tab" type="button" role="tab" aria-selected={mode === 'chats'} aria-controls="messages-chats-panel" onClick={() => setMode('chats')} className={`rounded-xl px-4 py-2.5 text-caption font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${mode === 'chats' ? 'bg-brand-gradient text-white shadow-soft' : 'text-app-muted'}`}>Sohbetler</button>
+          <button id="messages-confessions-tab" type="button" role="tab" aria-selected={mode === 'confessions'} aria-controls="messages-confessions-panel" onClick={() => setMode('confessions')} className={`rounded-xl px-4 py-2.5 text-caption font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${mode === 'confessions' ? 'bg-brand-gradient text-white shadow-soft' : 'text-app-muted'}`}>İtiraflar</button>
         </div>
+
+        {mode === 'chats' && (
+          <label className="relative mt-3 block w-full">
+            <span className="sr-only">Sohbetlerde ara</span>
+            <Search className="absolute left-4 top-3.5 h-4 w-4 text-app-muted" />
+            <input type="search" placeholder="Sohbetlerde ara" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="w-full rounded-2xl border border-app bg-input-app py-2.5 pl-11 pr-4 text-body font-semibold text-app placeholder:text-app-muted focus:border-pink-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
+          </label>
+        )}
       </header>
 
-      {/* Online Now Row */}
-      {matchItems.some((m: any) => isOnline(m.user || m)) && !searchQuery && (
-        <div className="my-3">
-          <h4 className="text-micro text-app-muted uppercase tracking-wider mb-3">Şu An Çevrimiçi</h4>
-          <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-2">
-            {matchItems
-              .filter((m: any) => isOnline(m.user || m))
-              .map((m: any) => {
-                const u = m.user || m;
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => navigate(`/chat/${m.id}`)}
-                    className="flex flex-col items-center gap-1.5 flex-shrink-0 active:scale-95 transition-transform"
-                  >
-                    <div className="p-0.5 rounded-full bg-brand-gradient shadow-soft">
-                      <Avatar
-                        src={u.photoUrl || u.photos?.[0]?.url ? normalizeMediaUrl(u.photoUrl || u.photos?.[0]?.url) : undefined}
-                        name={u.name}
-                        size="lg"
-                        online
-                      />
-                    </div>
-                    <span className="text-caption font-bold text-app truncate max-w-[64px]">{u.name}</span>
-                  </button>
-                );
-              })}
-          </div>
-        </div>
-      )}
+      {mode === 'confessions' ? (
+        <section id="messages-confessions-panel" role="tabpanel" aria-labelledby="messages-confessions-tab">
+          <Suspense fallback={<div className="px-4 py-6"><Skeleton variant="card" className="h-36 w-full" /></div>}>
+            <ConfessionsScreen embedded />
+          </Suspense>
+        </section>
+      ) : (
+        <section id="messages-chats-panel" role="tabpanel" aria-labelledby="messages-chats-tab">
+          {!searchQuery && <StoryTray />}
 
-      {/* Conversations List */}
-      <div className="my-2 space-y-2">
-        <h4 className="text-micro text-app-muted uppercase tracking-wider mb-2">Sohbetler</h4>
-
-        {isLoading ? (
-          Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-3 py-2">
-              <Skeleton variant="avatar" />
-              <div className="flex-1 space-y-2">
-                <Skeleton variant="text" className="w-1/3" />
-                <Skeleton variant="text" className="w-2/3 h-3" />
+          {matchItems.some((match: any) => isOnline(match.user || match)) && !searchQuery && (
+            <section className="my-3">
+              <h2 className="mb-3 text-micro font-extrabold uppercase tracking-wider text-app-muted">Şu An Çevrimiçi</h2>
+              <div className="flex items-center gap-4 overflow-x-auto pb-2 no-scrollbar">
+                {matchItems.filter((match: any) => isOnline(match.user || match)).map((match: any) => {
+                  const user = match.user || match;
+                  return (
+                    <button key={match.id} type="button" onClick={() => navigate(`/chat/${match.id}`)} className="flex shrink-0 flex-col items-center gap-1.5 transition-transform active:scale-95">
+                      <ProfileAvatarFrame photoUrl={getPhotoUrl(user.photos?.[0]) || user.photoUrl} name={user.name} activeFrameId={user.activeFrameId} size="lg" online />
+                      <span className="max-w-16 truncate text-caption font-bold text-app">{user.name}</span>
+                    </button>
+                  );
+                })}
               </div>
-            </div>
-          ))
-        ) : filteredMatches.length === 0 ? (
-          <div className="my-auto py-12">
-            <EmptyState
-              icon="💬"
-              title={searchQuery ? 'Sonuç Bulunamadı' : 'Henüz Sohbet Yok'}
-              subtitle={
-                searchQuery
-                  ? 'Farklı bir isim veya kelime ile tekrar dene.'
-                  : 'Eşleştiğin kişilerle mesajlaşmaya burada başlayabilirsin.'
-              }
-              actionLabel={searchQuery ? undefined : 'Keşfet\'e Git'}
-              onAction={searchQuery ? undefined : () => navigate('/discover')}
-            />
-          </div>
-        ) : (
-          filteredMatches.map((m: any) => {
-            const u = m.user || m;
-            return (
-              <button
-                key={m.id}
-                onClick={() => navigate(`/chat/${m.id}`)}
-                className="w-full p-2.5 rounded-2xl bg-surface border border-app flex items-center gap-3 hover:bg-surface-elevated active:scale-[0.99] transition-all text-left shadow-soft"
-              >
-                <Avatar
-                  src={u.photoUrl || u.photos?.[0]?.url ? normalizeMediaUrl(u.photoUrl || u.photos?.[0]?.url) : undefined}
-                  name={u.name}
-                  size="md"
-                  online={isOnline(u)}
-                />
+            </section>
+          )}
 
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <h4 className={`text-caption truncate ${m.unreadCount > 0 ? 'font-black text-app' : 'font-bold text-app'}`}>
-                      {u.name}
-                    </h4>
-                    <span className="text-micro text-app-muted normal-case shrink-0 ml-2">
-                      {m.lastMessageTime ? formatMessageTime(m.lastMessageTime) : 'Yeni'}
-                    </span>
-                  </div>
-                  <p
-                    className={`text-micro truncate normal-case ${
-                      m.unreadCount > 0 ? 'text-app font-semibold' : 'text-app-muted'
-                    }`}
-                  >
-                    {m.lastMessage || 'Sohbete başla...'}
-                  </p>
-                </div>
-
-                {m.unreadCount > 0 && (
-                  <span className="w-5 h-5 rounded-full bg-pink-500 text-white text-micro font-extrabold flex items-center justify-center shrink-0">
-                    {m.unreadCount > 9 ? '9+' : m.unreadCount}
+          <section className="my-2 space-y-1" aria-label="Sohbet listesi">
+            {latestOfficialMessage && !searchQuery && (
+              <button type="button" onClick={() => navigate('/messages/ryvo')} className={`flex w-full items-center gap-3 rounded-2xl px-2.5 py-3 text-left transition-colors active:bg-surface-elevated ${officialUnread ? 'bg-pink-500/[0.065]' : 'bg-transparent'}`}>
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white"><AppLogo variant="icon" size="md" /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="mb-0.5 flex items-baseline justify-between gap-3">
+                    <span className="flex min-w-0 items-center gap-1.5"><span className="truncate text-body font-black text-app">Ryvo</span><BadgeCheck className="h-4 w-4 shrink-0 fill-pink-500 text-white" /><span className="rounded-full bg-app-secondary px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-app-muted">Resmi</span></span>
+                    <time className={`shrink-0 text-micro normal-case ${officialUnread ? 'font-bold text-pink-500' : 'text-app-muted'}`}>{formatMessageTime(officialMessageTimestamp(latestOfficialMessage))}</time>
                   </span>
-                )}
+                  <span className="flex items-center gap-2"><span className={`min-w-0 flex-1 truncate text-caption normal-case ${officialUnread ? 'font-semibold text-app' : 'text-app-muted'}`}>{latestOfficialMessage.body}</span>{officialUnread > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-pink-500 px-1.5 text-micro font-black text-white">{officialUnread > 99 ? '99+' : officialUnread}</span>}</span>
+                </span>
               </button>
-            );
-          })
-        )}
-      </div>
+            )}
+
+            {isLoading ? (
+              Array.from({ length: 4 }).map((_, index) => <div key={index} className="flex items-center gap-3 rounded-2xl px-2.5 py-3"><Skeleton variant="avatar" /><div className="flex-1 space-y-2"><Skeleton variant="text" className="w-1/3" /><Skeleton variant="text" className="h-3 w-2/3" /></div></div>)
+            ) : filteredMatches.length === 0 ? (
+              <div className="px-2 py-8"><EmptyState className="py-8" icon={<MessageCircle className="h-8 w-8" />} title={searchQuery ? 'Sonuç Bulunamadı' : 'Henüz Sohbet Yok'} subtitle={searchQuery ? 'Farklı bir isim veya kelime ile tekrar dene.' : 'Yeni bir eşleşme olduğunda sohbetlerin burada düzenli şekilde görünür.'} actionLabel={searchQuery ? undefined : "Keşfet'e Git"} onAction={searchQuery ? undefined : () => navigate('/discover')} /></div>
+            ) : (
+              filteredMatches.map((match: any) => {
+                const user = match.user || match;
+                return <ConversationRow key={match.id} match={match} online={isOnline(user)} onOpen={() => navigate(`/chat/${match.id}`)} onMarkRead={() => markConversationRead(match.id)} />;
+              })
+            )}
+          </section>
+
+          {!searchQuery && filteredMatches.some((match: any) => Number(match.unreadCount || 0) > 0) && (
+            <p className="mt-3 text-center text-micro normal-case text-app-muted">Okunmamış bir sohbeti sola kaydırarak okundu işaretleyebilirsin.</p>
+          )}
+        </section>
+      )}
     </div>
   );
 };

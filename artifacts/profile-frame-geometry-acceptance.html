@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ryvo Profile Frame Geometry Acceptance</title>
+  <style>
+    *{box-sizing:border-box} body{margin:0;background:#0d0d14;color:#f7f7fb;font:13px/1.35 system-ui,sans-serif}
+    main{max-width:430px;margin:auto;padding:18px 14px 40px} h1{font-size:22px;margin:0 0 4px} h2{font-size:16px;margin:24px 0 10px}
+    p{margin:0;color:#a9a9b8}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .card{min-width:0;border:1px solid #30303d;border-radius:18px;background:#191922;padding:12px;text-align:center;overflow:visible}
+    .label{font-weight:800;margin-top:8px}.meta{font-size:10px;color:#aaaabc}.stage{height:150px;display:flex;align-items:center;justify-content:center;overflow:visible}
+    .avatar{position:relative;display:inline-flex;flex:none;isolation:isolate;overflow:visible}
+    .photo{position:absolute;inset:0;z-index:10;border-radius:50%;overflow:hidden;background:#fee1d5}
+    .photo svg{display:block;width:100%;height:100%}.standard{position:absolute;inset:-3px;border-radius:50%;background:linear-gradient(45deg,#ff4d8d,#8b5cf6,#25d9d0)}
+    .frame{position:absolute;z-index:20;left:50%;top:50%;height:auto;max-width:none;pointer-events:none}
+    .flag{position:absolute;z-index:30;width:22%;height:22%;min-width:8px;min-height:8px;transform:translate(-50%,-50%);border:2px solid #191922;border-radius:50%;background:#e30a17;box-shadow:0 2px 6px #0008}
+    .flag:after{content:'★';display:grid;place-items:center;color:#fff;font-size:60%;width:100%;height:100%}
+    .matrix{display:grid;grid-template-columns:1fr;gap:9px}.matrix-card{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:16px 18px 34px}
+    .sizes{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:24px 12px;width:100%;margin-top:22px}.sample{flex:0 0 29%;display:flex;flex-direction:column;align-items:center;text-align:center;font-size:9px;color:#aaaabc}
+    .sample.s96,.sample.s128,.sample.s160{flex-basis:100%;margin-top:18px}
+    .identity{display:flex;align-items:center;gap:16px;text-align:left}.verified{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:#25d9d0;color:#071414;font-weight:900}
+    .pass{color:#66e3aa}.fail{color:#ff708f}
+  </style>
+</head>
+<body><main>
+  <h1>Ryvo Frame Geometry</h1>
+  <p>Gerçek 1024px circle assetleri · legacy %175 vs ölçülmüş normalize renderer</p>
+
+  <h2>Önce / Sonra</h2>
+  <div id="comparison" class="grid"></div>
+
+  <h2>Tüm assetler · 32 / 44 / 64 / 96 / 128 / 160px</h2>
+  <div id="matrix" class="matrix"></div>
+
+  <h2>Katalog önizleme = Takılı profil</h2>
+  <div id="parity" class="grid"></div>
+
+  <script>
+    const frames = {
+      standard:{label:'Standart',scale:1,x:0,y:0,flag:[.92,.72]},
+      butterfly:{label:'Kelebek',scale:1.42,x:0,y:.01,flag:[1.12,.7]},
+      crown:{label:'Kraliyet',scale:1.44,x:0,y:-.024,flag:[1.1,.72]},
+      flower:{label:'Çiçek',scale:1.26,x:-.008,y:.016,flag:[1.1,.58]},
+      hearts:{label:'Kalpler',scale:1.38,x:0,y:-.024,flag:[1.08,.78]},
+      ocean:{label:'Okyanus',scale:1.61,x:-.006,y:.06,flag:[1.12,.48]},
+      sakura:{label:'Sakura',scale:1.48,x:0,y:.032,flag:[1.1,.68]},
+    };
+    const face=`<svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="b" x2="1" y2="1"><stop stop-color="#ffc9ba"/><stop offset="1" stop-color="#f6a78f"/></linearGradient></defs><rect width="100" height="100" fill="url(#b)"/><path d="M14 45C18 12 79 2 89 43L83 18 63 5 29 10z" fill="#35251f"/><ellipse cx="50" cy="53" rx="31" ry="38" fill="#ffd9c7"/><circle cx="38" cy="50" r="3" fill="#25222a"/><circle cx="64" cy="50" r="3" fill="#25222a"/><path d="M39 70q12 9 24 0" fill="none" stroke="#b85b68" stroke-width="3" stroke-linecap="round"/><path d="M22 100q28-35 56 0" fill="#536dfe"/></svg>`;
+    function avatar(id,size,legacy=false,flag=false){
+      const g=frames[id]; const scale=legacy&&id!=='standard'?1.75:g.scale; const x=legacy?0:g.x; const y=legacy?0:g.y;
+      const frame=`../../web/assets/frames/circle/frame_circle_${id}_01.png`;
+      const decoration=id==='standard'?'':`<img class="frame" src="${frame}" style="width:${scale*100}%;transform:translate(calc(-50% + ${(x/scale)*100}%),calc(-50% + ${(y/scale)*100}%))">`;
+      return `<div class="avatar" style="width:${size}px;height:${size}px"><div class="standard"></div><div class="photo">${face}</div>${decoration}${flag?`<span class="flag" style="left:${g.flag[0]*100}%;top:${g.flag[1]*100}%"></span>`:''}</div>`;
+    }
+    const hard=['standard','butterfly','crown','flower','ocean','sakura'];
+    comparison.innerHTML=hard.map(id=>`<div class="card"><div class="stage">${avatar(id,80,true)}</div><div class="label fail">${frames[id].label} · Önce</div><div class="meta">sabit 1.75× · açıklık gevşek</div></div><div class="card"><div class="stage">${avatar(id,80,false,true)}</div><div class="label pass">${frames[id].label} · Sonra</div><div class="meta">${frames[id].scale.toFixed(2)}× · normalize merkez</div></div>`).join('');
+    const sizes=[32,44,64,96,128,160];
+    matrix.innerHTML=Object.keys(frames).map(id=>`<div class="card matrix-card"><div><div class="label">${frames[id].label}</div><div class="meta">${frames[id].scale.toFixed(2)}×</div></div><div class="sizes">${sizes.map(s=>`<div class="sample s${s}">${avatar(id,s,false,s>=64)}<div>${s}</div></div>`).join('')}</div></div>`).join('');
+    parity.innerHTML=['standard','butterfly','crown','flower','ocean','sakura'].map(id=>`<div class="card"><div class="stage">${avatar(id,80,false,true)}</div><div class="label">Katalog · ${frames[id].label}</div></div><div class="card"><div class="stage"><div class="identity">${avatar(id,112,false,true)}<div><b>Ryvo <span class="verified">✓</span></b><div class="meta">Takılı profil</div></div></div></div><div class="label pass">Aynı geometri</div></div>`).join('');
+  </script>
+</main></body></html>

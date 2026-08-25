@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Appryvo</string>
+	<string>Ryvo</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>Ryvo</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -37,9 +37,6 @@
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
@@ -55,6 +52,20 @@
 	<string>Yakınınızdaki profilleri görüntülemek ve haritada konumunuzu göstermek için konum izni gereklidir.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Sesli mesajlar ve sesli aramalar gerçekleştirmek için mikrofon erişimi gereklidir.</string>
+
+	<!-- CONFIG REQUIRED for production: Google's own published TEST AdMob App ID
+	     (ca-app-pub-3940256099942544~1458002511) -- see AndroidManifest.xml for the matching
+	     Android value and mobile/src/native/admob.ts for the TEST ad unit IDs. Replace both
+	     platforms' IDs together before any release build. -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
 
 	<!-- Custom URL Scheme for Deep Links -->
 	<key>CFBundleURLTypes</key>

@@ -1,23 +1,40 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Capacitor } from '@capacitor/core';
-import { Camera as CameraIcon, MapPin, Plus, Ruler, User, X } from 'lucide-react';
+import { AtSign, Camera as CameraIcon, LockKeyhole, Plus, Ruler, Sparkles, User, X } from 'lucide-react';
 import { apiClient } from '../services/api/apiClient';
 import { mediaService, normalizeMediaUrl, getPhotoUrl } from '../services/media/mediaService';
 import { nativeCamera } from '../native/camera';
 import { useAuthStore } from '../stores/useAuthStore';
 import { toast } from '../stores/useToastStore';
 import { AppButton } from './ui/AppButton';
+import { AppLogo } from './ui/AppLogo';
 import { IconButton } from './ui/IconButton';
 import { FilterChip } from './ui/Chip';
 import { PhotoCropScreen } from './ui/PhotoCropScreen';
+import { QUERY_KEYS } from '../hooks/useQueries';
 import { LanguageSelector } from './LanguageSelector';
+import { ZodiacIcon, ZODIAC_ACCENT_CLASSES, type ZodiacSign } from './ui/ZodiacIcon';
 import {
-  RELATIONSHIP_GOAL_LABELS,
-  SMOKING_LABELS,
-  DRINKING_LABELS,
-  CHILDREN_STATUS_LABELS,
-  FAMILY_PLANS_LABELS,
+  getRelationshipGoalLabel,
+  getSmokingLabel,
+  getDrinkingLabel,
+  getChildrenStatusLabel,
+  getFamilyPlansLabel,
+  getZodiacLabel,
 } from '../lib/profileLabels';
+import { ALL_INTERESTS, INTEREST_CATEGORIES, INTEREST_MAX, INTEREST_MIN } from '../lib/interests';
+import { normalizeLanguageNames } from '../lib/languages';
+import { useAppTranslation } from '../i18n/appLocale';
+
+// Enum key order only -- the display TEXT is resolved per-locale at render time via the
+// getXLabel() functions above, never read as a fixed object here.
+const RELATIONSHIP_GOAL_KEYS = ['LONG_TERM', 'SHORT_TERM', 'FRIENDSHIP', 'OPEN_TO_EXPLORING', 'NOT_SURE'];
+const SMOKING_KEYS = ['NEVER', 'SOMETIMES', 'SOCIALLY', 'REGULARLY'];
+const DRINKING_KEYS = ['NEVER', 'SOMETIMES', 'SOCIALLY', 'REGULARLY'];
+const CHILDREN_KEYS = ['NO_CHILDREN', 'HAS_CHILDREN'];
+const FAMILY_PLAN_KEYS = ['WANTS_CHILDREN', 'DOES_NOT_WANT_CHILDREN', 'OPEN_TO_CHILDREN', 'NOT_SURE'];
+const ZODIAC_KEYS = ['ARIES', 'TAURUS', 'GEMINI', 'CANCER', 'LEO', 'VIRGO', 'LIBRA', 'SCORPIO', 'SAGITTARIUS', 'CAPRICORN', 'AQUARIUS', 'PISCES'];
 
 interface EditProfileModalProps {
   isOpen: boolean;
@@ -31,17 +48,13 @@ const SECTION_ANCHORS: Record<string, string> = {
   photos: 'photos',
   bio: 'bio',
   interests: 'interests',
-  languages: 'lifestyle',
-  lifestyle: 'lifestyle',
+  languages: 'languages',
+  smokingStatus: 'smokingStatus',
+  drinkingStatus: 'drinkingStatus',
 };
 
-const RELATIONSHIP_GOALS = Object.entries(RELATIONSHIP_GOAL_LABELS).map(([value, label]) => ({ value, label }));
-const SMOKING_OPTIONS = Object.entries(SMOKING_LABELS).map(([value, label]) => ({ value, label }));
-const DRINKING_OPTIONS = Object.entries(DRINKING_LABELS).map(([value, label]) => ({ value, label }));
-const CHILDREN_OPTIONS = Object.entries(CHILDREN_STATUS_LABELS).map(([value, label]) => ({ value, label }));
-const FAMILY_PLAN_OPTIONS = Object.entries(FAMILY_PLANS_LABELS).map(([value, label]) => ({ value, label }));
-
 const MAX_PHOTOS = 6;
+const MIN_PHOTOS = 2;
 
 interface PhotoSlot {
   id: string;
@@ -62,21 +75,33 @@ function normalizeInitialPhotos(photos: any[] | undefined): PhotoSlot[] {
 
 export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose, focusSection }) => {
   const user = useAuthStore((s) => s.user);
+  const { locale } = useAppTranslation();
+  const RELATIONSHIP_GOALS = RELATIONSHIP_GOAL_KEYS.map((value) => ({ value, label: getRelationshipGoalLabel(value, locale) || value }));
+  const SMOKING_OPTIONS = SMOKING_KEYS.map((value) => ({ value, label: getSmokingLabel(value, locale) || value }));
+  const DRINKING_OPTIONS = DRINKING_KEYS.map((value) => ({ value, label: getDrinkingLabel(value, locale) || value }));
+  const CHILDREN_OPTIONS = CHILDREN_KEYS.map((value) => ({ value, label: getChildrenStatusLabel(value, locale) || value }));
+  const FAMILY_PLAN_OPTIONS = FAMILY_PLAN_KEYS.map((value) => ({ value, label: getFamilyPlansLabel(value, locale) || value }));
+  const ZODIAC_OPTIONS = ZODIAC_KEYS.map((value) => ({ value, label: getZodiacLabel(value, locale) || value }));
+  const queryClient = useQueryClient();
   const fetchMe = useAuthStore((s) => s.fetchMe);
+  const setUser = useAuthStore((s) => s.setUser);
 
   const [photos, setPhotos] = useState<PhotoSlot[]>(() => normalizeInitialPhotos(user?.photos));
-  const [name, setName] = useState(user?.name || '');
-  const [city, setCity] = useState(user?.city || '');
   const [bio, setBio] = useState(user?.bio || '');
-  const [relationshipGoal, setRelationshipGoal] = useState(user?.relationshipGoal || '');
+  const [relationshipGoals, setRelationshipGoals] = useState<string[]>(() => {
+    if (Array.isArray(user?.relationshipGoals) && user.relationshipGoals.length > 0) {
+      return user.relationshipGoals.slice(0, 2);
+    }
+    return user?.relationshipGoal ? [user.relationshipGoal] : [];
+  });
   const [interests, setInterests] = useState<string[]>(user?.interests || []);
-  const [newInterest, setNewInterest] = useState('');
   const [heightCm, setHeightCm] = useState(user?.heightCm ? String(user.heightCm) : '');
+  const [zodiac, setZodiac] = useState(user?.zodiac || '');
   const [smokingStatus, setSmokingStatus] = useState(user?.smokingStatus || '');
   const [drinkingStatus, setDrinkingStatus] = useState(user?.drinkingStatus || '');
   const [childrenStatus, setChildrenStatus] = useState(user?.childrenStatus || '');
   const [familyPlans, setFamilyPlans] = useState(user?.familyPlans || '');
-  const [languages, setLanguages] = useState<string[]>(user?.languages || []);
+  const [languages, setLanguages] = useState<string[]>(() => normalizeLanguageNames(user?.languages || []));
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [cropQueue, setCropQueue] = useState<Blob[]>([]);
@@ -84,6 +109,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const isSavingRef = useRef(false);
+  const legacyInterests = interests.filter((item) => !ALL_INTERESTS.includes(item));
 
   useEffect(() => {
     if (!isOpen || !focusSection) return;
@@ -96,18 +123,32 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     return () => cancelAnimationFrame(raf);
   }, [isOpen, focusSection]);
 
+  useEffect(() => () => {
+    if (cropSource) URL.revokeObjectURL(cropSource);
+  }, [cropSource]);
+
   if (!isOpen) return null;
 
-  const handleAddInterest = () => {
-    const value = newInterest.trim();
-    if (value && !interests.includes(value)) {
-      setInterests([...interests, value]);
-    }
-    setNewInterest('');
+  const toggleInterest = (item: string) => {
+    setInterests((current) => {
+      if (current.includes(item)) return current.filter((interest) => interest !== item);
+      if (current.length >= INTEREST_MAX) {
+        toast.show(`En fazla ${INTEREST_MAX} ilgi alanı seçebilirsin.`, 'neutral');
+        return current;
+      }
+      return [...current, item];
+    });
   };
 
-  const handleRemoveInterest = (item: string) => {
-    setInterests(interests.filter((i) => i !== item));
+  const toggleRelationshipGoal = (value: string) => {
+    setRelationshipGoals((current) => {
+      if (current.includes(value)) return current.filter((goal) => goal !== value);
+      if (current.length >= 2) {
+        toast.show('En fazla 2 ilişki hedefi seçebilirsin.', 'neutral');
+        return current;
+      }
+      return [...current, value];
+    });
   };
 
   const uploadPhoto = async (file: File | Blob) => {
@@ -170,39 +211,119 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     advanceCropQueue(cropQueue.slice(1));
   };
 
+  const handleUseOriginalPhoto = () => {
+    const originalBlob = cropQueue[0];
+    if (!originalBlob) return;
+    uploadPhoto(originalBlob);
+    advanceCropQueue(cropQueue.slice(1));
+  };
+
   const handleCropCancel = () => {
     advanceCropQueue(cropQueue.slice(1));
   };
 
   const removePhoto = (id: string) => {
+    if (photos.length <= MIN_PHOTOS) {
+      toast.error('Profilinde en az 2 fotoğraf kalmalı.');
+      return;
+    }
     setPhotos((prev) => prev.filter((p) => p.id !== id));
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Belt-and-suspenders against double taps: guards the instant between a fast second tap and
+    // React re-rendering AppButton's disabled state from isLoading.
+    if (isSavingRef.current) return;
+    const tStart = performance.now();
     setErrorMsg('');
+    if (photos.some((photo) => photo.uploading)) {
+      setErrorMsg('Fotoğrafların yüklenmesi tamamlanana kadar bekle.');
+      return;
+    }
+    if (photos.filter((photo) => photo.url).length < MIN_PHOTOS) {
+      setErrorMsg('Profili kullanabilmek için en az 2 fotoğraf gerekli.');
+      return;
+    }
+    if (relationshipGoals.length < 1 || relationshipGoals.length > 2) {
+      setErrorMsg('En az 1, en fazla 2 ilişki hedefi seçmelisin.');
+      return;
+    }
+    if (interests.length < INTEREST_MIN || interests.length > INTEREST_MAX) {
+      setErrorMsg(`${INTEREST_MIN}–${INTEREST_MAX} ilgi alanı seçmelisin.`);
+      return;
+    }
+    const tValidated = performance.now();
+    isSavingRef.current = true;
     setIsLoading(true);
     try {
       const parsedHeight = heightCm.trim() ? Number.parseInt(heightCm, 10) : undefined;
-      await apiClient.put('/api/profile', {
-        name,
+      if (parsedHeight !== undefined && (!Number.isFinite(parsedHeight) || parsedHeight < 100 || parsedHeight > 210)) {
+        setErrorMsg('Geçerli bir boy değeri gir.');
+        setIsLoading(false);
+        return;
+      }
+      const photoUrls = photos.filter((photo) => photo.url).map((photo) => photo.url);
+      const initialPhotoUrls = normalizeInitialPhotos(user?.photos).map((photo) => photo.url);
+      const photosChanged =
+        photoUrls.length !== initialPhotoUrls.length || photoUrls.some((url, index) => url !== initialPhotoUrls[index]);
+      const payload: Record<string, unknown> = {
         bio,
-        city,
         interests,
-        relationshipGoal: relationshipGoal || undefined,
+        relationshipGoal: relationshipGoals[0],
+        relationshipGoals,
         heightCm: Number.isFinite(parsedHeight) ? parsedHeight : undefined,
+        zodiac: zodiac || null,
         smokingStatus: smokingStatus || undefined,
         drinkingStatus: drinkingStatus || undefined,
         childrenStatus: childrenStatus || undefined,
         familyPlans: familyPlans || undefined,
         languages,
-        photos: photos.filter((p) => p.url).map((p) => p.url),
-      }, { timeoutMs: 45000 }); // server re-runs face verification when the photo set changed
-      await fetchMe();
+        ...(photosChanged ? { photos: photoUrls } : {}),
+      };
+
+      // Unchanged photos must not be resent: the server treats a `photos` array as a request to
+      // run face checks and rewrite every user_photos row. Most saves now stay on the fast path.
+      const tRequestStart = performance.now();
+      const saveResponse = await apiClient.put('/api/profile', payload, { timeoutMs: photosChanged ? 45000 : 15000 });
+      const tRequestEnd = performance.now();
+      if (user) {
+        const canonicalPhotos = Array.isArray(saveResponse?.data?.photos)
+          ? saveResponse.data.photos
+          : photoUrls;
+        const optimisticUser = {
+          ...user,
+          bio,
+          interests,
+          relationshipGoal: relationshipGoals[0],
+          relationshipGoals,
+          heightCm: Number.isFinite(parsedHeight) ? parsedHeight : undefined,
+          zodiac: zodiac || null,
+          smokingStatus: smokingStatus || undefined,
+          drinkingStatus: drinkingStatus || undefined,
+          childrenStatus: childrenStatus || undefined,
+          familyPlans: familyPlans || undefined,
+          languages,
+          ...(photosChanged ? { photos: canonicalPhotos } : {}),
+        };
+        setUser(optimisticUser);
+        queryClient.setQueryData(QUERY_KEYS.me, optimisticUser);
+      }
       onClose();
+      toast.success('Değişiklikler kaydedildi.');
+      // Timings only -- never the payload itself. UI has already closed/succeeded by this point;
+      // this refetch reconciles cache in the background and never blocks the save from finishing.
+      console.info('[PROFILE SAVE]', JSON.stringify({
+        validationMs: Math.round(tValidated - tStart),
+        requestMs: Math.round(tRequestEnd - tRequestStart),
+        totalMs: Math.round(performance.now() - tStart),
+        photosChanged,
+      }));
+      void fetchMe().catch(() => {});
     } catch (err: any) {
       setErrorMsg(err.message || 'Profil kaydedilemedi.');
     } finally {
+      isSavingRef.current = false;
       setIsLoading(false);
     }
   };
@@ -211,9 +332,12 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/80 backdrop-blur-md p-0 sm:p-4">
       <div className="w-full max-w-md bg-surface border border-app rounded-none sm:rounded-3xl h-[100dvh] sm:h-auto sm:max-h-[85vh] overflow-hidden shadow-floating flex flex-col text-app select-none">
         {/* Header */}
-        <header className="pt-safe px-5 py-4 border-b border-app bg-surface flex items-center justify-between z-sticky">
-          <h3 className="text-heading text-app">Profili Düzenle</h3>
-          <IconButton aria-label="Kapat" variant="ghost" size="sm" onClick={onClose}>
+        <header className="px-5 pb-4 pt-[calc(var(--safe-top)+16px)] sm:pt-4 border-b border-app bg-surface flex items-center justify-between gap-3 z-sticky shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <AppLogo size="sm" variant="icon" className="shrink-0" />
+            <h3 className="text-heading text-app truncate">Profili Düzenle</h3>
+          </div>
+          <IconButton aria-label="Kapat" variant="ghost" size="md" onClick={onClose} className="shrink-0">
             <X className="w-5 h-5" />
           </IconButton>
         </header>
@@ -277,25 +401,35 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
           {/* Basic Info */}
           <div className="space-y-3">
             <label className="text-micro font-extrabold text-app-muted uppercase">Temel Bilgiler</label>
-            <div className="relative">
-              <User className="absolute left-3.5 top-3.5 w-4 h-4 text-app-muted" />
-              <input
-                type="text"
-                placeholder="İsmin"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full bg-input-app border border-app rounded-2xl pl-10 pr-4 py-2.5 text-body font-semibold text-app focus:outline-none focus:border-pink-500"
-              />
+            <div className="space-y-1.5">
+              <div className="relative">
+                <User className="absolute left-3.5 top-3.5 w-4 h-4 text-app-muted" />
+                <input
+                  type="text"
+                  aria-label="Ad"
+                  value={user?.name || ''}
+                  readOnly
+                  aria-readonly="true"
+                  className="w-full bg-input-app border border-app rounded-2xl pl-10 pr-10 py-2.5 text-body font-semibold text-app-muted cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/40"
+                />
+                <LockKeyhole className="absolute right-3.5 top-3.5 w-4 h-4 text-app-muted/70" aria-hidden="true" />
+              </div>
+              <p className="px-1 text-micro normal-case text-app-muted">Ad değiştirilemez</p>
             </div>
-            <div className="relative">
-              <MapPin className="absolute left-3.5 top-3.5 w-4 h-4 text-app-muted" />
-              <input
-                type="text"
-                placeholder="Şehir"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                className="w-full bg-input-app border border-app rounded-2xl pl-10 pr-4 py-2.5 text-body font-semibold text-app focus:outline-none focus:border-pink-500"
-              />
+            <div className="space-y-1.5">
+              <div className="relative">
+                <AtSign className="absolute left-3.5 top-3.5 w-4 h-4 text-app-muted" />
+                <input
+                  type="text"
+                  aria-label="Kullanıcı adı"
+                  value={user?.username || ''}
+                  readOnly
+                  aria-readonly="true"
+                  className="w-full bg-input-app border border-app rounded-2xl pl-10 pr-10 py-2.5 text-body font-semibold text-app-muted cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/40"
+                />
+                <LockKeyhole className="absolute right-3.5 top-3.5 w-4 h-4 text-app-muted/70" aria-hidden="true" />
+              </div>
+              <p className="px-1 text-micro normal-case text-app-muted">Kullanıcı adı değiştirilemez</p>
             </div>
           </div>
 
@@ -307,20 +441,21 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
               placeholder="Kendini tanıtan kısa bir biyografi yaz..."
               value={bio}
               onChange={(e) => setBio(e.target.value)}
-              className="w-full bg-input-app border border-app rounded-2xl p-3 text-body font-semibold text-app focus:outline-none focus:border-pink-500"
+              className="w-full bg-input-app border border-app rounded-2xl p-3 text-body font-semibold text-app focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
             />
           </div>
 
           {/* Relationship goal */}
           <div className="space-y-2">
             <label className="text-micro font-extrabold text-app-muted uppercase">Aradığın</label>
+            <p className="text-micro normal-case text-app-muted">En az 1, en fazla 2 seçim yapabilirsin.</p>
             <div className="flex flex-wrap gap-2">
               {RELATIONSHIP_GOALS.map((g) => (
                 <FilterChip
                   key={g.value}
                   type="button"
-                  selected={relationshipGoal === g.value}
-                  onClick={() => setRelationshipGoal(relationshipGoal === g.value ? '' : g.value)}
+                  selected={relationshipGoals.includes(g.value)}
+                  onClick={() => toggleRelationshipGoal(g.value)}
                 >
                   {g.label}
                 </FilterChip>
@@ -337,16 +472,41 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
               <input
                 type="number"
                 inputMode="numeric"
-                min={120}
-                max={230}
                 placeholder="Boy (cm)"
                 value={heightCm}
                 onChange={(e) => setHeightCm(e.target.value)}
-                className="w-full bg-input-app border border-app rounded-2xl pl-10 pr-4 py-2.5 text-body font-semibold text-app focus:outline-none focus:border-pink-500"
+                className="w-full bg-input-app border border-app rounded-2xl pl-10 pr-4 py-2.5 text-body font-semibold text-app focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
               />
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-section="zodiac">
+              <span className="flex items-center gap-1.5 text-caption font-bold text-app-muted normal-case">
+                <Sparkles className="h-3.5 w-3.5 text-purple-400" aria-hidden="true" />
+                Burç
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {ZODIAC_OPTIONS.map((opt) => {
+                  const selected = zodiac === opt.value;
+                  return (
+                    <FilterChip
+                      key={opt.value}
+                      type="button"
+                      selected={selected}
+                      onClick={() => setZodiac(selected ? '' : opt.value)}
+                      className="inline-flex items-center gap-1.5"
+                    >
+                      <ZodiacIcon
+                        sign={opt.value}
+                        className={selected ? undefined : ZODIAC_ACCENT_CLASSES[opt.value as ZodiacSign]}
+                      />
+                      {opt.label}
+                    </FilterChip>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-1.5" data-section="smokingStatus">
               <span className="text-caption font-bold text-app-muted normal-case">Sigara</span>
               <div className="flex flex-wrap gap-2">
                 {SMOKING_OPTIONS.map((opt) => (
@@ -362,7 +522,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
               </div>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-section="drinkingStatus">
               <span className="text-caption font-bold text-app-muted normal-case">Alkol</span>
               <div className="flex flex-wrap gap-2">
                 {DRINKING_OPTIONS.map((opt) => (
@@ -410,42 +570,46 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
               </div>
             </div>
 
-            <LanguageSelector selected={languages} onChange={setLanguages} />
+            <div data-section="languages">
+              <LanguageSelector selected={languages} onChange={setLanguages} />
+            </div>
           </div>
 
           {/* Interests */}
           <div className="space-y-2" data-section="interests">
             <label className="text-micro font-extrabold text-app-muted uppercase">İlgi Alanları</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Yeni ilgi alanı..."
-                value={newInterest}
-                onChange={(e) => setNewInterest(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddInterest();
-                  }
-                }}
-                className="flex-1 bg-input-app border border-app rounded-xl px-3 py-2 text-body font-semibold text-app focus:outline-none focus:border-pink-500"
-              />
-              <AppButton type="button" variant="secondary" size="sm" onClick={handleAddInterest}>
-                Ekle
-              </AppButton>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {interests.map((item, idx) => (
-                <span
-                  key={idx}
-                  className="text-caption px-3 py-1 rounded-full bg-surface-elevated border border-app text-app font-medium flex items-center gap-1.5"
-                >
-                  {item}
-                  <button type="button" onClick={() => handleRemoveInterest(item)} className="text-app-muted hover:text-red-500">
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
+            <p className="text-micro normal-case text-app-muted">
+              {INTEREST_MIN}–{INTEREST_MAX} seçim · {interests.length} seçili
+            </p>
+            <div className="space-y-3">
+              {legacyInterests.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-caption font-bold normal-case text-app-muted">Mevcut seçimlerin</p>
+                  <div className="flex flex-wrap gap-2">
+                    {legacyInterests.map((item) => (
+                      <FilterChip key={item} type="button" selected onClick={() => toggleInterest(item)}>
+                        {item}
+                      </FilterChip>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {INTEREST_CATEGORIES.map((category) => (
+                <div key={category.id} className="space-y-1.5">
+                  <p className="text-caption font-bold normal-case text-app-muted">{category.title}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {category.interests.map((item) => (
+                      <FilterChip
+                        key={item}
+                        type="button"
+                        selected={interests.includes(item)}
+                        onClick={() => toggleInterest(item)}
+                      >
+                        {item}
+                      </FilterChip>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           </div>
@@ -464,7 +628,12 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       </div>
 
       {cropSource && (
-        <PhotoCropScreen imageSrc={cropSource} onConfirm={handleCropConfirm} onCancel={handleCropCancel} />
+        <PhotoCropScreen
+          imageSrc={cropSource}
+          onConfirm={handleCropConfirm}
+          onUseOriginal={handleUseOriginalPhoto}
+          onCancel={handleCropCancel}
+        />
       )}
     </div>
   );

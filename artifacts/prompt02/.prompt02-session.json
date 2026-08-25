@@ -1,0 +1,32 @@
+﻿{
+    "createdAt":  "2026-08-24T09:43:41.853Z",
+    "a":  {
+              "label":  "Ryvo QA A",
+              "email":  "qa.p02.a.mt71tgtxabf5@appryvo.online",
+              "username":  "qa_p02_a_mt71tgtxabf5",
+              "password":  "P02!B_YVEZUJ_EAqQHU7VGq9ef7Za7",
+              "id":  "b3165d9b-b29d-454d-ad0d-14d528669e76",
+              "accessToken":  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiJiMzE2NWQ5Yi1iMjlkLTQ1NGQtYWQwZC0xNGQ1Mjg2NjllNzYiLCJlbWFpbCI6InFhLnAwMi5hLm10NzF0Z3R4YWJmNUBhcHByeXZvLm9ubGluZSIsInJvbGUiOiJVU0VSIiwiaWF0IjoxNzg3NTY0NjIyLCJleHAiOjE3ODc1NjU1MjIsImp0aSI6ImI4ZmJmZGNmLWJlNmUtNDI1OS1iMTM3LTAyMjRlNjZiNTE3MCJ9.OFajSqUSFFZvX3TXRwtkjYW0Wo1iV6-mF9uza3AqBco",
+              "refreshToken":  "645e720fb19d5e2f41761541e82abdfb6dd8c075378ef87fb71cf4e8c63cce1e67f61cd57375a4fb"
+          },
+    "b":  {
+              "label":  "Ryvo QA B",
+              "email":  "qa.p02.b.mt71tgtxabf5@appryvo.online",
+              "username":  "qa_p02_b_mt71tgtxabf5",
+              "password":  "P02!B_YVEZUJ_EAqQHU7VGq9ef7Za7",
+              "id":  "4357d1a2-2667-4f1f-bb87-60b5c0342966",
+              "accessToken":  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiI0MzU3ZDFhMi0yNjY3LTRmMWYtYmI4Ny02MGI1YzAzNDI5NjYiLCJlbWFpbCI6InFhLnAwMi5iLm10NzF0Z3R4YWJmNUBhcHByeXZvLm9ubGluZSIsInJvbGUiOiJVU0VSIiwiaWF0IjoxNzg3NTY0NjI0LCJleHAiOjE3ODc1NjU1MjQsImp0aSI6IjdmNDBiMmNkLTVlNTYtNDgzMC04NjM3LWM5NDVlNjZhNDE1OSJ9.APdnVB_3GZGmljkMgwYFHb9ZtoDqb4g1KS53m8nMlw4",
+              "refreshToken":  "fa4adc92147f90e7324551c17b835c1a1e5b5a7cec95e98b24741635a77acb1b6b4810014bd63c8a"
+          },
+    "setup":  {
+                  "profilePhotosA":  2,
+                  "profilePhotosB":  2,
+                  "discoveryAtoB":  true,
+                  "discoveryBtoA":  true,
+                  "discoveryAlgorithmA":  "RYVO_DISCOVERY_V1",
+                  "discoveryAlgorithmB":  "RYVO_DISCOVERY_V1",
+                  "superLikeEntitled":  false,
+                  "superLikeRejectionCode":  "SUPERLIKE_QUOTA_EXHAUSTED"
+              },
+    "matchId":  "17bfeda0-600b-4165-abcb-2a6650bad726"
+}

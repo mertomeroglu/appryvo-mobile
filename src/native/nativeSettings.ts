@@ -14,4 +14,16 @@ export const nativeAppSettings = {
       // Non-fatal: user just won't be auto-navigated to settings.
     }
   },
+
+  async openLocationServices() {
+    if (!Capacitor.isNativePlatform()) return;
+    try {
+      await NativeSettings.open({
+        optionAndroid: AndroidSettings.Location,
+        optionIOS: IOSSettings.App,
+      });
+    } catch {
+      await this.open();
+    }
+  },
 };

@@ -52,7 +52,7 @@ export const AppButton = React.forwardRef<HTMLButtonElement, AppButtonProps>(
         transition={SPRING.snappy}
         disabled={disabled || loading}
         className={cn(
-          'inline-flex items-center justify-center font-semibold select-none disabled:opacity-50 disabled:pointer-events-none',
+          'inline-flex min-w-0 items-center justify-center text-center leading-tight break-words font-semibold select-none disabled:opacity-50 disabled:pointer-events-none',
           VARIANT_CLASSES[variant],
           SIZE_CLASSES[size],
           fullWidth && 'w-full',

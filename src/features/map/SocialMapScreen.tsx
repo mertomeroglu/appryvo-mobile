@@ -10,6 +10,7 @@ import { Search, Compass, Heart, ShieldCheck, LocateFixed, X, Sparkles, Crown } 
 import {
   useDiscoveryMapQuery,
   useDiscoveryUserQuery,
+  useFramesQuery,
   useLikeMutation,
   usePassMutation,
   type MapBbox,
@@ -20,13 +21,19 @@ import { nativeLocation } from '../../native/location';
 import { nativeHaptics } from '../../native/haptics';
 import { BottomSheet } from '../../components/ui/BottomSheet';
 import { IconButton } from '../../components/ui/IconButton';
-import { Avatar } from '../../components/ui/Avatar';
+import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
+import { CountryFlagBadge } from '../../components/ui/CountryFlagBadge';
+import {
+  getProfileFramePreviewAsset,
+  getProfileFramePlacement,
+  type ProfileFrameRecord,
+} from '../../components/ui/profileFrameGeometry';
 import { MatchModal } from '../../components/MatchModal';
 import { AppLogo } from '../../components/ui/AppLogo';
-import { getRelationshipGoalLabel } from '../../lib/profileLabels';
+import { getRelationshipGoalLabels } from '../../lib/profileLabels';
 import { SPRING } from '../../motion/tokens';
 
-interface MapUser {
+export interface MapUser {
   id: string;
   name: string;
   city?: string;
@@ -36,6 +43,7 @@ interface MapUser {
   distance?: string | null;
   photo?: string;
   photoThumbnailUrl?: string;
+  activeFrameId?: string;
 }
 
 interface SelectedPin {
@@ -54,7 +62,9 @@ const LOCATE_ZOOM = 13;
 const MOVE_DEBOUNCE_MS = 350;
 
 function firstPhoto(u: MapUser): string | undefined {
-  return u.photo || u.photoThumbnailUrl;
+  // Map markers are at most 48px. Always prefer the server-generated thumbnail and never
+  // decode a full profile image for a tiny Leaflet marker.
+  return u.photoThumbnailUrl || u.photo;
 }
 
 function escapeHtml(value: string): string {
@@ -76,13 +86,25 @@ function useIsDarkMode(): boolean {
   return isDark;
 }
 
-function avatarMarkerIcon(user: MapUser, selected: boolean): L.DivIcon {
-  const size = selected ? 66 : 46;
+export function markerSizeForZoom(zoom: number, selected = false): number {
+  const base = Math.max(40, Math.min(48, 40 + Math.round((zoom - 8) * 0.8)));
+  return Math.min(58, base + (selected ? 10 : 0));
+}
+
+export function avatarMarkerIcon(user: MapUser, selected: boolean, frames: ProfileFrameRecord[], zoom: number): L.DivIcon {
+  const size = markerSizeForZoom(zoom, selected);
+  const avatarSize = size - 8;
   const photo = firstPhoto(user);
   const initial = escapeHtml((user.name || '?').charAt(0).toUpperCase());
   const photoTag = photo
-    ? `<img src="${escapeHtml(normalizeMediaUrl(photo) || '')}" class="w-full h-full object-cover" draggable="false" />`
+    ? `<img src="${escapeHtml(normalizeMediaUrl(photo) || '')}" alt="" class="w-full h-full object-cover" loading="lazy" decoding="async" draggable="false" />`
     : `<div class="w-full h-full flex items-center justify-center text-white font-bold bg-[#3a3a46]">${initial}</div>`;
+  const frame = frames.find((item) => item.id === user.activeFrameId);
+  const frameAsset = user.activeFrameId && user.activeFrameId !== 'standard' ? getProfileFramePreviewAsset(frame) : null;
+  const placement = getProfileFramePlacement(user.activeFrameId);
+  const frameTag = frameAsset
+    ? `<img src="${escapeHtml(normalizeMediaUrl(frameAsset) || '')}" alt="" aria-hidden="true" loading="lazy" decoding="async" draggable="false" class="absolute z-20 max-w-none h-auto pointer-events-none" style="left:50%;top:50%;width:${placement.width};transform:${placement.transform};transform-origin:center" onerror="this.style.display='none'" />`
+    : '';
 
   return L.divIcon({
     className: '',
@@ -95,10 +117,14 @@ function avatarMarkerIcon(user: MapUser, selected: boolean): L.DivIcon {
             ? `<div class="absolute inset-0 rounded-full animate-pulse" style="box-shadow:0 0 0 4px rgba(255,77,141,0.55),0 0 24px 6px rgba(255,77,141,0.4)"></div>`
             : ''
         }
-        <div class="relative rounded-full overflow-hidden shadow-[0_6px_18px_rgba(0,0,0,0.4)]" style="width:${size - 8}px;height:${size - 8}px;border:2.5px solid ${
+        <div class="relative overflow-visible" style="width:${avatarSize}px;height:${avatarSize}px">
+          <div class="absolute -inset-[3px] rounded-full bg-brand-gradient"></div>
+          <div class="absolute inset-0 z-10 rounded-full overflow-hidden shadow-[0_6px_18px_rgba(0,0,0,0.4)]" style="border:2.5px solid ${
       selected ? '#FF4D8D' : 'rgba(255,255,255,0.92)'
     }">
-          ${photoTag}
+            ${photoTag}
+          </div>
+          ${frameTag}
         </div>
         ${
           user.verified
@@ -110,16 +136,32 @@ function avatarMarkerIcon(user: MapUser, selected: boolean): L.DivIcon {
   });
 }
 
-function clusterIcon(count: number): L.DivIcon {
+export function buildSocialClusterHtml(users: MapUser[], count: number): string {
+  const faces = users.slice(0, 3).map((user, index) => {
+    const photo = firstPhoto(user);
+    const initial = escapeHtml((user.name || '?').charAt(0).toUpperCase());
+    const content = photo
+      ? `<img src="${escapeHtml(normalizeMediaUrl(photo) || '')}" alt="" loading="lazy" decoding="async" draggable="false" style="width:100%;height:100%;object-fit:cover" />`
+      : `<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;background:#454554;color:white;font-size:11px;font-weight:800">${initial}</span>`;
+    return `<span style="position:absolute;left:${index * 18}px;top:4px;width:30px;height:30px;overflow:hidden;border-radius:9999px;border:2px solid white;background:#454554;box-shadow:0 3px 9px rgba(0,0,0,.28);z-index:${3 - index}">${content}</span>`;
+  }).join('');
+
+  return `<div aria-label="${count} kişi bu bölgede" style="position:relative;width:68px;height:44px">
+    ${faces}
+    <span style="position:absolute;right:0;bottom:0;display:flex;min-width:27px;height:22px;align-items:center;justify-content:center;border-radius:9999px;border:2px solid white;background:linear-gradient(135deg,#ff4d8d,#7957ff);padding:0 6px;color:white;font-size:11px;font-weight:900;box-shadow:0 4px 12px rgba(75,42,130,.35);z-index:5">${count}</span>
+  </div>`;
+}
+
+function socialClusterIcon(cluster: L.MarkerCluster, usersByMarker: WeakMap<L.Marker, MapUser>): L.DivIcon {
+  const users = cluster.getAllChildMarkers()
+    .map((marker) => usersByMarker.get(marker))
+    .filter((user): user is MapUser => Boolean(user));
+  const count = cluster.getChildCount();
   return L.divIcon({
     className: '',
-    iconSize: [46, 46],
-    iconAnchor: [23, 23],
-    html: `
-      <div class="w-[46px] h-[46px] rounded-full bg-brand-gradient border-2 border-white/85 shadow-[0_6px_18px_rgba(0,0,0,0.4)] flex items-center justify-center text-white font-extrabold text-sm">
-        ${count}
-      </div>
-    `,
+    iconSize: [68, 44],
+    iconAnchor: [34, 22],
+    html: buildSocialClusterHtml(users, count),
   });
 }
 
@@ -171,12 +213,18 @@ export const SocialMapScreen: React.FC = () => {
   const [cityResults, setCityResults] = useState<any[]>([]);
   const [selectedPin, setSelectedPin] = useState<SelectedPin | null>(null);
   const [selectedUser, setSelectedUser] = useState<MapUser | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(DEFAULT_ZOOM);
   const [matchResult, setMatchResult] = useState<{ isOpen: boolean; matchUser?: any; matchId?: string }>({
     isOpen: false,
   });
 
-  const { data: mapUsers, isFetching } = useDiscoveryMapQuery(bbox);
+  const { data: mapUsers, isFetching } = useDiscoveryMapQuery(bbox, 150);
   const { data: selectedUserDetail, isFetching: isDetailFetching } = useDiscoveryUserQuery(selectedUser?.id);
+  const { data: framesData } = useFramesQuery();
+  const frameCatalog = useMemo<ProfileFrameRecord[]>(
+    () => Array.isArray(framesData?.frames) ? framesData.frames : [],
+    [framesData?.frames]
+  );
   const likeMutation = useLikeMutation();
   const passMutation = usePassMutation();
 
@@ -221,9 +269,10 @@ export const SocialMapScreen: React.FC = () => {
 
   // Initialize the map exactly once.
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    const container = containerRef.current;
+    if (!container || mapRef.current) return;
 
-    const map = L.map(containerRef.current, {
+    const map = L.map(container, {
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
       // Required on the map instance itself, not just the tile layer: markerClusterGroup
@@ -239,12 +288,15 @@ export const SocialMapScreen: React.FC = () => {
     mapRef.current = map;
 
     const cluster = L.markerClusterGroup({
-      maxClusterRadius: 48,
+      maxClusterRadius: (zoom) => Math.max(34, Math.min(58, 58 - Math.max(0, zoom - 8) * 3)),
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
-      iconCreateFunction: (c) => clusterIcon(c.getChildCount()),
+      iconCreateFunction: (c) => socialClusterIcon(c, markerUserRef.current),
     });
     cluster.on('clusterclick', (e: any) => {
+      // Clusters behave spatially first: zoom/split while there is map detail left. Only a
+      // still-dense max-zoom cluster becomes a people list.
+      if (map.getZoom() < map.getMaxZoom()) return;
       const users = (e.layer.getAllChildMarkers() as L.Marker[])
         .map((m) => markerUserRef.current.get(m))
         .filter((u): u is MapUser => Boolean(u));
@@ -261,6 +313,7 @@ export const SocialMapScreen: React.FC = () => {
       if (moveTimerRef.current) clearTimeout(moveTimerRef.current);
       moveTimerRef.current = setTimeout(updateBbox, MOVE_DEBOUNCE_MS);
     });
+    map.on('zoomend', () => setZoomLevel(map.getZoom()));
     // Populate the initial viewport immediately rather than waiting on the first user pan.
     updateBbox();
 
@@ -272,7 +325,18 @@ export const SocialMapScreen: React.FC = () => {
     return () => {
       cancelAnimationFrame(raf);
       if (moveTimerRef.current) clearTimeout(moveTimerRef.current);
+      // Detach image sources before destroying Leaflet. Chromium otherwise keeps decoded tile
+      // surfaces alive until a later major GC; repeated map/tab cycles pushed Graphics PSS up by
+      // hundreds of MB on the Galaxy A50 even though the React route had already unmounted.
+      container?.querySelectorAll('img').forEach((image) => {
+        image.removeAttribute('src');
+        image.removeAttribute('srcset');
+      });
+      cluster.clearLayers();
+      tileLayerRef.current?.remove();
+      map.off();
       map.remove();
+      container?.replaceChildren();
       mapRef.current = null;
       clusterGroupRef.current = null;
       tileLayerRef.current = null;
@@ -291,6 +355,9 @@ export const SocialMapScreen: React.FC = () => {
       attribution: TILE_ATTRIBUTION,
       subdomains: 'abcd',
       maxZoom: 20,
+      keepBuffer: 1,
+      updateWhenIdle: true,
+      updateWhenZooming: false,
     });
     layer.addTo(map);
     layer.bringToBack();
@@ -349,7 +416,7 @@ export const SocialMapScreen: React.FC = () => {
     mapUsers.forEach((u: MapUser) => {
       if (typeof u.displayLat !== 'number' || typeof u.displayLng !== 'number') return;
       const marker = L.marker([u.displayLat, u.displayLng], {
-        icon: avatarMarkerIcon(u, selectedUser?.id === u.id),
+        icon: avatarMarkerIcon(u, selectedUser?.id === u.id, frameCatalog, mapRef.current?.getZoom() ?? zoomLevel),
       });
       markerUserRef.current.set(marker, u);
       marker.on('click', () => openPin([u]));
@@ -359,16 +426,16 @@ export const SocialMapScreen: React.FC = () => {
     // selectedUser intentionally excluded — handled by the highlight effect below so a
     // selection change doesn't rebuild the whole marker set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapUsers, openPin]);
+  }, [frameCatalog, mapUsers, openPin]);
 
   // Re-skin only the affected markers when the selection changes.
   useEffect(() => {
     markersByIdRef.current.forEach((marker, id) => {
       const u = markerUserRef.current.get(marker);
       if (!u) return;
-      marker.setIcon(avatarMarkerIcon(u, id === selectedUser?.id));
+      marker.setIcon(avatarMarkerIcon(u, id === selectedUser?.id, frameCatalog, zoomLevel));
     });
-  }, [selectedUser]);
+  }, [frameCatalog, selectedUser, zoomLevel]);
 
   const handleRecenter = () => {
     nativeHaptics.impact();
@@ -416,7 +483,7 @@ export const SocialMapScreen: React.FC = () => {
               placeholder="Şehir veya lokasyon ara..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-surface/90 backdrop-blur-xl border border-app rounded-full pl-12 pr-4 py-3 text-body font-semibold text-app placeholder:text-app-muted shadow-elevated focus:outline-none focus:border-pink-500"
+              className="w-full bg-surface/90 backdrop-blur-xl border border-app rounded-full pl-12 pr-4 py-3 text-body font-semibold text-app placeholder:text-app-muted shadow-elevated focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
             />
           </form>
         </div>
@@ -499,7 +566,7 @@ export const SocialMapScreen: React.FC = () => {
                     onClick={() => setSelectedUser(u)}
                     className="flex flex-col items-center gap-1.5 flex-shrink-0"
                   >
-                    <Avatar src={firstPhoto(u) ? normalizeMediaUrl(firstPhoto(u)) : undefined} name={u.name} size="lg" />
+                    <ProfileAvatarFrame photoUrl={firstPhoto(u)} name={u.name} activeFrameId={u.activeFrameId} size="lg" />
                     <span className="text-caption font-bold text-app truncate max-w-[64px]">{u.name}</span>
                   </button>
                 ))}
@@ -518,7 +585,11 @@ export const SocialMapScreen: React.FC = () => {
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
-                      <Avatar name={selectedUser.name} size="xl" />
+                      <ProfileAvatarFrame
+                        name={selectedUser.name}
+                        activeFrameId={selectedUserDetail?.activeFrameId || selectedUser.activeFrameId}
+                        size="xl"
+                      />
                     </div>
                   )}
                 </div>
@@ -533,16 +604,23 @@ export const SocialMapScreen: React.FC = () => {
                     {selectedUserDetail?.isPremium && (
                       <Crown className="w-4 h-4 text-[#F5B942] fill-current shrink-0" />
                     )}
+                    {selectedUserDetail?.countryCode && (
+                      <CountryFlagBadge countryCode={selectedUserDetail.countryCode} size="xs" />
+                    )}
                   </div>
                   <p className="text-caption text-app-muted mt-0.5">
                     {selectedUser.city || 'Yakınlarda'}
                     {selectedUser.distance ? ` • ${selectedUser.distance}` : ''}
                   </p>
 
-                  {getRelationshipGoalLabel(selectedUserDetail?.relationshipGoal) && (
-                    <span className="inline-block mt-2 text-caption font-semibold px-3 py-1 rounded-full bg-surface-elevated border border-app text-app">
-                      {getRelationshipGoalLabel(selectedUserDetail?.relationshipGoal)}
-                    </span>
+                  {getRelationshipGoalLabels(selectedUserDetail?.relationshipGoals || selectedUserDetail?.relationshipGoal).length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {getRelationshipGoalLabels(selectedUserDetail?.relationshipGoals || selectedUserDetail?.relationshipGoal).map((label) => (
+                        <span key={label} className="text-caption font-semibold px-3 py-1 rounded-full bg-surface-elevated border border-app text-app">
+                          {label}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>

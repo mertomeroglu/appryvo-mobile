@@ -2,16 +2,16 @@ import React from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, X } from 'lucide-react';
-import { normalizeMediaUrl } from '../services/media/mediaService';
 import { useAuthStore } from '../stores/useAuthStore';
 import { AppButton } from './ui/AppButton';
 import { IconButton } from './ui/IconButton';
 import { DURATION, EASE, SPRING } from '../motion/tokens';
+import { ProfileAvatarFrame } from './ui/FramedAvatar';
 
 interface MatchModalProps {
   isOpen: boolean;
   onClose: () => void;
-  matchedUser?: { name?: string; photos?: any[]; photoUrl?: string } | null;
+  matchedUser?: { name?: string; photos?: any[]; photoUrl?: string; activeFrameId?: string } | null;
   matchId?: string;
 }
 
@@ -75,22 +75,34 @@ export const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, matched
               />
 
               <div className="flex items-center -space-x-5">
-                <motion.img
+                <motion.div
                   initial={{ x: -avatarSlideDistance, opacity: 0, scale: 0.85 }}
                   animate={{ x: 0, opacity: 1, scale: 1 }}
                   transition={{ delay: 0.05, ...SPRING.soft }}
-                  src={normalizeMediaUrl(primaryPhoto(currentUser))}
-                  alt="Sen"
-                  className="w-28 h-28 rounded-full border-4 border-app object-cover shadow-elevated relative z-10"
-                />
-                <motion.img
+                  className="relative z-10"
+                >
+                  <ProfileAvatarFrame
+                    photoUrl={primaryPhoto(currentUser)}
+                    name={currentUser?.name || 'Sen'}
+                    activeFrameId={currentUser?.activeFrameId}
+                    size="xl"
+                    eager
+                  />
+                </motion.div>
+                <motion.div
                   initial={{ x: avatarSlideDistance, opacity: 0, scale: 0.85 }}
                   animate={{ x: 0, opacity: 1, scale: 1 }}
                   transition={{ delay: 0.05, ...SPRING.soft }}
-                  src={normalizeMediaUrl(primaryPhoto(matchedUser))}
-                  alt={matchedUserName}
-                  className="w-28 h-28 rounded-full border-4 border-app object-cover shadow-elevated relative z-10"
-                />
+                  className="relative z-10"
+                >
+                  <ProfileAvatarFrame
+                    photoUrl={primaryPhoto(matchedUser)}
+                    name={matchedUserName}
+                    activeFrameId={matchedUser?.activeFrameId}
+                    size="xl"
+                    eager
+                  />
+                </motion.div>
               </div>
 
               {/* Heart badge — pulses once it appears, sitting right on the seam */}
@@ -115,7 +127,7 @@ export const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, matched
               transition={{ delay: 0.55, duration: DURATION.standard }}
               className="text-title text-brand-gradient mb-2"
             >
-              Eşleşme Gerçekleşti!
+              Yeni Eşleşme
             </motion.h2>
             <motion.p
               initial={{ opacity: 0 }}
@@ -143,10 +155,10 @@ export const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, matched
                   if (matchId) navigate(`/chat/${matchId}`);
                 }}
               >
-                Mesaj Gönder
+                Mesaj Yaz
               </AppButton>
               <AppButton variant="secondary" size="lg" fullWidth onClick={onClose}>
-                Keşfetmeye Devam Et
+                Keşfe Devam Et
               </AppButton>
             </motion.div>
           </motion.div>

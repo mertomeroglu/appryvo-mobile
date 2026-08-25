@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, Mail, Lock, Send } from 'lucide-react';
@@ -12,11 +12,37 @@ import { RegistrationWizard } from './RegistrationWizard';
 import { PRIVACY_POLICY, TERMS_OF_SERVICE, type LegalDocument } from '../../lib/legalContent';
 import { EASE } from '../../motion/tokens';
 import { pageTransition } from '../../motion/variants';
+import { useAppTranslation } from '../../i18n/appLocale';
+import { nativeKeyboard } from '../../native/keyboard';
+import { dismissKeyboardOnBackgroundPointerDown } from '../../hooks/useKeyboardViewport';
 
 type Mode = 'welcome' | 'login' | 'register' | 'forgot' | 'reset-sent';
 
+// Word order for "you agree to X and Y" differs by language (Turkish puts the verb last;
+// English puts it first), so the translated string carries {terms}/{privacy} placeholders
+// instead of a fixed prefix+button+and+button+suffix layout, and this splits it back into
+// text/button segments to render.
+function renderLegalConsent(
+  template: string,
+  termsLabel: string,
+  privacyLabel: string,
+  onTerms: () => void,
+  onPrivacy: () => void,
+): React.ReactNode[] {
+  const buttonClass = 'relative z-10 underline underline-offset-2 py-3 -my-3 px-1 -mx-1 touch-manipulation';
+  return template.split(/(\{terms\}|\{privacy\})/g).map((part, index) => {
+    if (part === '{terms}') {
+      return <button key={index} type="button" onClick={onTerms} className={buttonClass}>{termsLabel}</button>;
+    }
+    if (part === '{privacy}') {
+      return <button key={index} type="button" onClick={onPrivacy} className={buttonClass}>{privacyLabel}</button>;
+    }
+    return <React.Fragment key={index}>{part}</React.Fragment>;
+  });
+}
+
 const inputClass =
-  'w-full h-14 bg-input-app border border-app rounded-2xl pl-12 pr-4 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 transition-colors';
+  'w-full h-14 bg-input-app border border-app rounded-2xl pl-12 pr-4 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40 transition-colors';
 
 export const AuthScreen: React.FC = () => {
   const [mode, setMode] = useState<Mode>('welcome');
@@ -28,12 +54,15 @@ export const AuthScreen: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmittingForgot, setIsSubmittingForgot] = useState(false);
   const [legalDoc, setLegalDoc] = useState<LegalDocument | null>(null);
+  const loginPasswordRef = useRef<HTMLInputElement>(null);
 
   const login = useAuthStore((s) => s.login);
   const isLoading = useAuthStore((s) => s.isLoading);
   const navigate = useNavigate();
+  const { t } = useAppTranslation();
 
   const goTo = (next: Mode) => {
+    void nativeKeyboard.hide();
     setErrorMsg('');
     setDirection('forward');
     setMode(next);
@@ -44,6 +73,7 @@ export const AuthScreen: React.FC = () => {
     setErrorMsg('');
     try {
       await login({ identifier, password });
+      await nativeKeyboard.hide();
       navigate('/discover');
     } catch (err: any) {
       setErrorMsg(err.message || 'Giriş yapılamadı.');
@@ -56,6 +86,7 @@ export const AuthScreen: React.FC = () => {
     setIsSubmittingForgot(true);
     try {
       await authService.forgotPassword(forgotEmail);
+      await nativeKeyboard.hide();
       goTo('reset-sent');
     } catch (err: any) {
       setErrorMsg(err.message || 'İstek gönderilemedi.');
@@ -72,21 +103,23 @@ export const AuthScreen: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-app text-app relative overflow-hidden select-none">
+    <div
+      className="flex flex-col h-full min-h-0 w-full bg-app text-app relative overflow-hidden select-none"
+      onPointerDown={dismissKeyboardOnBackgroundPointerDown}
+    >
       {/* Cinematic ambient background */}
       <div className="absolute -top-32 -right-20 w-96 h-96 rounded-full bg-pink-500/10 blur-3xl pointer-events-none" />
       <div className="absolute top-1/3 -left-32 w-80 h-80 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
       <div className="absolute bottom-0 right-0 w-72 h-72 rounded-full bg-purple-500/10 blur-3xl pointer-events-none" />
 
-      {/* Header bar: just a Back button when not on welcome -- the logo lives in the welcome
-          headline column below, not pinned to a top bar (it reads as a stray brand mark up
-          there, disconnected from the "Tanış. Keşfet. Bağlan." copy it belongs with). */}
+      {/* Keep the same official wordmark used by Welcome, compact enough to leave the
+          language control unobstructed while preserving the native back affordance. */}
       {mode !== 'welcome' && (
-        <header className="pt-safe px-5 h-16 flex items-center gap-3 z-sticky">
+        <header className="pt-safe px-5 pe-24 h-16 flex items-center gap-3 z-sticky">
           <IconButton aria-label="Geri" variant="surface" size="md" onClick={() => goTo(mode === 'forgot' ? 'login' : 'welcome')}>
             <ArrowLeft className="w-5 h-5" />
           </IconButton>
-          <AppLogo variant="icon" size="sm" />
+          <AppLogo variant="full" size="md" />
         </header>
       )}
 
@@ -97,7 +130,7 @@ export const AuthScreen: React.FC = () => {
         </div>
       )}
 
-      <div className="flex-1 relative overflow-hidden">
+      <div className="flex-1 min-h-0 relative overflow-hidden">
         <AnimatePresence mode="wait">
           <motion.div
             key={mode}
@@ -105,7 +138,7 @@ export const AuthScreen: React.FC = () => {
             initial="initial"
             animate="animate"
             exit="exit"
-            className="absolute inset-0 flex flex-col justify-between p-6 z-10 overflow-y-auto no-scrollbar"
+            className="auth-keyboard-scroll absolute inset-0 flex flex-col justify-between p-6 z-10 overflow-y-auto no-scrollbar"
           >
             {/* WELCOME */}
             {mode === 'welcome' && (
@@ -117,8 +150,8 @@ export const AuthScreen: React.FC = () => {
                   className="my-auto py-8 text-center"
                 >
                   <AppLogo size="2xl" className="mb-8 mx-auto" />
-                  <h1 className="text-brand-gradient font-extrabold tracking-tight text-[22px] leading-[28px] whitespace-nowrap">
-                    Tanış. Keşfet. Bağlan.
+                  <h1 className="text-brand-gradient font-extrabold tracking-tight text-[22px] leading-[30px] break-words max-w-sm mx-auto">
+                    {t('welcomeSlogan')}
                   </h1>
                 </motion.div>
 
@@ -129,30 +162,20 @@ export const AuthScreen: React.FC = () => {
                   className="space-y-3 mb-6"
                 >
                   <AppButton variant="primary" size="lg" fullWidth onClick={() => goTo('register')}>
-                    Hesap Oluştur
+                    {t('createAccount')}
                   </AppButton>
                   <AppButton variant="secondary" size="lg" fullWidth onClick={() => goTo('login')}>
-                    Giriş Yap
+                    {t('loginButton')}
                   </AppButton>
 
                   <p className="text-micro text-app-muted text-center pt-3 normal-case font-medium">
-                    Devam ederek{' '}
-                    <button
-                      type="button"
-                      onClick={() => setLegalDoc(TERMS_OF_SERVICE)}
-                      className="relative z-10 underline underline-offset-2 py-3 -my-3 px-1 -mx-1 touch-manipulation"
-                    >
-                      Kullanım Koşulları
-                    </button>{' '}
-                    ve{' '}
-                    <button
-                      type="button"
-                      onClick={() => setLegalDoc(PRIVACY_POLICY)}
-                      className="relative z-10 underline underline-offset-2 py-3 -my-3 px-1 -mx-1 touch-manipulation"
-                    >
-                      Gizlilik Politikasını
-                    </button>{' '}
-                    kabul edersin.
+                    {renderLegalConsent(
+                      t('legalConsentTemplate'),
+                      t('termsOfServiceLabel'),
+                      t('privacyPolicyLabel'),
+                      () => setLegalDoc(TERMS_OF_SERVICE),
+                      () => setLegalDoc(PRIVACY_POLICY),
+                    )}
                   </p>
                 </motion.div>
               </>
@@ -174,11 +197,21 @@ export const AuthScreen: React.FC = () => {
                       <Mail className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
                       <input
                         type="text"
+                        name="username"
                         required
                         autoCapitalize="none"
-                        placeholder="E-posta veya kullanıcı adı"
+                        autoCorrect="off"
+                        autoComplete="username"
+                        enterKeyHint="next"
+                        placeholder={t('emailHint')}
                         value={identifier}
                         onChange={(e) => setIdentifier(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            loginPasswordRef.current?.focus();
+                          }
+                        }}
                         className={inputClass}
                       />
                     </div>
@@ -187,8 +220,12 @@ export const AuthScreen: React.FC = () => {
                       <Lock className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
                       <input
                         type="password"
+                        ref={loginPasswordRef}
+                        name="password"
                         required
-                        placeholder="Şifre"
+                        autoComplete="current-password"
+                        enterKeyHint="done"
+                        placeholder={t('passwordHint')}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         className={inputClass}
@@ -201,12 +238,12 @@ export const AuthScreen: React.FC = () => {
                         onClick={() => goTo('forgot')}
                         className="text-caption font-bold text-pink-500 hover:underline"
                       >
-                        Şifremi Unuttum?
+                        {t('forgotPassword')}
                       </button>
                     </div>
 
                     <AppButton type="submit" variant="primary" size="lg" fullWidth loading={isLoading}>
-                      Giriş Yap
+                      {t('loginButton')}
                     </AppButton>
                   </form>
                 </div>
@@ -226,7 +263,7 @@ export const AuthScreen: React.FC = () => {
             {mode === 'forgot' && (
               <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                 <div>
-                  <h2 className="text-title text-app">Şifremi Unuttum</h2>
+                  <h2 className="text-title text-app break-words">{t('forgotPassword')}</h2>
                   <p className="text-caption text-app-muted mt-1 normal-case">
                     E-posta adresini gir, sana sıfırlama bağlantısı gönderelim.
                   </p>
@@ -237,8 +274,14 @@ export const AuthScreen: React.FC = () => {
                     <Mail className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
                     <input
                       type="email"
+                      name="email"
                       required
-                      placeholder="E-posta Adresi"
+                      inputMode="email"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      autoComplete="email"
+                      enterKeyHint="send"
+                      placeholder={t('emailHint')}
                       value={forgotEmail}
                       onChange={(e) => setForgotEmail(e.target.value)}
                       className={inputClass}
@@ -272,7 +315,7 @@ export const AuthScreen: React.FC = () => {
                   </p>
                 </div>
                 <AppButton variant="secondary" size="lg" fullWidth onClick={() => goTo('login')}>
-                  Girişe Dön
+                  {t('loginButton')}
                 </AppButton>
               </div>
             )}

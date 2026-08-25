@@ -1,67 +1,322 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Heart, SlidersHorizontal, Star, X, Zap } from 'lucide-react';
-import { useDiscoveryFeedQuery, useInAppNotificationsQuery, useLikeMutation, usePassMutation } from '../../hooks/useQueries';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
+import {
+  Bell,
+  Camera,
+  CloudOff,
+  Crosshair,
+  Heart,
+  Loader2,
+  LocateFixed,
+  MapPin,
+  MapPinOff,
+  RotateCcw,
+  SearchX,
+  SlidersHorizontal,
+  Star,
+  TriangleAlert,
+  X,
+  Zap,
+} from 'lucide-react';
+import {
+  useDiscoveryFeedQuery,
+  useEntitlementsQuery,
+  useInAppNotificationsQuery,
+  useLikeMutation,
+  usePassMutation,
+} from '../../hooks/useQueries';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { MatchModal } from '../../components/MatchModal';
 import { FilterBottomSheet } from '../../components/FilterBottomSheet';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { ErrorState } from '../../components/ui/ErrorState';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { IconButton } from '../../components/ui/IconButton';
+import { AppButton } from '../../components/ui/AppButton';
 import { AppLogo } from '../../components/ui/AppLogo';
+import { BottomSheet } from '../../components/ui/BottomSheet';
+import { RewardedAdSheet } from '../../components/RewardedAdSheet';
+import { useAppTranslation } from '../../i18n/appLocale';
 import { nativeHaptics } from '../../native/haptics';
+import { nativeLocation } from '../../native/location';
+import { nativeApp } from '../../native/app';
+import { nativeAppSettings } from '../../native/nativeSettings';
+import { nativeNetwork } from '../../native/network';
+import { apiClient } from '../../services/api/apiClient';
+import {
+  enqueueDiscoveryAction,
+  flushDiscoveryActions,
+  isRetryableDiscoveryError,
+} from '../../services/discovery/discoveryActionQueue';
 import { toast } from '../../stores/useToastStore';
 import { SwipeCard, type SwipeCardHandle, type SwipeCardProfile, type SwipeDirection } from './SwipeCard';
+import { useAuthStore } from '../../stores/useAuthStore';
 
 const PAGE_LIMIT = 20;
 const PREFETCH_THRESHOLD = 3;
+const DISCOVER_LOCATION_KEY = 'appryvo_discover_location_v1';
+type LocationGateState =
+  | 'checking'
+  | 'prompt'
+  | 'requesting'
+  | 'permissionDenied'
+  | 'servicesDisabled'
+  | 'unavailable'
+  | 'syncFailed'
+  | 'located';
+
+function isLocationServicesDisabled(error: unknown): boolean {
+  const value = error as { code?: string; message?: string };
+  const text = `${value?.code || ''} ${value?.message || ''}`.toLowerCase();
+  return text.includes('0007') || text.includes('location services') || text.includes('location disabled');
+}
 
 export const DiscoverScreen: React.FC = () => {
+  const { t } = useAppTranslation();
   const [deck, setDeck] = useState<SwipeCardProfile[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [page, setPage] = useState(1);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [feedSession, setFeedSession] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [exitingCards, setExitingCards] = useState<SwipeCardProfile[]>([]);
+  const [lastSwiped, setLastSwiped] = useState<{ profile: SwipeCardProfile; direction: SwipeDirection } | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isSuperLikeQuotaOpen, setIsSuperLikeQuotaOpen] = useState(false);
+  const [isRewardedAdOpen, setIsRewardedAdOpen] = useState(false);
+  const [locationGate, setLocationGate] = useState<LocationGateState>('checking');
+  const [locationPromptDismissed, setLocationPromptDismissed] = useState(() => (
+    typeof localStorage !== 'undefined' && localStorage.getItem(DISCOVER_LOCATION_KEY) === 'global'
+  ));
   const [matchResult, setMatchResult] = useState<{ isOpen: boolean; matchUser?: any; matchId?: string }>({
     isOpen: false,
   });
 
   const navigate = useNavigate();
-  const { data: feedPage, isLoading, isFetching, refetch } = useDiscoveryFeedQuery(page, PAGE_LIMIT);
+  const {
+    data: feedPage,
+    error: feedError,
+    isLoading,
+    isFetching,
+    isError,
+    refetch,
+  } = useDiscoveryFeedQuery(cursor, PAGE_LIMIT, feedSession);
   const { data: notificationsData } = useInAppNotificationsQuery();
+  const { data: entitlements } = useEntitlementsQuery();
   const likeMutation = useLikeMutation();
   const passMutation = usePassMutation();
   const topCardRef = useRef<SwipeCardHandle>(null);
   const actionLockRef = useRef(false);
+  const locationRequestInFlightRef = useRef(false);
+  const retryLocationOnResumeRef = useRef(false);
+  const consumedProfileIdsRef = useRef(new Set<string>());
   const unreadNotificationCount = notificationsData?.unreadCount || 0;
+  const currentUser = useAuthStore((state) => state.user);
+  const viewerId = String(currentUser?.id || currentUser?.uid || '');
+
+  useEffect(() => {
+    if (!viewerId) return;
+    let disposed = false;
+    let removeListener: (() => void) | undefined;
+    const flushIfOnline = async () => {
+      const status = await nativeNetwork.getStatus();
+      if (status.connected) await flushDiscoveryActions(viewerId);
+    };
+    flushIfOnline().catch(() => {});
+    nativeNetwork.addStatusListener((status) => {
+      if (status.connected) flushDiscoveryActions(viewerId).catch(() => {});
+    }).then((handle) => {
+      if (disposed) handle.remove();
+      else removeListener = () => handle.remove();
+    }).catch(() => {});
+    return () => {
+      disposed = true;
+      removeListener?.();
+    };
+  }, [viewerId]);
+
+  const continueWithGlobalDiscovery = useCallback(() => {
+    localStorage.setItem(DISCOVER_LOCATION_KEY, 'global');
+    setLocationPromptDismissed(true);
+    toast.show('Konum olmadan global keşfete devam ediyorsun.', 'neutral');
+  }, []);
+
+  const resolveDiscoverLocation = useCallback(async (
+    requestPermission: boolean,
+    announceSuccess = false,
+    refreshFeed = true
+  ) => {
+    if (locationRequestInFlightRef.current) return;
+    locationRequestInFlightRef.current = true;
+    setLocationGate(requestPermission ? 'requesting' : 'checking');
+
+    try {
+      if (Capacitor.isNativePlatform()) {
+        let permission;
+        try {
+          permission = await Geolocation.checkPermissions();
+        } catch (error) {
+          setLocationGate(isLocationServicesDisabled(error) ? 'servicesDisabled' : 'unavailable');
+          return;
+        }
+
+        const isGranted = permission.location === 'granted' || permission.coarseLocation === 'granted';
+        if (!isGranted && !requestPermission) {
+          setLocationGate(permission.location === 'denied' ? 'permissionDenied' : 'prompt');
+          return;
+        }
+        if (!isGranted) {
+          try {
+            permission = await Geolocation.requestPermissions();
+          } catch (error) {
+            setLocationGate(isLocationServicesDisabled(error) ? 'servicesDisabled' : 'permissionDenied');
+            return;
+          }
+          if (permission.location !== 'granted' && permission.coarseLocation !== 'granted') {
+            setLocationGate('permissionDenied');
+            return;
+          }
+        }
+      } else if (!requestPermission && 'permissions' in navigator) {
+        const browserPermission = await navigator.permissions.query({ name: 'geolocation' });
+        if (browserPermission.state !== 'granted') {
+          setLocationGate(browserPermission.state === 'denied' ? 'permissionDenied' : 'prompt');
+          return;
+        }
+      }
+
+      let position: any;
+      try {
+        position = await nativeLocation.getCurrentPosition({
+          enableHighAccuracy: false,
+          maximumAge: 5 * 60 * 1000,
+          timeout: 15000,
+        });
+      } catch (error) {
+        setLocationGate(isLocationServicesDisabled(error) ? 'servicesDisabled' : 'unavailable');
+        return;
+      }
+
+      const lat = position?.coords?.latitude;
+      const lng = position?.coords?.longitude;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        setLocationGate('unavailable');
+        return;
+      }
+
+      try {
+        await apiClient.post('/api/user/location', {
+          latitude: lat,
+          longitude: lng,
+          accuracy: Number.isFinite(position?.coords?.accuracy) ? position.coords.accuracy : undefined,
+        });
+      } catch {
+        setLocationGate('syncFailed');
+        return;
+      }
+
+      localStorage.setItem(DISCOVER_LOCATION_KEY, 'located');
+      setLocationPromptDismissed(false);
+      setLocationGate('located');
+      if (refreshFeed) {
+        consumedProfileIdsRef.current.clear();
+        setDeck([]);
+        setCurrentIndex(0);
+        setCursor(null);
+        setNextCursor(null);
+        setFeedSession((value) => value + 1);
+        setHasMore(true);
+        await refetch();
+      }
+      if (announceSuccess) toast.success('Keşfet akışı yakın çevrene göre güncellendi.');
+    } catch {
+      setLocationGate('unavailable');
+    } finally {
+      locationRequestInFlightRef.current = false;
+    }
+  }, [refetch]);
+
+  const requestDiscoverLocation = useCallback(() => {
+    void resolveDiscoverLocation(true, true);
+  }, [resolveDiscoverLocation]);
+
+  useEffect(() => {
+    void resolveDiscoverLocation(false);
+  }, [resolveDiscoverLocation]);
+
+  const openLocationSettings = async () => {
+    retryLocationOnResumeRef.current = true;
+    await nativeAppSettings.openLocationServices();
+  };
+
+  const openPermissionSettings = async () => {
+    if (!Capacitor.isNativePlatform()) {
+      requestDiscoverLocation();
+      return;
+    }
+    retryLocationOnResumeRef.current = true;
+    await nativeAppSettings.open();
+  };
+
+  useEffect(() => {
+    let disposed = false;
+    let removeListener: (() => void) | undefined;
+    nativeApp.addStateChangeListener((state) => {
+      if (state.isActive) {
+        const announceSuccess = retryLocationOnResumeRef.current;
+        retryLocationOnResumeRef.current = false;
+        void resolveDiscoverLocation(false, announceSuccess, false);
+      }
+    }).then((handle) => {
+      if (disposed) handle.remove();
+      else removeListener = () => handle.remove();
+    }).catch(() => {});
+    return () => {
+      disposed = true;
+      removeListener?.();
+    };
+  }, [resolveDiscoverLocation]);
 
   // Append newly-fetched pages to the local deck in the order the server returned them.
   // Never re-sort/filter locally — the server owns ranking.
   useEffect(() => {
-    if (!Array.isArray(feedPage)) return;
+    if (!feedPage) return;
     setDeck((prev) => {
       const seen = new Set(prev.map((p) => p.id));
-      const additions = feedPage.filter((p: SwipeCardProfile) => !seen.has(p.id));
-      return page === 1 ? feedPage : [...prev, ...additions];
+      const additions = feedPage.profiles.filter(
+        (p: SwipeCardProfile) => !seen.has(p.id) && !consumedProfileIdsRef.current.has(p.id)
+      );
+      return [...prev, ...additions];
     });
-    if (feedPage.length < PAGE_LIMIT) setHasMore(false);
-  }, [feedPage, page]);
+    setHasMore(feedPage.paging.hasMore);
+    setNextCursor(feedPage.paging.nextCursor);
+  }, [feedPage]);
 
   // Prefetch the next page as the deck runs low, instead of refetching on every swipe.
   useEffect(() => {
-    if (!hasMore || isFetching) return;
+    if (!hasMore || !nextCursor || isFetching || cursor === nextCursor) return;
     if (deck.length - currentIndex <= PREFETCH_THRESHOLD) {
-      setPage((p) => p + 1);
+      setCursor(nextCursor);
     }
-  }, [currentIndex, deck.length, hasMore, isFetching]);
-
-  // Departing cards still finishing their own fly-off animation after the deck has already
-  // advanced past them. An array (not a single slot) so rapid consecutive swipes — now
-  // possible since input is no longer gated on exit animations — can overlap in flight.
-  const [exitingCards, setExitingCards] = useState<SwipeCardProfile[]>([]);
+  }, [currentIndex, deck.length, hasMore, isFetching, cursor, nextCursor]);
 
   const visibleCards = useMemo(() => deck.slice(currentIndex, currentIndex + 2), [deck, currentIndex]);
   const currentProfile = visibleCards[0];
+  const renderedCards = useMemo(() => {
+    const visibleInPaintOrder = [...visibleCards].reverse();
+    const visibleIds = new Set(visibleInPaintOrder.map((profile) => profile.id));
+    return [...visibleInPaintOrder, ...exitingCards.filter((profile) => !visibleIds.has(profile.id))];
+  }, [visibleCards, exitingCards]);
+
+  // Bound long-session memory: consumed profiles no longer need to stay in the React deck.
+  // Pruning in batches avoids reallocating the array on every swipe.
+  useEffect(() => {
+    if (currentIndex < 10) return;
+    setDeck((current) => current.slice(currentIndex));
+    setCurrentIndex(0);
+  }, [currentIndex]);
 
   // Warm the browser cache for the next card's first photo only -- so the card behind the
   // current one never shows a blank frame mid-swipe, without preloading the whole deck.
@@ -75,22 +330,17 @@ export const DiscoverScreen: React.FC = () => {
     img.src = normalizeMediaUrl(nextPhoto);
   }, [visibleCards]);
 
-  const handleExitComplete = (id: string) => {
-    setExitingCards((cur) => cur.filter((p) => p.id !== id));
-  };
-
   const handleSwiped = async (direction: SwipeDirection, profile: SwipeCardProfile) => {
     nativeHaptics.impact();
-    // Advance the deck (and thus which card is interactive) immediately — departing cards
-    // keep rendering separately below purely to finish their own fly-off animation.
+    // Commit immediately, then keep this same keyed card in renderedCards as a non-interactive
+    // exit layer. The next profile becomes top/interactive without a stale zero-position remount.
+    consumedProfileIdsRef.current.add(profile.id);
+    setExitingCards((current) => (
+      current.some((item) => item.id === profile.id) ? current : [...current, profile].slice(-1)
+    ));
     setCurrentIndex((i) => i + 1);
-    setExitingCards((cur) => [...cur, profile]);
-    // Safety net: the exit spring normally clears itself via onExitComplete once its own
-    // animation finishes, but a burst of near-simultaneous swipes can occasionally leave one
-    // stuck (observed under rapid automated multi-touch testing) -- this guarantees a ghost
-    // card is never left rendered indefinitely, well after any real exit animation would have
-    // finished on its own.
-    setTimeout(() => handleExitComplete(profile.id), 1200);
+    setLastSwiped({ profile, direction });
+    window.setTimeout(() => handleExitComplete(profile.id), 1200);
 
     if (direction === 'right' || direction === 'up') {
       try {
@@ -112,15 +362,43 @@ export const DiscoverScreen: React.FC = () => {
         // The card has already visually flown off by this point (intentional -- see the
         // comment above) so a failed request needs an explicit toast, otherwise a rejected
         // Super Like (e.g. out of credits) silently does nothing and the user never finds out.
-        toast.error(err?.message || 'İşlem tamamlanamadı.');
+        if (isRetryableDiscoveryError(err) && viewerId) {
+          enqueueDiscoveryAction({ viewerId, targetUserId: profile.id, direction, createdAt: Date.now() });
+          toast.show('Bağlantı gelince işlemin otomatik tamamlanacak.', 'neutral');
+        } else if (direction === 'up' && err?.code === 'SUPERLIKE_QUOTA_EXHAUSTED') {
+          setIsSuperLikeQuotaOpen(true);
+        } else if (err?.code === 'LIKE_QUOTA_EXHAUSTED' && err?.rawDetails?.canWatchAdForLike) {
+          setIsRewardedAdOpen(true);
+        } else {
+          toast.error(err?.message || 'İşlem tamamlanamadı.');
+        }
       }
     } else {
       try {
         await passMutation.mutateAsync(profile.id);
       } catch (err: any) {
         console.error('[PASS ERROR]', err);
+        if (isRetryableDiscoveryError(err) && viewerId) {
+          enqueueDiscoveryAction({ viewerId, targetUserId: profile.id, direction, createdAt: Date.now() });
+          toast.show('Bağlantı gelince işlemin otomatik tamamlanacak.', 'neutral');
+          return;
+        }
         toast.error(err?.message || 'İşlem tamamlanamadı.');
       }
+    }
+  };
+
+  const handleRewind = async () => {
+    if (!lastSwiped || currentIndex <= 0) return;
+    try {
+      await apiClient.post('/api/discovery/rewind', { targetUserId: lastSwiped.profile.id, direction: lastSwiped.direction });
+      consumedProfileIdsRef.current.delete(lastSwiped.profile.id);
+      setExitingCards([]);
+      setCurrentIndex((value) => Math.max(0, value - 1));
+      setLastSwiped(null);
+    } catch (err: any) {
+      if (err?.code === 'REWIND_QUOTA_EXHAUSTED') toast.show('1 Geri Alma için ödüllü reklam hakkını kullanabilir veya Plus’a geçebilirsin.', 'neutral');
+      else toast.error(err?.message || 'Geri Alma tamamlanamadı.');
     }
   };
 
@@ -129,6 +407,15 @@ export const DiscoverScreen: React.FC = () => {
   // consecutive swipes on the newly-interactive card are never delayed.
   const handleAction = (direction: SwipeDirection) => {
     if (actionLockRef.current) return;
+    if (
+      direction === 'up' &&
+      entitlements &&
+      entitlements.isUnlimitedSuperLike !== true &&
+      Number(entitlements?.superlikeCount ?? entitlements?.superLikeCount ?? 0) <= 0
+    ) {
+      setIsSuperLikeQuotaOpen(true);
+      return;
+    }
     actionLockRef.current = true;
     topCardRef.current?.triggerSwipe(direction);
     requestAnimationFrame(() => {
@@ -136,21 +423,77 @@ export const DiscoverScreen: React.FC = () => {
     });
   };
 
+  const handleExitComplete = (profileId: string) => {
+    setExitingCards((current) => current.filter((profile) => profile.id !== profileId));
+  };
+
   const handleReset = () => {
+    consumedProfileIdsRef.current.clear();
     setDeck([]);
     setCurrentIndex(0);
-    setPage(1);
+    setCursor(null);
+    setNextCursor(null);
+    setFeedSession((value) => value + 1);
     setHasMore(true);
     refetch();
   };
 
   const isInitialLoading = isLoading && deck.length === 0;
+  const feedErrorCode = (feedError as { code?: string } | null)?.code;
+  const requiresProfilePhotos = feedErrorCode === 'MIN_PROFILE_PHOTOS';
+  const hasActiveFilters = Boolean(
+    currentUser?.verifiedOnlyPref ||
+    currentUser?.recentlyActivePref ||
+    currentUser?.newMembersPref ||
+    currentUser?.discoveryRelationshipGoalPref
+  );
+  const locationIssue = {
+    prompt: {
+      icon: <LocateFixed className="h-6 w-6" aria-hidden="true" />,
+      banner: 'Yakındakiler için konum izni ver',
+      title: 'Yakınındakileri Keşfet',
+      description: 'Yakınındaki kişileri gösterebilmemiz için uygulamaya konum izni vermen gerekiyor.',
+      action: 'Konum İzni Ver',
+    },
+    permissionDenied: {
+      icon: <MapPinOff className="h-6 w-6" aria-hidden="true" />,
+      banner: 'Konum iznini etkinleştir',
+      title: 'Konum İzni Gerekli',
+      description: 'Cihaz konumu açık olsa bile uygulama izni olmadan yakınındaki profilleri belirleyemeyiz.',
+      action: Capacitor.isNativePlatform() ? 'Uygulama Ayarlarını Aç' : 'Konum İzni Ver',
+    },
+    servicesDisabled: {
+      icon: <MapPinOff className="h-6 w-6" aria-hidden="true" />,
+      banner: 'Cihaz konum servisini aç',
+      title: 'Cihaz Konumu Kapalı',
+      description: 'Uygulama iznin hazır. Yakınındaki profilleri bulmak için cihazın konum servisini aç.',
+      action: 'Konum Ayarlarını Aç',
+    },
+    unavailable: {
+      icon: <Crosshair className="h-6 w-6" aria-hidden="true" />,
+      banner: 'Konumu yeniden dene',
+      title: 'Konum Alınamadı',
+      description: 'İzin ve cihaz konumu açık, ancak şu anda bir konum sinyali alınamadı. Birazdan tekrar deneyebilirsin.',
+      action: 'Tekrar Dene',
+    },
+    syncFailed: {
+      icon: <CloudOff className="h-6 w-6" aria-hidden="true" />,
+      banner: 'Konumu yeniden eşitle',
+      title: 'Konum Eşitlenemedi',
+      description: 'Cihaz konumu alındı ancak Ryvo ile eşitlenemedi. Bağlantını kontrol edip tekrar dene.',
+      action: 'Yeniden Eşitle',
+    },
+  }[locationGate as Exclude<LocationGateState, 'checking' | 'requesting' | 'located'>];
+  const canSuperLike =
+    !entitlements ||
+    entitlements.isUnlimitedSuperLike === true ||
+    Number(entitlements.superlikeCount ?? entitlements.superLikeCount ?? 0) > 0;
 
   return (
     <div className="relative h-full w-full bg-app text-app flex flex-col justify-between overflow-hidden select-none">
       {/* Top Bar Header */}
       <header className="pt-safe px-4 h-16 flex items-center justify-between z-sticky bg-app/80 backdrop-blur-md">
-        <AppLogo variant="icon" size="sm" />
+        <AppLogo variant="icon" size="md" />
 
         <div className="flex items-center gap-2">
           <IconButton aria-label="Bildirimler" variant="surface" size="md" onClick={() => navigate('/notifications')} className="relative">
@@ -167,45 +510,69 @@ export const DiscoverScreen: React.FC = () => {
         </div>
       </header>
 
+      {locationPromptDismissed && locationIssue && (
+        <button
+          type="button"
+          onClick={() => setLocationPromptDismissed(false)}
+          className="mx-auto mt-1 flex items-center gap-1.5 rounded-full border border-app bg-surface px-3 py-1.5 text-micro font-bold text-app-muted shadow-soft"
+        >
+          <MapPin className="h-3.5 w-3.5 text-pink-500" />
+          {locationIssue.banner}
+        </button>
+      )}
+
       {/* Main Swipe / Empty Body */}
       <div className="relative flex-1 w-full max-w-md mx-auto my-auto flex items-center justify-center px-3 py-2">
         {isInitialLoading ? (
           <div className="relative w-full h-[65dvh] max-h-[600px]">
             <Skeleton variant="media" className="absolute inset-0 aspect-auto rounded-[30px]" />
           </div>
+        ) : isError && !currentProfile ? (
+          requiresProfilePhotos ? (
+            <EmptyState
+              icon={<Camera className="h-8 w-8" aria-hidden="true" />}
+              title="Profil Fotoğraflarını Tamamla"
+              subtitle="Keşfet’e katılmak ve gerçek profilleri görmek için en az iki profil fotoğrafı eklemelisin."
+              actionLabel="Profilime Git"
+              onAction={() => navigate('/profile')}
+            />
+          ) : (
+            <ErrorState
+              icon={<TriangleAlert className="h-8 w-8" aria-hidden="true" />}
+              title={feedErrorCode === 'NETWORK_ERROR' || feedErrorCode === 'TIMEOUT' ? 'Bağlantı Kurulamadı' : 'Keşfet Akışı Yüklenemedi'}
+              message="Kartların korunuyor. Bağlantını kontrol edip yeniden deneyebilirsin."
+              onRetry={() => void refetch()}
+            />
+          )
         ) : !currentProfile ? (
           <EmptyState
-            icon="🔥"
-            title="Yakındaki Tüm Profiller İncelendi"
-            subtitle="Arama tercihlerinizi değiştirerek veya yerinizi yenileyerek daha fazla kişi keşfedebilirsiniz."
-            actionLabel="Yeniden Tara"
-            onAction={handleReset}
+            icon={<SearchX className="h-8 w-8" aria-hidden="true" />}
+            title={hasActiveFilters ? 'Filtrelerine Uygun Profil Bulunamadı' : 'Şimdilik Yeni Profil Yok'}
+            subtitle={hasActiveFilters
+              ? 'Kayıtlı profiller var, ancak etkin arama tercihlerinle eşleşen yeni bir profil bulunamadı.'
+              : 'Yeni profiller eklendiğinde burada görünecek. Mevcut kartları yeniden tarayabilirsin.'}
+            actionLabel={hasActiveFilters ? 'Filtreleri Gözden Geçir' : 'Yeniden Tara'}
+            onAction={hasActiveFilters ? () => setIsFilterOpen(true) : handleReset}
           />
         ) : (
           <div className="relative w-full h-[65dvh] max-h-[600px]">
-            {[...visibleCards].reverse().map((profile) => (
+            {renderedCards.map((profile) => {
+              const isExiting = exitingCards.some((item) => item.id === profile.id);
+              return (
               <SwipeCard
                 key={profile.id}
                 ref={profile.id === currentProfile.id ? topCardRef : undefined}
                 profile={profile}
                 isTop={profile.id === currentProfile.id}
+                isExiting={isExiting}
                 onSwiped={handleSwiped}
-                onInfoClick={() => navigate(`/discover/${profile.id}`)}
+                onExitComplete={handleExitComplete}
+                canSuperLike={canSuperLike}
+                onSuperLikeUnavailable={() => setIsSuperLikeQuotaOpen(true)}
+                onInfoClick={() => { if (!isExiting) navigate(`/discover/${profile.id}`); }}
               />
-            ))}
-            {/* Departing cards render last (on top), oldest first, so each visibly flies off
-                above the already-interactive card underneath — none of them gate input. */}
-            {exitingCards.map((profile) => (
-              <SwipeCard
-                key={profile.id}
-                profile={profile}
-                isTop={false}
-                isExiting
-                onSwiped={() => {}}
-                onExitComplete={() => handleExitComplete(profile.id)}
-                onInfoClick={() => {}}
-              />
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -213,8 +580,10 @@ export const DiscoverScreen: React.FC = () => {
       {/* Action Control Floating Buttons */}
       {currentProfile && (
         <div className="flex items-center justify-around max-w-sm mx-auto w-full py-2 mb-20 z-sticky">
+          <button onClick={handleRewind} disabled={!lastSwiped} aria-label="Son kaydırmayı geri al" className="w-11 h-11 rounded-full bg-surface border border-app text-amber-500 flex items-center justify-center shadow-elevated disabled:opacity-35 active:scale-90 transition-transform"><RotateCcw className="w-5 h-5" /></button>
           <button
             onClick={() => handleAction('left')}
+            aria-label="Geç"
             className="w-14 h-14 rounded-full bg-surface border border-app text-[#FF4B55] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
           >
             <X className="w-7 h-7 stroke-[2.5]" />
@@ -222,6 +591,7 @@ export const DiscoverScreen: React.FC = () => {
 
           <button
             onClick={() => handleAction('up')}
+            aria-label="Super Like gönder"
             className="w-12 h-12 rounded-full bg-surface border border-app text-[#25D9D0] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
           >
             <Star className="w-6 h-6 fill-current" />
@@ -229,6 +599,7 @@ export const DiscoverScreen: React.FC = () => {
 
           <button
             onClick={() => handleAction('right')}
+            aria-label="Beğen"
             className="w-16 h-16 rounded-full bg-brand-gradient text-white flex items-center justify-center shadow-xl shadow-pink-500/30 active:scale-90 transition-transform"
           >
             <Heart className="w-8 h-8 fill-current" />
@@ -236,6 +607,7 @@ export const DiscoverScreen: React.FC = () => {
 
           <button
             onClick={() => navigate('/boost')}
+            aria-label="Boost"
             className="w-12 h-12 rounded-full bg-surface border border-app text-[#F5B942] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
           >
             <Zap className="w-6 h-6 fill-current" />
@@ -246,6 +618,43 @@ export const DiscoverScreen: React.FC = () => {
       {/* Filter Bottom Sheet */}
       <FilterBottomSheet isOpen={isFilterOpen} onClose={() => setIsFilterOpen(false)} onApplied={handleReset} />
 
+      <BottomSheet isOpen={isSuperLikeQuotaOpen} onClose={() => setIsSuperLikeQuotaOpen(false)}>
+        <div className="px-6 pb-6 pt-2 text-center">
+          <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-cyan-500/10 text-[#25D9D0]">
+            <Star className="h-7 w-7 fill-current" />
+          </span>
+          <h2 className="mt-4 text-title text-app">Super Like Hakkın Bitti</h2>
+          <p className="mt-2 text-caption normal-case leading-relaxed text-app-muted">
+            Plus haftada 3, Gold haftada 5 Super Like hakkı verir. Yeni hakkını bekleyebilir veya planları inceleyebilirsin.
+          </p>
+          <div className="mt-5 space-y-2.5">
+            <AppButton
+              fullWidth
+              size="lg"
+              variant="primary"
+              onClick={() => {
+                setIsSuperLikeQuotaOpen(false);
+                navigate('/premium');
+              }}
+            >
+              Plus ve Gold'u İncele
+            </AppButton>
+            <AppButton fullWidth size="md" variant="ghost" onClick={() => setIsSuperLikeQuotaOpen(false)}>
+              Şimdi Değil
+            </AppButton>
+          </div>
+        </div>
+      </BottomSheet>
+
+      <RewardedAdSheet
+        isOpen={isRewardedAdOpen}
+        onClose={() => setIsRewardedAdOpen(false)}
+        rewardType="REWARDED_LIKE"
+        title={t('dailyLikesExhaustedTitle')}
+        description={t('dailyLikesExhaustedDescription')}
+        rewardLabel={t('plus5LikesLabel')}
+      />
+
       {/* Match Result Popup */}
       <MatchModal
         isOpen={matchResult.isOpen}
@@ -253,6 +662,42 @@ export const DiscoverScreen: React.FC = () => {
         matchedUser={matchResult.matchUser}
         matchId={matchResult.matchId}
       />
+
+      {!locationPromptDismissed && (locationGate === 'requesting' || Boolean(locationIssue)) && (
+        <div className="fixed inset-0 z-modal flex items-end justify-center bg-black/45 p-4 pb-safe backdrop-blur-sm sm:items-center">
+          <div className="w-full max-w-sm rounded-[28px] border border-app bg-surface p-6 text-center shadow-floating">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-brand-gradient text-white shadow-elevated">
+              {locationGate === 'requesting'
+                ? <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
+                : locationIssue?.icon}
+            </div>
+            <h2 className="text-title text-app">{locationGate === 'requesting' ? 'Konum Alınıyor' : locationIssue?.title}</h2>
+            <p className="mt-2 text-caption normal-case leading-relaxed text-app-muted">
+              {locationGate === 'requesting'
+                ? 'İzin, cihaz servisi ve konum sinyali ayrı ayrı kontrol ediliyor.'
+                : locationIssue?.description}
+            </p>
+            <div className="mt-6 space-y-2.5">
+              <AppButton
+                fullWidth
+                size="lg"
+                variant="primary"
+                loading={locationGate === 'requesting'}
+                onClick={locationGate === 'servicesDisabled'
+                  ? openLocationSettings
+                  : locationGate === 'permissionDenied'
+                    ? openPermissionSettings
+                    : requestDiscoverLocation}
+              >
+                {locationGate === 'requesting' ? 'Kontrol Ediliyor' : locationIssue?.action}
+              </AppButton>
+              <AppButton fullWidth size="md" variant="ghost" disabled={locationGate === 'requesting'} onClick={continueWithGlobalDiscovery}>
+                Global Keşfet ile Devam Et
+              </AppButton>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

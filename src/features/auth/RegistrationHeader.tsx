@@ -12,10 +12,8 @@ interface RegistrationHeaderProps {
 }
 
 /**
- * Shared header for every registration step: back button + compact brand mark + step count on
- * one row, progress segments on the row below -- so the circular back button never overlaps the
- * progress line (a past layout bug this replaces). Reused unchanged across all steps so the
- * chrome never seems to "reset" between them.
+ * Shared header for every registration step. The single continuous bar communicates progress
+ * without making the flow feel like a checklist or exposing a discouraging step count.
  */
 export const RegistrationHeader: React.FC<RegistrationHeaderProps> = ({ stepIndex, onBack, isFirstStep }) => {
   return (
@@ -30,25 +28,22 @@ export const RegistrationHeader: React.FC<RegistrationHeaderProps> = ({ stepInde
           {isFirstStep ? <X className="w-5 h-5" /> : <ArrowLeft className="w-5 h-5" />}
         </IconButton>
 
-        <div className="flex items-center gap-2">
-          <AppLogo variant="icon" size="md" />
-          <span className="text-caption font-bold text-app-muted normal-case">
-            {stepIndex + 1} / {REGISTRATION_STEP_COUNT}
-          </span>
-        </div>
+        <AppLogo variant="icon" size="md" />
 
         <div className="w-11" aria-hidden="true" />
       </div>
 
-      <div className="flex gap-1.5 pb-3">
-        {Array.from({ length: REGISTRATION_STEP_COUNT }, (_, i) => (
-          <div
-            key={i}
-            className={`h-1.5 flex-1 rounded-full transition-colors ${
-              i <= stepIndex ? 'bg-brand-gradient' : 'bg-surface border border-app'
-            }`}
-          />
-        ))}
+      <div
+        className="h-1.5 mb-3 overflow-hidden rounded-full bg-surface border border-app"
+        role="progressbar"
+        aria-valuemin={1}
+        aria-valuemax={REGISTRATION_STEP_COUNT}
+        aria-valuenow={stepIndex + 1}
+      >
+        <div
+          className="h-full rounded-full bg-brand-gradient transition-[width] duration-300 ease-out"
+          style={{ width: `${((stepIndex + 1) / REGISTRATION_STEP_COUNT) * 100}%` }}
+        />
       </div>
     </div>
   );

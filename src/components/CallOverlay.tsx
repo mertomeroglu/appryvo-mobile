@@ -3,17 +3,41 @@ import { useCallStore } from '../stores/useCallStore';
 import { socketService } from '../services/socket/socketService';
 import { webrtcService } from '../services/call/webrtcService';
 import { callService } from '../services/call/callService';
-import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff } from 'lucide-react';
+import { nativeCallAudio } from '../native/callAudio';
+import {
+  Phone,
+  PhoneOff,
+  Video,
+  VideoOff,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  SwitchCamera,
+  RefreshCw,
+  ShieldAlert,
+} from 'lucide-react';
 import { nativeHaptics } from '../native/haptics';
 import { Avatar } from './ui/Avatar';
 import { IconButton } from './ui/IconButton';
+
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 export const CallOverlay: React.FC = () => {
   const { activeCall, setCallStatus } = useCallStore();
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(false);
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
+  const [isRequestingVideo, setIsRequestingVideo] = useState(false);
+  const [canSwitchCamera, setCanSwitchCamera] = useState(true);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -25,24 +49,35 @@ export const CallOverlay: React.FC = () => {
     return () => {
       webrtcService.onLocalStream = undefined;
       webrtcService.onRemoteStream = undefined;
+      // Covers route/error/logout teardown as well as the normal callService.endCall path.
+      webrtcService.hangup();
+      void nativeCallAudio.resetAudioMode();
     };
   }, []);
 
+  // Local-only UI state (mute/video/speaker) does not survive a session -- reset it whenever a
+  // fresh call session starts so leftover state from a previous call can't carry over.
   useEffect(() => {
-    const unsubIncoming = socketService.on('call:incoming', (data) => {
-      nativeHaptics.impact();
-      useCallStore.getState().startCall({
-        callId: data.callId,
-        matchId: data.matchId,
-        targetUserId: data.callerUid,
-        targetUserName: data.callerName || 'Arayan Kişi',
-        type: data.type || 'voice',
-        status: 'RINGING',
-        direction: 'incoming',
-        offer: data.offer,
-      });
-    });
+    if (!activeCall) return;
+    setIsMuted(false);
+    setIsVideoOff(false);
+    setIsSpeakerOn(false);
+    setElapsedSeconds(0);
+    setCanSwitchCamera(true);
+    setIsRequestingVideo(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when the session itself changes
+  }, [activeCall?.callId]);
 
+  useEffect(() => {
+    if (activeCall?.status !== 'ACTIVE' || !activeCall.startedAt) return;
+    const startedAt = activeCall.startedAt;
+    const tick = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    tick();
+    const interval = window.setInterval(tick, 1000);
+    return () => window.clearInterval(interval);
+  }, [activeCall?.status, activeCall?.startedAt]);
+
+  useEffect(() => {
     const unsubAnswered = socketService.on('call:answered', async (data) => {
       await webrtcService.setRemoteAnswer(data.answer);
       setCallStatus('ACTIVE');
@@ -52,22 +87,42 @@ export const CallOverlay: React.FC = () => {
       webrtcService.addIceCandidate(data.candidate);
     });
 
+    const unsubRenegotiateOffer = socketService.on('call:renegotiate-offer', (data) => {
+      void callService.handleIncomingRenegotiateOffer(data.offer);
+    });
+
+    const unsubRenegotiateAnswer = socketService.on('call:renegotiate-answer', (data) => {
+      void callService.handleIncomingRenegotiateAnswer(data.answer);
+    });
+
     const unsubEnded = socketService.on('call:ended', () => {
       webrtcService.hangup();
+      void nativeCallAudio.resetAudioMode();
       useCallStore.getState().endCall();
     });
 
     const unsubBusy = socketService.on('call:busy', () => {
       webrtcService.hangup();
+      void nativeCallAudio.resetAudioMode();
+      useCallStore.getState().endCall();
+    });
+
+    // The disconnected device cannot receive the server's call:ended event. Release its own
+    // camera/microphone immediately; the server notifies and cleans up the remote participant.
+    const unsubDisconnect = socketService.on('disconnect', () => {
+      webrtcService.hangup();
+      void nativeCallAudio.resetAudioMode();
       useCallStore.getState().endCall();
     });
 
     return () => {
-      unsubIncoming();
       unsubAnswered();
       unsubIce();
+      unsubRenegotiateOffer();
+      unsubRenegotiateAnswer();
       unsubEnded();
       unsubBusy();
+      unsubDisconnect();
     };
   }, [setCallStatus]);
 
@@ -97,6 +152,8 @@ export const CallOverlay: React.FC = () => {
 
   const isVideoCall = activeCall.type === 'video';
   const isRinging = activeCall.status === 'RINGING';
+  const isReconnecting = activeCall.status === 'RECONNECTING';
+  const isFailed = activeCall.status === 'FAILED';
   const isIncoming = activeCall.direction === 'incoming';
   const showRemoteVideo = isVideoCall && !!remoteStream && activeCall.status === 'ACTIVE';
   const showLocalVideo = isVideoCall && !!localStream && !isVideoOff;
@@ -128,11 +185,53 @@ export const CallOverlay: React.FC = () => {
     webrtcService.setVideoEnabled(!next);
   };
 
-  const statusLabel = isRinging
-    ? isIncoming
-      ? 'Gelen Arama...'
-      : 'Aranıyor...'
-    : 'Arama Devam Ediyor';
+  const toggleSpeaker = async () => {
+    const next = !isSpeakerOn;
+    setIsSpeakerOn(next);
+    await nativeCallAudio.setSpeakerOn(next);
+  };
+
+  const handleRequestVideo = async () => {
+    if (isRequestingVideo) return;
+    setIsRequestingVideo(true);
+    try {
+      await callService.requestVideoUpgrade();
+    } finally {
+      setIsRequestingVideo(false);
+    }
+  };
+
+  const handleSwitchCamera = async () => {
+    if (isSwitchingCamera) return;
+    setIsSwitchingCamera(true);
+    try {
+      await webrtcService.switchCamera();
+    } catch (err) {
+      console.warn('[CALL] Camera switch failed', err);
+      setCanSwitchCamera(false);
+    } finally {
+      setIsSwitchingCamera(false);
+    }
+  };
+
+  const failureMessage =
+    activeCall.error === 'PERMISSION_DENIED'
+      ? 'Mikrofon/kamera izni verilmedi'
+      : activeCall.error === 'DEVICE_UNAVAILABLE'
+        ? 'Mikrofon/kamera kullanılamıyor'
+        : 'Bağlantı kesildi';
+
+  const statusLabel = isFailed
+    ? failureMessage
+    : isReconnecting
+      ? 'Yeniden bağlanılıyor...'
+      : isRinging
+        ? isIncoming
+          ? 'Gelen Arama...'
+          : 'Aranıyor...'
+        : activeCall.status === 'ACTIVE'
+          ? formatDuration(elapsedSeconds)
+          : 'Arama Devam Ediyor';
 
   return (
     <div className="fixed inset-0 z-call-overlay flex flex-col justify-between p-6 bg-app text-app select-none overflow-hidden">
@@ -175,7 +274,19 @@ export const CallOverlay: React.FC = () => {
       {/* Top Status Header */}
       <header className={`pt-safe text-center z-10 ${showRemoteVideo ? 'text-white' : 'text-app'}`}>
         <h3 className="text-title">{isVideoCall ? 'Görüntülü Arama' : 'Sesli Arama'}</h3>
-        <p className={`text-caption mt-1 normal-case ${showRemoteVideo ? 'text-white/80' : 'text-app-muted'}`}>
+        <p
+          className={`text-caption mt-1 normal-case flex items-center justify-center gap-1.5 ${
+            isFailed
+              ? 'text-[#FF4B55]'
+              : isReconnecting
+                ? 'text-[#F5B942]'
+                : showRemoteVideo
+                  ? 'text-white/80'
+                  : 'text-app-muted'
+          }`}
+        >
+          {isReconnecting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+          {isFailed && <ShieldAlert className="w-3.5 h-3.5" />}
           {statusLabel}
         </p>
       </header>
@@ -198,7 +309,19 @@ export const CallOverlay: React.FC = () => {
 
       {/* Bottom Actions Bar */}
       <footer className="pb-safe w-full max-w-sm mx-auto z-10">
-        {isRinging ? (
+        {isFailed ? (
+          <div className="flex items-center justify-center">
+            <IconButton
+              aria-label="Kapat"
+              variant="surface"
+              size="lg"
+              className="w-16 h-16 bg-[#FF4B55] text-white border-0 shadow-elevated shadow-red-500/30"
+              onClick={handleHangup}
+            >
+              <PhoneOff className="w-8 h-8" />
+            </IconButton>
+          </div>
+        ) : isRinging ? (
           <div className="flex items-center justify-around">
             <IconButton
               aria-label="Reddet"
@@ -233,6 +356,29 @@ export const CallOverlay: React.FC = () => {
               {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </IconButton>
 
+            {!isVideoCall && nativeCallAudio.isSupported() && (
+              <IconButton
+                aria-label={isSpeakerOn ? 'Hoparlörü Kapat' : 'Hoparlörü Aç'}
+                variant={isSpeakerOn ? 'gradient' : 'surface'}
+                size="md"
+                onClick={toggleSpeaker}
+              >
+                {isSpeakerOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+              </IconButton>
+            )}
+
+            {!isVideoCall && activeCall.status === 'ACTIVE' && (
+              <IconButton
+                aria-label="Görüntülü Aramaya Geç"
+                variant="surface"
+                size="md"
+                disabled={isRequestingVideo}
+                onClick={handleRequestVideo}
+              >
+                <Video className="w-5 h-5" />
+              </IconButton>
+            )}
+
             <IconButton
               aria-label="Aramayı Sonlandır"
               variant="surface"
@@ -251,6 +397,18 @@ export const CallOverlay: React.FC = () => {
                 onClick={toggleVideo}
               >
                 {isVideoOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
+              </IconButton>
+            )}
+
+            {isVideoCall && !isVideoOff && canSwitchCamera && (
+              <IconButton
+                aria-label="Kamerayı Değiştir"
+                variant="surface"
+                size="md"
+                disabled={isSwitchingCamera}
+                onClick={handleSwitchCamera}
+              >
+                <SwitchCamera className="w-5 h-5" />
               </IconButton>
             )}
           </div>

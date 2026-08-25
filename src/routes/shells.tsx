@@ -1,4 +1,5 @@
 import React from 'react';
+import { PASSPORT_LABELS, useAppLocaleStore } from '../i18n/appLocale';
 
 const ShellContainer: React.FC<{ title: string; route: string }> = ({ title, route }) => (
   <div className="flex flex-col items-center justify-center min-h-[60vh] p-6 text-center">
@@ -21,10 +22,12 @@ export const MessagesShell: React.FC = () => <ShellContainer title="Messages" ro
 export const ChatShell: React.FC = () => <ShellContainer title="Direct Chat" route="/chat/:matchId" />;
 export const ProfileShell: React.FC = () => <ShellContainer title="Own Profile" route="/profile" />;
 export const UserProfileShell: React.FC = () => <ShellContainer title="User Profile" route="/profile/:userId" />;
-export const PremiumShell: React.FC = () => <ShellContainer title="Premium Membership" route="/premium" />;
+export const PremiumShell: React.FC = () => <ShellContainer title="Ryvo Plus & Gold" route="/premium" />;
 export const BoostShell: React.FC = () => <ShellContainer title="Profile Boost" route="/boost" />;
 export const FramesShell: React.FC = () => <ShellContainer title="Profile Frames" route="/frames" />;
-export const PassportShell: React.FC = () => <ShellContainer title="Passport Location" route="/passport" />;
-export const ConfessionsShell: React.FC = () => <ShellContainer title="Confessions Social" route="/confessions" />;
+export const PassportShell: React.FC = () => {
+  const locale = useAppLocaleStore((state) => state.locale);
+  return <ShellContainer title={`${PASSPORT_LABELS[locale]} Location`} route="/passport" />;
+};
 
 export default AuthShell;

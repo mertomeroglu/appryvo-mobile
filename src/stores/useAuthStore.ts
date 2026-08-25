@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { authService, LoginPayload, RegisterPayload } from '../services/auth/authService';
 import { socketService } from '../services/socket/socketService';
+import { useUiStore } from './useUiStore';
 
 interface UserProfile {
   id: string;
@@ -13,10 +14,16 @@ interface UserProfile {
   gender?: string;
   targetGender?: string;
   relationshipGoal?: string;
+  relationshipGoals?: string[];
   interests?: string[];
   photos?: any[];
   isPremium?: boolean;
   verified?: boolean;
+  /** Canonical face/profile badge state. `verified` remains its compatibility alias. */
+  faceVerified?: boolean;
+  /** Email ownership is independent from face/profile verification. */
+  emailVerified?: boolean;
+  verificationState?: 'UNVERIFIED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVERIFICATION_REQUIRED';
   activeFrameId?: string;
   profileCompletion?: number;
   pushNotificationsEnabled?: boolean;
@@ -27,6 +34,7 @@ interface UserProfile {
   drinkingStatus?: string;
   childrenStatus?: string;
   familyPlans?: string;
+  zodiac?: string | null;
   languages?: string[];
   languageCode?: string;
   chatLanguage?: string | null;
@@ -47,6 +55,9 @@ interface AuthState {
   fetchMe: () => Promise<UserProfile | null>;
   setUser: (user: UserProfile | null) => void;
 }
+
+let userStateVersion = 0;
+let latestFetchMeRequest = 0;
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
@@ -93,6 +104,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true });
     await authService.logout();
     socketService.disconnect();
+    userStateVersion += 1;
+    // Explicit reset, not just reliance on the next socket connect's server reconciliation --
+    // otherwise the prior account's unread badge could flash on the login screen for an instant.
+    useUiStore.getState().setUnreadCount(0);
     set({ user: null, isAuthenticated: false, isLoading: false });
   },
 
@@ -103,13 +118,21 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   fetchMe: async () => {
+    const requestId = ++latestFetchMeRequest;
+    const versionAtStart = userStateVersion;
     const res = await authService.getCurrentUser();
     const user = res?.data || null;
-    if (user) set({ user, isAuthenticated: true });
-    return user;
+    // A resume/socket fetch that started before a local profile save must never overwrite the
+    // optimistic, newer photo list. Likewise, only the newest overlapping reconciliation wins.
+    if (user && requestId === latestFetchMeRequest && versionAtStart === userStateVersion) {
+      set({ user, isAuthenticated: true });
+      return user;
+    }
+    return null;
   },
 
   setUser: (user: UserProfile | null) => {
+    userStateVersion += 1;
     set({ user, isAuthenticated: !!user });
   },
 }));

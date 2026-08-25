@@ -40,6 +40,10 @@ export const NotificationsScreen: React.FC = () => {
   const handleOpen = (n: InAppNotification) => {
     if (!n.is_read) markRead.mutate(n.id);
     if (n.cta_url) {
+      if (n.cta_url.startsWith('/')) {
+        navigate(n.cta_url);
+        return;
+      }
       try {
         const url = new URL(n.cta_url);
         navigate(url.pathname + url.search);

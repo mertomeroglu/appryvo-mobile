@@ -1,6 +1,0 @@
-import{c as j,ae as u,n as d,a6 as v}from"./index-DEhy-A16.js";import{j as e}from"./vendor-Df5DHcyX.js";import{A as y,a as f}from"./Avatar-BDV3uQ-3.js";/**
- * @license lucide-react v0.475.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */const A=[["line",{x1:"22",x2:"2",y1:"6",y2:"6",key:"15w7dq"}],["line",{x1:"22",x2:"2",y1:"18",y2:"18",key:"1ip48p"}],["line",{x1:"6",x2:"6",y1:"2",y2:"22",key:"a2lnyx"}],["line",{x1:"18",x2:"18",y1:"2",y2:"22",key:"8vb6jd"}]],b=j("Frame",A),F=({photoUrl:r,name:a,activeFrameId:n,size:i="lg",verified:m,className:o})=>{var x;const{data:t}=u(),s=n&&n!=="standard"?(x=t==null?void 0:t.frames)==null?void 0:x.find(p=>p.id===n):null,l=(s==null?void 0:s.circleAsset)||(s==null?void 0:s.portraitAsset),c=r?d(r):void 0;return l?e.jsxs("div",{className:v("relative inline-flex shrink-0",o),children:[e.jsx(y,{src:c,name:a,size:i}),e.jsx("img",{src:d(l),alt:"",className:"absolute top-1/2 left-1/2 pointer-events-none select-none",style:{width:"175%",height:"175%",transform:"translate(-50%, -50%)"}})]}):e.jsx(f,{variant:m?"verified":"brand",className:o,children:e.jsx(y,{src:c,name:a,size:i})})};export{F,b as a};

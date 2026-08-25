@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { ShieldAlert, Check } from 'lucide-react';
-import { apiClient } from '../services/api/apiClient';
+import React, { useEffect, useState } from 'react';
+import { ShieldAlert, Check, LockKeyhole } from 'lucide-react';
+import { ApiException, apiClient } from '../services/api/apiClient';
+import { useAuthStore } from '../stores/useAuthStore';
 import { Modal } from './ui/Modal';
 import { AppButton } from './ui/AppButton';
 
@@ -16,6 +17,7 @@ interface SafetyReportModalProps {
 
 const REPORT_REASONS = [
   { value: 'SPAM', label: 'Spam / Sahte Profil' },
+  { value: 'IMPERSONATION', label: 'Bu kişi bana ait fotoğraf kullanıyor' },
   { value: 'HARASSMENT', label: 'Taciz / Uygunsuz Davranış' },
   { value: 'INAPPROPRIATE_CONTENT', label: 'Uygunsuz Fotoğraf / İçerik' },
   { value: 'UNDERAGE', label: 'Yaş Sınırı İhlali' },
@@ -35,6 +37,17 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
   const [isSuccess, setIsSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [password, setPassword] = useState('');
+  const user = useAuthStore((state) => state.user);
+  const hasPassword = user?.hasPassword !== false;
+  const socialProviders = Array.isArray(user?.authProviders) ? user.authProviders : [];
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setPassword('');
+    setErrorMsg('');
+    setIsSuccess(false);
+  }, [isOpen, type]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,7 +68,12 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
           reason: details || undefined,
         });
       } else if (type === 'delete_account') {
-        await apiClient.delete('/api/account');
+        if (!hasPassword) {
+          setErrorMsg('Bu hesap sosyal giriş kullanıyor. Hesabını silmeden önce giriş sağlayıcınla yeniden doğrulama yapmalısın.');
+          setIsLoading(false);
+          return;
+        }
+        await apiClient.delete('/api/account', { password });
       }
       setIsSuccess(true);
       setTimeout(() => {
@@ -64,7 +82,19 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
         onSuccess?.();
       }, 1500);
     } catch (err: any) {
-      setErrorMsg(err.message || 'İşlem gerçekleştirilemedi.');
+      if (type === 'delete_account') {
+        if (err instanceof ApiException && err.statusCode === 429) {
+          setErrorMsg('Çok fazla hatalı deneme yaptın. Lütfen daha sonra tekrar dene.');
+        } else if (err instanceof ApiException && (err.code === 'ACCOUNT_DELETE_REAUTH_FAILED' || err.statusCode === 401)) {
+          setErrorMsg('Şifre yanlış. Hesabında hiçbir değişiklik yapılmadı.');
+        } else if (err instanceof ApiException && err.code === 'PASSWORD_REQUIRED') {
+          setErrorMsg('Devam etmek için şifreni gir.');
+        } else {
+          setErrorMsg('Hesap şu anda silinemedi. Lütfen daha sonra tekrar dene.');
+        }
+      } else {
+        setErrorMsg(err.message || 'İşlem gerçekleştirilemedi.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -103,7 +133,7 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
               <select
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                className="w-full bg-input-app border border-app rounded-xl p-3 text-body text-app focus:outline-none focus:border-pink-500"
+                className="w-full bg-input-app border border-app rounded-xl p-3 text-body text-app focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
               >
                 {REPORT_REASONS.map((r) => (
                   <option key={r.value} value={r.value}>
@@ -117,7 +147,7 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
                 placeholder="Ek açıklama (isteğe bağlı)..."
                 value={details}
                 onChange={(e) => setDetails(e.target.value)}
-                className="w-full bg-input-app border border-app rounded-xl p-3 text-caption text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500"
+                className="w-full bg-input-app border border-app rounded-xl p-3 text-caption text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
               />
             </>
           )}
@@ -133,16 +163,42 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
                 placeholder="Sebep (isteğe bağlı)..."
                 value={details}
                 onChange={(e) => setDetails(e.target.value)}
-                className="w-full bg-input-app border border-app rounded-xl p-3 text-caption text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500"
+                className="w-full bg-input-app border border-app rounded-xl p-3 text-caption text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
               />
             </>
           )}
 
           {type === 'delete_account' && (
-            <p className="text-caption text-[#FF4B55] normal-case">
-              Dikkat: Hesabınızı sildiğinizde tüm eşleşmeleriniz, mesajlarınız ve profil verileriniz kalıcı olarak
-              silinecektir. Bu işlem geri alınamaz.
-            </p>
+            <div className="space-y-3">
+              <p className="text-caption text-[#FF4B55] normal-case">
+                Dikkat: Hesabınızı sildiğinizde tüm eşleşmeleriniz, mesajlarınız ve profil verileriniz kalıcı olarak
+                silinecektir. Bu işlem geri alınamaz.
+              </p>
+              {hasPassword ? (
+                <label className="block space-y-1.5">
+                  <span className="text-caption font-bold normal-case text-app">Şifreni doğrula</span>
+                  <span className="relative block">
+                    <LockKeyhole className="absolute left-3.5 top-3.5 h-4 w-4 text-app-muted" />
+                    <input
+                      type="password"
+                      required
+                      autoComplete="current-password"
+                      enterKeyHint="done"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="Şifreni gir"
+                      className="w-full rounded-xl border border-app bg-input-app py-3 pl-10 pr-3 text-body text-app placeholder:text-app-muted focus:border-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
+                    />
+                  </span>
+                </label>
+              ) : (
+                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-caption normal-case text-amber-600">
+                  {socialProviders.length > 0
+                    ? `${socialProviders.join(' / ')} ile yeniden doğrulama gerekiyor.`
+                    : 'Sosyal giriş sağlayıcınla yeniden doğrulama gerekiyor.'}
+                </p>
+              )}
+            </div>
           )}
 
           {errorMsg && (
@@ -161,8 +217,9 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
               size="md"
               className="flex-1"
               loading={isLoading}
+              disabled={type === 'delete_account' && (!hasPassword || password.length === 0)}
             >
-              Onayla
+              {type === 'delete_account' ? 'Hesabımı Kalıcı Olarak Sil' : 'Onayla'}
             </AppButton>
           </div>
         </form>

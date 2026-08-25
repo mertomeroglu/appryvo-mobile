@@ -1,17 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Capacitor } from '@capacitor/core';
-import { Geolocation } from '@capacitor/geolocation';
 import {
-  Mail, Lock, User, AtSign, Calendar, Check, ChevronRight, MapPin,
+  Mail, Lock, User, AtSign, Calendar, Check, ChevronRight,
   Images, Plus, X, Camera as CameraIcon, Loader2,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { apiClient } from '../../services/api/apiClient';
-import { mediaService, normalizeMediaUrl } from '../../services/media/mediaService';
+import { mediaService } from '../../services/media/mediaService';
 import { nativeCamera } from '../../native/camera';
-import { nativeLocation } from '../../native/location';
-import { nativeAppSettings } from '../../native/nativeSettings';
 import { toast } from '../../stores/useToastStore';
 import { AppButton } from '../../components/ui/AppButton';
 import { ActionSheet } from '../../components/ui/ActionSheet';
@@ -22,20 +19,36 @@ import { SPRING, PRESS_SCALE } from '../../motion/tokens';
 import { pageTransition } from '../../motion/variants';
 import { RELATIONSHIP_GOAL_LABELS } from '../../lib/profileLabels';
 import { INTEREST_CATEGORIES, INTEREST_MIN, INTEREST_MAX } from '../../lib/interests';
+import { nativeKeyboard } from '../../native/keyboard';
+import { dismissKeyboardOnBackgroundPointerDown } from '../../hooks/useKeyboardViewport';
 
 const MAX_PHOTOS = 6;
+const MIN_PHOTOS = 2;
+const MIN_REGISTRATION_AGE = 18;
+
+// Mirrors auth_controller.js's server-side computation exactly (same year/month/day logic) so
+// the client's pre-submit check and the server's authoritative check never disagree.
+function computeAge(birthDateStr: string): number | null {
+  const dob = new Date(birthDateStr);
+  if (Number.isNaN(dob.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const m = today.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+  return age;
+}
 const RELATIONSHIP_GOALS = Object.entries(RELATIONSHIP_GOAL_LABELS).map(([value, label]) => ({ value, label }));
 
 const inputClass =
   'w-full h-14 bg-input-app border border-app rounded-2xl pl-12 pr-4 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 transition-colors';
 
 type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken' | 'invalid';
-type LocationStatus = 'idle' | 'requesting' | 'resolving' | 'granted' | 'denied' | 'permanently_denied' | 'error';
-
 interface DraftPhoto {
   id: string;
   blob: Blob;
   previewUrl: string;
+  uploadStatus: 'uploading' | 'uploaded' | 'failed';
+  uploadToken?: string;
 }
 
 const SelectionCard: React.FC<{ label: string; selected: boolean; onSelect: () => void }> = ({
@@ -98,24 +111,34 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
 
   // Identity
   const [birthDate, setBirthDate] = useState('2000-01-01');
+  const [birthDateError, setBirthDateError] = useState('');
   const [gender, setGender] = useState('FEMALE');
   const [targetGender, setTargetGender] = useState('MALE');
   const [relationshipGoal, setRelationshipGoal] = useState('OPEN_TO_EXPLORING');
   const [interests, setInterests] = useState<string[]>([]);
 
-  // Photos (kept as local blobs — uploaded only after the account actually exists)
+  // Photos keep local previews, but only server-confirmed temporary uploads count toward signup.
   const [photos, setPhotos] = useState<DraftPhoto[]>([]);
   const [isPhotoSheetOpen, setIsPhotoSheetOpen] = useState(false);
   const [cropQueue, setCropQueue] = useState<Blob[]>([]);
   const [cropSource, setCropSource] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const photosRef = useRef<DraftPhoto[]>(photos);
 
-  // Location
-  const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle');
-  const [district, setDistrict] = useState<string | null>(null);
-  const [province, setProvince] = useState<string | null>(null);
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const deniedOnceRef = useRef(false);
+  useEffect(() => () => {
+    if (cropSource) URL.revokeObjectURL(cropSource);
+  }, [cropSource]);
+
+  useEffect(() => {
+    photosRef.current = photos;
+  }, [photos]);
+
+  useEffect(() => () => {
+    photosRef.current.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+  }, []);
+
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -123,12 +146,14 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   const fetchMe = useAuthStore((s) => s.fetchMe);
 
   const goNext = () => {
+    void nativeKeyboard.hide();
     setErrorMsg('');
     setDirection('forward');
     setStepIndex((s) => Math.min(REGISTRATION_STEPS.length - 1, s + 1));
   };
 
   const goBack = () => {
+    void nativeKeyboard.hide();
     setErrorMsg('');
     if (stepIndex === 0) {
       onExit();
@@ -189,10 +214,10 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   }, [username, usernameEdited]);
 
   const canSubmitBasic =
-    name.trim().length > 0 && /^\S+@\S+\.\S+$/.test(email) && password.length >= 6;
+    name.trim().length > 0 && /^\S+@\S+\.\S+$/.test(email) && password.length >= 8 && password.length <= 128;
 
-  const canSubmitUsername =
-    username.length >= 3 && usernameStatus !== 'taken' && usernameStatus !== 'invalid' && usernameStatus !== 'checking';
+  const canSubmitUsername = username.length >= 3 && usernameStatus === 'available';
+  const uploadedPhotoCount = photos.filter((photo) => photo.uploadStatus === 'uploaded').length;
 
   // --- Interests ---
   const toggleInterest = (tag: string) => {
@@ -263,9 +288,45 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
     });
   };
 
-  const handleCropConfirm = (croppedBlob: Blob) => {
+  const uploadDraftPhoto = async (id: string, blob: Blob) => {
+    setPhotos((current) => current.map((photo) => (
+      photo.id === id ? { ...photo, uploadStatus: 'uploading', uploadToken: undefined } : photo
+    )));
+    try {
+      const response = await mediaService.uploadRegistrationPhoto(blob);
+      if (!response?.data?.uploadToken) throw new Error('Upload token missing');
+      setPhotos((current) => current.map((photo) => (
+        photo.id === id
+          ? { ...photo, uploadStatus: 'uploaded', uploadToken: response.data.uploadToken }
+          : photo
+      )));
+    } catch {
+      setPhotos((current) => current.map((photo) => (
+        photo.id === id ? { ...photo, uploadStatus: 'failed', uploadToken: undefined } : photo
+      )));
+    }
+  };
+
+  const addDraftPhoto = (blob: Blob) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setPhotos((prev) => [...prev, { id, blob: croppedBlob, previewUrl: URL.createObjectURL(croppedBlob) }]);
+    setPhotos((prev) => [...prev, {
+      id,
+      blob,
+      previewUrl: URL.createObjectURL(blob),
+      uploadStatus: 'uploading',
+    }]);
+    void uploadDraftPhoto(id, blob);
+  };
+
+  const handleCropConfirm = (croppedBlob: Blob) => {
+    addDraftPhoto(croppedBlob);
+    advanceCropQueue(cropQueue.slice(1));
+  };
+
+  const handleUseOriginalPhoto = () => {
+    const originalBlob = cropQueue[0];
+    if (!originalBlob) return;
+    addDraftPhoto(originalBlob);
     advanceCropQueue(cropQueue.slice(1));
   };
 
@@ -279,58 +340,18 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
     });
   };
 
-  // --- Location ---
-  const requestLocation = async () => {
-    setErrorMsg('');
-    setLocationStatus('requesting');
-    try {
-      let permissionState: string = 'granted';
-      if (Capacitor.isNativePlatform()) {
-        const current = await Geolocation.checkPermissions();
-        permissionState = current.location;
-        if (permissionState !== 'granted') {
-          const requested = await Geolocation.requestPermissions();
-          permissionState = requested.location;
-        }
-      }
-
-      if (permissionState !== 'granted') {
-        if (deniedOnceRef.current) {
-          setLocationStatus('permanently_denied');
-        } else {
-          deniedOnceRef.current = true;
-          setLocationStatus('denied');
-        }
-        return;
-      }
-
-      setLocationStatus('resolving');
-      const position: any = await nativeLocation.getCurrentPosition({
-        enableHighAccuracy: false,
-        timeout: 15000,
-      });
-      const lat = position?.coords?.latitude;
-      const lng = position?.coords?.longitude;
-      if (lat == null || lng == null) throw new Error('no coords');
-      setCoords({ lat, lng });
-
-      const geo = await apiClient.post('/api/geo/reverse', { latitude: lat, longitude: lng }, { skipAuth: true });
-      setDistrict(geo?.data?.district || null);
-      setProvince(geo?.data?.province || null);
-      setLocationStatus('granted');
-    } catch {
-      setLocationStatus('error');
-    }
-  };
-
   // --- Final submit ---
   const handleCreateAccount = async () => {
     if (isSubmitting) return;
     setErrorMsg('');
     setIsSubmitting(true);
     try {
-      const cityLabel = district && province ? `${district}, ${province}` : province || undefined;
-
+      const photoUploadTokens = photos
+        .map((photo) => photo.uploadToken)
+        .filter((token): token is string => !!token);
+      if (photoUploadTokens.length < MIN_PHOTOS) {
+        throw new Error('Devam etmek için en az 2 profil fotoğrafı eklemelisin.');
+      }
       await register({
         email,
         password,
@@ -341,36 +362,9 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         targetGender,
         relationshipGoal,
         interests,
-        city: cityLabel,
-        latitude: coords?.lat,
-        longitude: coords?.lng,
+        photoUploadTokens,
       });
-
-      // Account now exists and the session is authenticated — upload queued photos right
-      // after, before entering the main app. Bio, languages, and smoking/drinking preferences
-      // are no longer collected here; they're filled in later from the Profile screen.
-      const uploadedUrls: string[] = [];
-      for (const photo of photos) {
-        try {
-          const res = await mediaService.uploadMedia(photo.blob, 'profile');
-          if (res?.data?.url) uploadedUrls.push(res.data.url);
-        } catch {
-          // A single failed photo shouldn't block entering the app with a real account.
-        }
-      }
-
-      if (uploadedUrls.length > 0) {
-        // The account already exists by this point (register() above succeeded) -- a failure
-        // here (most notably the face-photo gate rejecting every uploaded photo) must not be
-        // swallowed silently, or the user lands in the app with no saved photos and no idea
-        // why. It also isn't fatal to onboarding completion: the account is real either way,
-        // so this surfaces a toast and lets the user continue rather than blocking entry.
-        await apiClient.put('/api/profile', { photos: uploadedUrls }, { timeoutMs: 45000 }).catch((err: any) => {
-          toast.error(err?.message || 'Fotoğrafların kaydedilemedi. Profilinden tekrar deneyebilirsin.');
-        });
-      }
-
-      await fetchMe().catch(() => {});
+      await fetchMe();
       onComplete();
     } catch (err: any) {
       setErrorMsg(err.message || 'Kayıt tamamlanamadı.');
@@ -381,7 +375,10 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   const step = REGISTRATION_STEPS[stepIndex];
 
   return (
-    <div className="flex flex-col h-full w-full bg-app text-app relative overflow-hidden select-none">
+    <div
+      className="flex flex-col h-full min-h-0 w-full bg-app text-app relative overflow-hidden select-none"
+      onPointerDown={dismissKeyboardOnBackgroundPointerDown}
+    >
       <div className="absolute -top-32 -right-20 w-96 h-96 rounded-full bg-pink-500/10 blur-3xl pointer-events-none" />
       <div className="absolute top-1/3 -left-32 w-80 h-80 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
 
@@ -393,7 +390,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         </div>
       )}
 
-      <div className="flex-1 relative overflow-hidden">
+      <div className="flex-1 min-h-0 relative overflow-hidden">
         <AnimatePresence mode="wait">
           <motion.div
             key={step.id}
@@ -401,7 +398,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
             initial="initial"
             animate="animate"
             exit="exit"
-            className="absolute inset-0 flex flex-col justify-between p-6 z-10 overflow-y-auto no-scrollbar"
+            className="auth-keyboard-scroll absolute inset-0 flex flex-col justify-between p-6 z-10 overflow-y-auto no-scrollbar"
           >
             {/* BASIC: name, email, password */}
             {step.id === 'basic' && (
@@ -421,10 +418,19 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                     <User className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
                     <input
                       type="text"
+                      name="name"
                       required
+                      autoComplete="name"
+                      enterKeyHint="next"
                       placeholder="İsmin"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          emailInputRef.current?.focus();
+                        }
+                      }}
                       className={inputClass}
                     />
                   </div>
@@ -432,10 +438,23 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                     <Mail className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
                     <input
                       type="email"
+                      ref={emailInputRef}
+                      name="email"
                       required
+                      inputMode="email"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      autoComplete="email"
+                      enterKeyHint="next"
                       placeholder="E-posta Adresi"
                       value={email}
                       onChange={(e) => setEmail(e.target.value.trim())}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          passwordInputRef.current?.focus();
+                        }
+                      }}
                       className={inputClass}
                     />
                   </div>
@@ -443,8 +462,12 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                     <Lock className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
                     <input
                       type="password"
+                      ref={passwordInputRef}
+                      name="password"
                       required
                       minLength={6}
+                      autoComplete="new-password"
+                      enterKeyHint="done"
                       placeholder="Şifre"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
@@ -470,9 +493,6 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
               <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                 <div>
                   <h2 className="text-title text-app">Kullanıcı Adın</h2>
-                  <p className="text-caption text-app-muted mt-1 normal-case">
-                    E-postandan önerdik, istersen değiştirebilirsin.
-                  </p>
                 </div>
                 <form
                   onSubmit={(e) => {
@@ -486,8 +506,15 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                       <AtSign className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
                       <input
                         type="text"
+                        name="username"
                         required
                         autoFocus
+                        inputMode="text"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        autoComplete="username"
+                        enterKeyHint="next"
                         placeholder="Kullanıcı Adı"
                         value={username}
                         onChange={(e) => {
@@ -544,19 +571,50 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                   <h2 className="text-title text-app">Doğum Tarihin</h2>
                   <p className="text-caption text-app-muted mt-1 normal-case">Yaşın profilinde gösterilecek.</p>
                 </div>
-                <div className="relative">
-                  <Calendar className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
-                  <input
-                    type="date"
-                    required
-                    value={birthDate}
-                    onChange={(e) => setBirthDate(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-                <AppButton variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />} onClick={goNext}>
-                  Devam Et
-                </AppButton>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!birthDate) return;
+                    const age = computeAge(birthDate);
+                    if (age === null || age < MIN_REGISTRATION_AGE) {
+                      // Same message the server would otherwise return after a full submit --
+                      // shown immediately, before the user gets to the end of the wizard.
+                      const message = 'Kayıt olmak için en az 18 yaşında olmalısınız.';
+                      setBirthDateError(message);
+                      toast.error(message);
+                      return;
+                    }
+                    setBirthDateError('');
+                    goNext();
+                  }}
+                  className="space-y-4"
+                >
+                  <div className="relative">
+                    <Calendar className="absolute left-4 top-4 w-5 h-5 text-app-muted" />
+                    <input
+                      type="date"
+                      name="birthdate"
+                      required
+                      autoComplete="bday"
+                      enterKeyHint="next"
+                      value={birthDate}
+                      onChange={(e) => {
+                        setBirthDate(e.target.value);
+                        if (birthDateError) setBirthDateError('');
+                      }}
+                      aria-invalid={!!birthDateError}
+                      className={inputClass}
+                    />
+                  </div>
+                  {birthDateError && (
+                    <p role="alert" className="text-caption font-semibold text-[#FF4B55] normal-case">
+                      {birthDateError}
+                    </p>
+                  )}
+                  <AppButton type="submit" variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />}>
+                    Devam Et
+                  </AppButton>
+                </form>
               </div>
             )}
 
@@ -670,7 +728,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
               <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
                 <div>
                   <h2 className="text-title text-app">Fotoğraflarını Ekle</h2>
-                  <p className="text-caption text-app-muted mt-1 normal-case">En az bir fotoğraf ekleyerek profilini tamamla.</p>
+                  <p className="text-caption text-app-muted mt-1 normal-case">Devam etmek için en az 2 profil fotoğrafı eklemelisin.</p>
                 </div>
 
                 <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInputChange} />
@@ -678,6 +736,20 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                 <div className="grid grid-cols-3 gap-3">
                   {photos.map((photo) => (
                     <div key={photo.id} className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-input-app border border-app">
+                      {photo.uploadStatus === 'uploading' && (
+                        <div className="absolute inset-0 z-10 grid place-items-center bg-black/45">
+                          <Loader2 className="h-6 w-6 animate-spin text-white" />
+                        </div>
+                      )}
+                      {photo.uploadStatus === 'failed' && (
+                        <button
+                          type="button"
+                          onClick={() => void uploadDraftPhoto(photo.id, photo.blob)}
+                          className="absolute inset-x-2 bottom-2 z-10 rounded-xl bg-black/70 px-2 py-1.5 text-micro font-bold text-white"
+                        >
+                          Tekrar Yükle
+                        </button>
+                      )}
                       <img src={photo.previewUrl} alt="Profil fotoğrafı" className="w-full h-full object-cover" />
                       <button
                         type="button"
@@ -703,78 +775,11 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                   )}
                 </div>
 
-                <AppButton variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />} disabled={photos.length === 0} onClick={goNext}>
-                  Devam Et
-                </AppButton>
-              </div>
-            )}
-
-            {/* LOCATION */}
-            {step.id === 'location' && (
-              <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
-                <div>
-                  <h2 className="text-title text-app">Neredesin?</h2>
-                  <p className="text-caption text-app-muted mt-1 normal-case">
-                    Yakınındaki kişileri gösterebilmemiz için konumuna ihtiyacımız var.
-                  </p>
-                </div>
-
-                {locationStatus === 'granted' && district && province ? (
-                  <div className="flex items-center gap-3 p-4 rounded-2xl border border-app bg-surface">
-                    <MapPin className="w-5 h-5 text-pink-500 shrink-0" />
-                    <p className="text-body font-bold text-app">{district}, {province}</p>
-                  </div>
-                ) : locationStatus === 'granted' && province ? (
-                  <div className="flex items-center gap-3 p-4 rounded-2xl border border-app bg-surface">
-                    <MapPin className="w-5 h-5 text-pink-500 shrink-0" />
-                    <p className="text-body font-bold text-app">{province}</p>
-                  </div>
-                ) : locationStatus === 'requesting' || locationStatus === 'resolving' ? (
-                  <div className="flex items-center gap-3 p-4 rounded-2xl border border-app bg-surface">
-                    <Loader2 className="w-5 h-5 text-app-muted animate-spin shrink-0" />
-                    <p className="text-body font-semibold text-app-muted">Konumun belirleniyor...</p>
-                  </div>
-                ) : locationStatus === 'denied' ? (
-                  <div className="space-y-3">
-                    <p className="text-caption text-red-500 font-semibold normal-case">
-                      Konum izni verilmedi. Yakınındaki kişileri gösterebilmemiz için gerekli.
-                    </p>
-                    <AppButton variant="secondary" size="lg" fullWidth onClick={requestLocation}>
-                      Tekrar İzin Ver
-                    </AppButton>
-                  </div>
-                ) : locationStatus === 'permanently_denied' ? (
-                  <div className="space-y-3">
-                    <p className="text-caption text-red-500 font-semibold normal-case">
-                      Konum izni kapalı. Ayarlardan izin vermen gerekiyor.
-                    </p>
-                    <AppButton variant="secondary" size="lg" fullWidth onClick={() => nativeAppSettings.open()}>
-                      Ayarları Aç
-                    </AppButton>
-                  </div>
-                ) : locationStatus === 'error' ? (
-                  <div className="space-y-3">
-                    <p className="text-caption text-red-500 font-semibold normal-case">Konumun belirlenemedi.</p>
-                    <AppButton variant="secondary" size="lg" fullWidth onClick={requestLocation}>
-                      Tekrar Dene
-                    </AppButton>
-                  </div>
-                ) : (
-                  <AppButton variant="primary" size="lg" fullWidth onClick={requestLocation}>
-                    Konumumu Kullan
-                  </AppButton>
-                )}
-
-                <AppButton
-                  type="button"
-                  variant="primary"
-                  size="lg"
-                  fullWidth
-                  disabled={locationStatus !== 'granted'}
-                  loading={isSubmitting}
-                  onClick={handleCreateAccount}
-                >
-                  {isSubmitting ? 'Hesabın oluşturuluyor...' : 'Hesabı Oluştur'}
+                <p className={`text-micro normal-case ${uploadedPhotoCount >= MIN_PHOTOS ? 'text-[#32D583]' : 'text-app-muted'}`}>
+                  {uploadedPhotoCount}/{MIN_PHOTOS} fotoğraf yüklendi
+                </p>
+                <AppButton variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />} disabled={uploadedPhotoCount < MIN_PHOTOS} loading={isSubmitting} onClick={handleCreateAccount}>
+                  {isSubmitting ? 'Hesabın oluşturuluyor...' : 'Devam Et'}
                 </AppButton>
               </div>
             )}
@@ -792,7 +797,14 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         ]}
       />
 
-      {cropSource && <PhotoCropScreen imageSrc={cropSource} onConfirm={handleCropConfirm} onCancel={handleCropCancel} />}
+      {cropSource && (
+        <PhotoCropScreen
+          imageSrc={cropSource}
+          onConfirm={handleCropConfirm}
+          onUseOriginal={handleUseOriginalPhoto}
+          onCancel={handleCropCancel}
+        />
+      )}
     </div>
   );
 };

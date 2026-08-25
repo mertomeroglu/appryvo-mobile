@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "project": {
+    "name": "mobile-capacitor",
+    "productType": null,
+    "stack": [
+      "react",
+      "tailwind-v4",
+      "vite"
+    ]
+  },
+  "sources": {
+    "tokens": [],
+    "components": [
+      "src/components/ui"
+    ],
+    "assets": [
+      "public/assets"
+    ],
+    "instructions": []
+  },
+  "design": {
+    "colorMode": "unknown",
+    "colors": {},
+    "typography": {},
+    "spacing": {},
+    "radius": {},
+    "shadows": {},
+    "motion": {},
+    "density": "unknown"
+  },
+  "components": {
+    "installed": [
+      "ActionSheet",
+      "AppButton",
+      "AppLogo",
+      "Avatar",
+      "Badge",
+      "BottomSheet",
+      "Chip",
+      "CountryFlagBadge",
+      "DualRangeSlider",
+      "EmptyState",
+      "ErrorState",
+      "FramedAvatar",
+      "IconButton",
+      "LoadingState",
+      "Modal",
+      "NoInternetState",
+      "PermissionDeniedState",
+      "PhotoCropScreen",
+      "profileFrameGeometry",
+      "ScreenHeader",
+      "Skeleton",
+      "SplashScreen",
+      "Surface",
+      "Toast"
+    ],
+    "preferredPrimitives": [],
+    "patterns": []
+  },
+  "constraints": {
+    "must": [
+      "Use existing Ryvo pink, violet, gold, surface, radius, and motion tokens",
+      "Show only native storefront localized real-money prices",
+      "Keep gift artwork catalogue-driven and replaceable without business-logic changes"
+    ],
+    "avoid": [
+      "TikTok branding or copied gift artwork",
+      "Continuous animation on historical gift messages",
+      "Decorative complexity that slows chat scrolling"
+    ]
+  },
+  "decisions": [
+    {
+      "id": "ryvo-coins-gifts-2026-08",
+      "decision": "Use compact three-column gift tiles, an existing BottomSheet hierarchy, a gold balance surface, and separate branded gift cards instead of ordinary text bubbles.",
+      "reason": "Matches Ryvo's established mobile density and tokens while keeping selection, balance, and send actions legible in one-handed chat use."
+    },
+    {
+      "id": "ryvo-modern-messaging-2026-08",
+      "decision": "Adapt the 21st Messaging Conversation structure into Ryvo's full-screen ChatScreen using grouped content-width bubbles, mobile ActionSheets, embedded reply previews, and the same read-only bubble renderer for the official Ryvo thread.",
+      "reason": "Keeps the selected 21st conversation rhythm while preserving Ryvo tokens, realtime/media/gift behavior, one-handed actions, and Android scrolling performance without retaining demo primitives or a second color system."
+    }
+  ],
+  "evidence": [
+    {
+      "fact": "components.installed",
+      "source": "src/components/ui"
+    },
+    {
+      "fact": "project.stack:react",
+      "source": "package.json"
+    },
+    {
+      "fact": "project.stack:tailwind-v4",
+      "source": "package.json"
+    },
+    {
+      "fact": "project.stack:vite",
+      "source": "package.json"
+    }
+  ],
+  "generatedAt": "2026-08-22T21:39:59.036Z"
+}

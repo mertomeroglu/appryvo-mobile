@@ -19,6 +19,9 @@ public class MainActivity extends BridgeActivity {
         // splash. Skip the animation and remove it the instant the library considers it safe to.
         splashScreen.setOnExitAnimationListener(splashScreenView -> splashScreenView.remove());
 
+        // Must be registered before super.onCreate() per Capacitor's plugin registration contract.
+        registerPlugin(CallAudioPlugin.class);
+
         super.onCreate(savedInstanceState);
     }
 }

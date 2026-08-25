@@ -1,0 +1,320 @@
+{
+  "startedAt": "2026-08-24T01:54:33.949Z",
+  "setup": {
+    "profilePhotosA": 2,
+    "profilePhotosB": 2,
+    "discoveryAtoB": true,
+    "discoveryBtoA": true,
+    "discoveryAlgorithmA": "RYVO_DISCOVERY_V1",
+    "discoveryAlgorithmB": "RYVO_DISCOVERY_V1",
+    "superLikeEntitled": false,
+    "superLikeRejectionCode": "SUPERLIKE_QUOTA_EXHAUSTED"
+  },
+  "runtime": {
+    "resumedExistingControlledMatch": true,
+    "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+    "duplicateMatches": 0,
+    "presence": true,
+    "unreadIncrement": true,
+    "typing": true,
+    "readReceipt": true,
+    "unreadClear": true,
+    "reply": true,
+    "edit": true,
+    "delete": true,
+    "translation": true,
+    "translationTarget": "tr",
+    "history": true,
+    "reconnect": true,
+    "passIdempotent": true
+  },
+  "sockets": {
+    "A": {
+      "name": "A",
+      "connectCount": 2,
+      "disconnectCount": 1,
+      "matchNew": [],
+      "messages": [
+        "6b93a3d8-5955-4fdf-90f2-e90081713a5d",
+        "df378ce7-7415-4679-a43d-e8216ae9ad96",
+        "f8acdf6c-c11a-4386-a478-ee102fee941d",
+        "94fb089f-ab00-4c99-93a3-7b8680e9f793",
+        "bf25eac3-0f71-4bb0-93db-9e250d0bf902",
+        "7533551c-3f05-4a92-81c0-b11b46bb1f6f",
+        "80b017a0-e111-4bbd-b345-8380524374fd",
+        "e0fa5d1d-d79f-4768-92a0-47dd532dde20",
+        "6f17a7cc-e245-47e6-aced-6712b4a8fdc6"
+      ],
+      "typingStart": [],
+      "typingStop": [],
+      "reads": [
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:39.776Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "2be442a6-f3fe-422a-91de-4b8b81b41924",
+          "readAt": "2026-08-24T01:54:39.962Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "2be442a6-f3fe-422a-91de-4b8b81b41924",
+          "readAt": "2026-08-24T01:54:40.051Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:40.522Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:40.591Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:40.678Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:41.067Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:42.532Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:44.024Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:44.082Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:44.338Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:46.172Z"
+        }
+      ],
+      "presence": [
+        {
+          "targetUserId": "2be442a6-f3fe-422a-91de-4b8b81b41924",
+          "isOnline": true,
+          "lastActiveAt": null
+        }
+      ],
+      "edits": [
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "messageId": "f8acdf6c-c11a-4386-a478-ee102fee941d",
+          "text": "Bu düzenlenmiş kontrollü yanıttır",
+          "isEdited": true,
+          "editedAt": "2026-08-24T01:54:40.745Z"
+        }
+      ],
+      "deletes": [
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "messageId": "f8acdf6c-c11a-4386-a478-ee102fee941d",
+          "isDeleted": true,
+          "text": "Bu mesaj silindi."
+        }
+      ],
+      "translations": [
+        {
+          "messageId": "6f17a7cc-e245-47e6-aced-6712b4a8fdc6",
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "targetLanguage": "tr",
+          "translatedText": "Yeniden bağlantı odası rejoin probe",
+          "detectedLanguage": "en"
+        }
+      ],
+      "errors": []
+    },
+    "B": {
+      "name": "B",
+      "connectCount": 1,
+      "disconnectCount": 0,
+      "matchNew": [],
+      "messages": [
+        "6b93a3d8-5955-4fdf-90f2-e90081713a5d",
+        "df378ce7-7415-4679-a43d-e8216ae9ad96",
+        "f8acdf6c-c11a-4386-a478-ee102fee941d",
+        "94fb089f-ab00-4c99-93a3-7b8680e9f793",
+        "bf25eac3-0f71-4bb0-93db-9e250d0bf902",
+        "7533551c-3f05-4a92-81c0-b11b46bb1f6f",
+        "80b017a0-e111-4bbd-b345-8380524374fd",
+        "e0fa5d1d-d79f-4768-92a0-47dd532dde20",
+        "6f17a7cc-e245-47e6-aced-6712b4a8fdc6"
+      ],
+      "typingStart": [
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "userId": "0db57f58-dba4-48c6-b334-4cf49ba896e6"
+        }
+      ],
+      "typingStop": [
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "userId": "0db57f58-dba4-48c6-b334-4cf49ba896e6"
+        }
+      ],
+      "reads": [
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:39.776Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "2be442a6-f3fe-422a-91de-4b8b81b41924",
+          "readAt": "2026-08-24T01:54:39.962Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "2be442a6-f3fe-422a-91de-4b8b81b41924",
+          "readAt": "2026-08-24T01:54:40.051Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:40.522Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:40.591Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:40.678Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:41.067Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:42.532Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:44.024Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:44.082Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:44.338Z"
+        },
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "readBy": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "readAt": "2026-08-24T01:54:46.172Z"
+        }
+      ],
+      "presence": [
+        {
+          "targetUserId": "0db57f58-dba4-48c6-b334-4cf49ba896e6",
+          "isOnline": true,
+          "lastActiveAt": null
+        }
+      ],
+      "edits": [
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "messageId": "f8acdf6c-c11a-4386-a478-ee102fee941d",
+          "text": "Bu düzenlenmiş kontrollü yanıttır",
+          "isEdited": true,
+          "editedAt": "2026-08-24T01:54:40.745Z"
+        }
+      ],
+      "deletes": [
+        {
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "messageId": "f8acdf6c-c11a-4386-a478-ee102fee941d",
+          "isDeleted": true,
+          "text": "Bu mesaj silindi."
+        }
+      ],
+      "translations": [
+        {
+          "messageId": "6b93a3d8-5955-4fdf-90f2-e90081713a5d",
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "targetLanguage": "tr",
+          "translatedText": "Merhaba kontrollü QA A",
+          "detectedLanguage": "en"
+        },
+        {
+          "messageId": "94fb089f-ab00-4c99-93a3-7b8680e9f793",
+          "matchId": "3b307e1f-2f22-48b5-b22a-3bb1cbdcffd6",
+          "targetLanguage": "tr",
+          "translatedText": "İyi sabah, bu yetkili bir çeviri testi.",
+          "detectedLanguage": "en"
+        }
+      ],
+      "errors": []
+    }
+  },
+  "media": {
+    "image": {
+      "beforeReference": {
+        "status": 403,
+        "contentType": "application/json; charset=utf-8",
+        "bytes": 76
+      },
+      "recipient": {
+        "status": 200,
+        "contentType": "image/png",
+        "bytes": 2080166
+      },
+      "owner": {
+        "status": 200,
+        "contentType": "image/png",
+        "bytes": 2080166
+      },
+      "anonymous": {
+        "status": 401,
+        "contentType": "application/json; charset=utf-8",
+        "bytes": 59
+      }
+    },
+    "gif": {
+      "status": 200,
+      "contentType": "image/gif",
+      "bytes": 27507
+    },
+    "audio": {
+      "status": 200,
+      "contentType": "audio/webm",
+      "bytes": 9122
+    },
+    "video": {
+      "status": 200,
+      "contentType": "video/mp4",
+      "bytes": 1946
+    }
+  },
+  "completedAt": "2026-08-24T01:54:43.625Z"
+}

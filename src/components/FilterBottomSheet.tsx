@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Check, ShieldCheck, Sparkles, SlidersHorizontal, X, Zap } from 'lucide-react';
-import { useMeQuery, useUpdateProfileMutation } from '../hooks/useQueries';
+import { Check, Crown, LockKeyhole, MapPin, ShieldCheck, Sparkles, SlidersHorizontal, X, Zap } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useEntitlementsQuery, useMeQuery, useUpdateProfileMutation } from '../hooks/useQueries';
 import { RELATIONSHIP_GOAL_LABELS } from '../lib/profileLabels';
 import { BottomSheet } from './ui/BottomSheet';
 import { AppButton } from './ui/AppButton';
@@ -29,22 +30,31 @@ const ToggleChip: React.FC<{
   label: string;
   active: boolean;
   onClick: () => void;
-}> = ({ icon, label, active, onClick }) => (
+  locked?: boolean;
+}> = ({ icon, label, active, onClick, locked = false }) => (
   <button
+    type="button"
     onClick={onClick}
+    aria-pressed={locked ? undefined : active}
+    aria-label={locked ? `${label}, Ryvo Plus veya Gold gerekli` : label}
     className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-caption font-bold transition-colors ${
-      active ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app-muted'
+      locked
+        ? 'border-gold/35 bg-gold/5 text-app-muted'
+        : active ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app-muted'
     }`}
   >
     {icon}
     <span>{label}</span>
-    {active && <Check className="w-3.5 h-3.5 ml-auto shrink-0" />}
+    {locked ? <LockKeyhole className="ml-auto h-3.5 w-3.5 shrink-0 text-gold" /> : active && <Check className="w-3.5 h-3.5 ml-auto shrink-0" />}
   </button>
 );
 
 export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, onClose, onApplied }) => {
+  const navigate = useNavigate();
   const { data: me } = useMeQuery();
+  const { data: entitlements } = useEntitlementsQuery();
   const updateProfile = useUpdateProfileMutation();
+  const hasAdvancedFilters = entitlements?.advancedFilters === true;
 
   const [maxDistance, setMaxDistance] = useState(DEFAULTS.maxDistance);
   const [minAge, setMinAge] = useState(DEFAULTS.minAge);
@@ -61,13 +71,20 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
   useEffect(() => {
     if (!me) return;
     setMaxDistance(me.maxDistancePref ?? DEFAULTS.maxDistance);
-    setMinAge(me.minAgePref ?? DEFAULTS.minAge);
-    setMaxAge(me.maxAgePref ?? DEFAULTS.maxAge);
-    setVerifiedOnly(me.verifiedOnlyPref ?? DEFAULTS.verifiedOnly);
-    setRecentlyActive(me.recentlyActivePref ?? DEFAULTS.recentlyActive);
-    setNewMembers(me.newMembersPref ?? DEFAULTS.newMembers);
-    setRelationshipGoal(me.discoveryRelationshipGoalPref ?? DEFAULTS.relationshipGoal);
-  }, [me]);
+    const savedMinAge = Math.max(18, Math.min(99, me.minAgePref ?? DEFAULTS.minAge));
+    const savedMaxAge = Math.max(savedMinAge, Math.min(99, me.maxAgePref ?? DEFAULTS.maxAge));
+    setMinAge(savedMinAge);
+    setMaxAge(savedMaxAge);
+    setVerifiedOnly(hasAdvancedFilters ? me.verifiedOnlyPref ?? DEFAULTS.verifiedOnly : false);
+    setRecentlyActive(hasAdvancedFilters ? me.recentlyActivePref ?? DEFAULTS.recentlyActive : false);
+    setNewMembers(hasAdvancedFilters ? me.newMembersPref ?? DEFAULTS.newMembers : false);
+    setRelationshipGoal(hasAdvancedFilters ? me.discoveryRelationshipGoalPref ?? DEFAULTS.relationshipGoal : null);
+  }, [hasAdvancedFilters, me]);
+
+  const openPremiumUpsell = () => {
+    onClose();
+    navigate('/premium');
+  };
 
   const handleApply = async () => {
     setErrorMsg('');
@@ -76,10 +93,10 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
         minAgePref: minAge,
         maxAgePref: maxAge,
         maxDistancePref: maxDistance,
-        verifiedOnlyPref: verifiedOnly,
-        recentlyActivePref: recentlyActive,
-        newMembersPref: newMembers,
-        discoveryRelationshipGoalPref: relationshipGoal,
+        verifiedOnlyPref: hasAdvancedFilters ? verifiedOnly : false,
+        recentlyActivePref: hasAdvancedFilters ? recentlyActive : false,
+        newMembersPref: hasAdvancedFilters ? newMembers : false,
+        discoveryRelationshipGoalPref: hasAdvancedFilters ? relationshipGoal : null,
       });
       onApplied();
       onClose();
@@ -125,57 +142,76 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
             onChange={(e) => setMaxDistance(Number(e.target.value))}
             className="w-full accent-pink-500"
           />
+          <div className="flex items-center gap-1.5 text-micro font-semibold normal-case text-app-muted">
+            <MapPin className="h-3.5 w-3.5 shrink-0" />
+            <span>Mesafe, Keşfet'teki doğrulanmış güncel cihaz konumuna göre uygulanır.</span>
+          </div>
         </div>
 
         {/* Age range */}
-        <DualRangeSlider min={18} max={80} valueMin={minAge} valueMax={maxAge} onChange={(a, b) => { setMinAge(a); setMaxAge(b); }} />
+        <DualRangeSlider min={18} max={99} valueMin={minAge} valueMax={maxAge} onChange={(a, b) => { setMinAge(a); setMaxAge(b); }} />
 
-        {/* Real backend-enforced discovery filters */}
+        {/* Paid, server-enforced discovery filters. Base age/distance remain free. */}
         <div className="space-y-2">
-          <span className="text-caption font-semibold text-app-muted">Kime Öncelik Verelim</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-caption font-semibold text-app-muted">Gelişmiş Filtreler</span>
+            {!hasAdvancedFilters && (
+              <button type="button" onClick={openPremiumUpsell} className="inline-flex items-center gap-1 rounded-full bg-gold/15 px-2.5 py-1 text-micro font-extrabold text-gold">
+                <Crown className="h-3.5 w-3.5" /> Ryvo Plus &amp; Gold
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-1 gap-2">
             <ToggleChip
               icon={<ShieldCheck className="w-4 h-4" />}
               label="Sadece doğrulanmış profiller"
               active={verifiedOnly}
-              onClick={() => setVerifiedOnly((v) => !v)}
+              locked={!hasAdvancedFilters}
+              onClick={hasAdvancedFilters ? () => setVerifiedOnly((v) => !v) : openPremiumUpsell}
             />
             <ToggleChip
               icon={<Zap className="w-4 h-4" />}
               label="Şu an aktif olanlar"
               active={recentlyActive}
-              onClick={() => setRecentlyActive((v) => !v)}
+              locked={!hasAdvancedFilters}
+              onClick={hasAdvancedFilters ? () => setRecentlyActive((v) => !v) : openPremiumUpsell}
             />
             <ToggleChip
               icon={<Sparkles className="w-4 h-4" />}
               label="Yeni üyeler"
               active={newMembers}
-              onClick={() => setNewMembers((v) => !v)}
+              locked={!hasAdvancedFilters}
+              onClick={hasAdvancedFilters ? () => setNewMembers((v) => !v) : openPremiumUpsell}
             />
           </div>
         </div>
 
         {/* Relationship goal */}
         <div className="space-y-2">
-          <span className="text-caption font-semibold text-app-muted">İlişki Hedefi</span>
+          <div className="flex items-center justify-between">
+            <span className="text-caption font-semibold text-app-muted">İlişki Hedefi</span>
+            {!hasAdvancedFilters && <LockKeyhole className="h-3.5 w-3.5 text-gold" />}
+          </div>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => setRelationshipGoal(null)}
+              type="button"
+              onClick={hasAdvancedFilters ? () => setRelationshipGoal(null) : openPremiumUpsell}
               className={`px-3.5 py-2 rounded-xl border text-caption font-bold ${
-                relationshipGoal === null ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app-muted'
+                !hasAdvancedFilters ? 'border-gold/35 bg-gold/5 text-app-muted' : relationshipGoal === null ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app-muted'
               }`}
             >
-              Fark etmez
+              Fark etmez {!hasAdvancedFilters && <LockKeyhole className="ml-1 inline h-3 w-3 text-gold" />}
             </button>
             {Object.entries(RELATIONSHIP_GOAL_LABELS).map(([key, label]) => (
               <button
                 key={key}
-                onClick={() => setRelationshipGoal(key)}
+                type="button"
+                onClick={hasAdvancedFilters ? () => setRelationshipGoal(key) : openPremiumUpsell}
                 className={`px-3.5 py-2 rounded-xl border text-caption font-bold ${
-                  relationshipGoal === key ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app-muted'
+                  !hasAdvancedFilters ? 'border-gold/35 bg-gold/5 text-app-muted' : relationshipGoal === key ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app-muted'
                 }`}
               >
-                {label}
+                {label} {!hasAdvancedFilters && <LockKeyhole className="ml-1 inline h-3 w-3 text-gold" />}
               </button>
             ))}
           </div>

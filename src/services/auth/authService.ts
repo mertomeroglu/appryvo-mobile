@@ -1,5 +1,6 @@
 import { apiClient } from '../api/apiClient';
 import { secureStorage } from '../../native/secureStorage';
+import { pushRegistrationService } from '../push/pushRegistrationService';
 
 export interface RegisterPayload {
   email: string;
@@ -16,6 +17,7 @@ export interface RegisterPayload {
   relationshipGoal?: string;
   latitude?: number;
   longitude?: number;
+  photoUploadTokens: string[];
 }
 
 export interface LoginPayload {
@@ -55,6 +57,11 @@ export const authService = {
 
   async getCurrentUser() {
     const res = await apiClient.get('/api/me');
+    const accountStatus = res?.data?.status?.toUpperCase();
+    if (accountStatus === 'SUSPENDED' || accountStatus === 'BANNED') {
+      await secureStorage.clearAll();
+      throw new Error(accountStatus === 'SUSPENDED' ? 'Hesabın askıya alındı.' : 'Hesabın devre dışı bırakıldı.');
+    }
     if (res?.status === 'success' && res?.data) {
       await secureStorage.setUserData(res.data);
     }
@@ -62,16 +69,18 @@ export const authService = {
   },
 
   async logout() {
+    const pushToken = await pushRegistrationService.getCurrentToken();
     try {
-      // Deactivate every push token registered for this session before the access token
-      // (needed to authenticate this very call) is cleared below -- otherwise a logged-out
-      // device keeps receiving this account's pushes until the next login overwrites the row.
-      await apiClient.delete('/api/devices/push-token').catch(() => {});
+      // Deactivate only this physical device. Other phones/tablets owned by the same user
+      // remain valid. The auth logout receives the same token as a fallback if this first
+      // request is interrupted between the two calls.
+      if (pushToken) await apiClient.delete('/api/devices/push-token', { token: pushToken }).catch(() => {});
       const refreshToken = await secureStorage.getRefreshToken();
-      await apiClient.post('/api/auth/logout', { refreshToken });
+      await apiClient.post('/api/auth/logout', { refreshToken, pushToken });
     } catch {
       // Ignore logout request failure
     } finally {
+      await pushRegistrationService.clearAssociation();
       await secureStorage.clearAll();
     }
   },

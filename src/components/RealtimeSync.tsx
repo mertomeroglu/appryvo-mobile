@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { Capacitor } from '@capacitor/core';
 import type { ActionPerformed, PushNotificationSchema } from '@capacitor/push-notifications';
 import { socketService } from '../services/socket/socketService';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -10,6 +11,12 @@ import { toast } from '../stores/useToastStore';
 import { apiClient } from '../services/api/apiClient';
 import { nativePush } from '../native/push';
 import { QUERY_KEYS } from '../hooks/useQueries';
+import { useCallStore } from '../stores/useCallStore';
+import { nativeHaptics } from '../native/haptics';
+import { pushRegistrationService } from '../services/push/pushRegistrationService';
+import { resolvePushDestination, shouldSuppressForegroundPush, resolveDeepLinkDestination } from '../services/push/pushRouting';
+import { nativeDeepLinks } from '../native/deepLinks';
+import { crashReporting } from '../native/crashReporting';
 
 const DEBUG = import.meta.env.DEV;
 const logLive = (...args: unknown[]) => {
@@ -38,10 +45,11 @@ export const RealtimeSync: React.FC = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const authenticatedUserId = useAuthStore((s) => s.user?.id || null);
   const isForeground = useAppLifecycleStore((s) => s.isForeground);
   const wasForegroundRef = useRef(isForeground);
-  const pushRegisteredRef = useRef(false);
   const hasConnectedBeforeRef = useRef(false);
+  const seenOfficialDeliveryIdsRef = useRef(new Set<string>());
 
   const reconcileProfile = async () => {
     const freshUser = await useAuthStore.getState().fetchMe().catch(() => null);
@@ -63,16 +71,16 @@ export const RealtimeSync: React.FC = () => {
       // separate signals for the two.
       if (hasConnectedBeforeRef.current) {
         logLive('socket-reconnected');
+        reconcileProfile();
       } else {
         hasConnectedBeforeRef.current = true;
         logLive('socket-connected');
       }
-      // Either way our own state may have drifted (missed events) while disconnected.
-      reconcileProfile();
       apiClient
         .get('/api/matches/unread-count')
         .then((res) => useUiStore.getState().setUnreadCount(res?.data?.unreadCount ?? 0))
         .catch(() => {});
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
     });
     const offDisconnect = socketService.on('disconnect', (reason: string) => logLive('socket-disconnected', reason));
 
@@ -83,8 +91,19 @@ export const RealtimeSync: React.FC = () => {
 
     const offNotification = socketService.on('notification:new', (payload: any) => {
       logLive('event-received notification:new', payload);
-      toast.show(payload?.title || payload?.body || 'Yeni bildirim', 'neutral');
+      const deliveryId = String(payload?.id || '');
+      if (!deliveryId || !seenOfficialDeliveryIdsRef.current.has(deliveryId)) {
+        if (deliveryId) seenOfficialDeliveryIdsRef.current.add(deliveryId);
+        toast.show(payload?.title || payload?.body || 'Yeni bildirim', 'neutral');
+      }
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications });
+    });
+
+    const offAccountStatus = socketService.on('account:status', (payload: { status?: string }) => {
+      const status = payload?.status?.toUpperCase();
+      if (status !== 'SUSPENDED' && status !== 'BANNED') return;
+      toast.error(status === 'SUSPENDED' ? 'Hesabın askıya alındı.' : 'Hesabın devre dışı bırakıldı.');
+      void useAuthStore.getState().logout().finally(() => navigate('/auth', { replace: true }));
     });
 
     // Aggregate unread message count, pushed on every new message and every read-receipt --
@@ -93,12 +112,82 @@ export const RealtimeSync: React.FC = () => {
       useUiStore.getState().setUnreadCount(payload?.totalUnread ?? 0);
     });
 
+    // Match creation used to rely on the liker screen's local mutation invalidation. That left
+    // the other person with a stale Messages list until a resume/manual refresh. The server now
+    // emits match:new to both user rooms; keep the root cache current even when Messages is not
+    // mounted yet.
+    const offNewMatch = socketService.on('match:new', () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.inboundLikes });
+    });
+
+    const offMatchUpdated = socketService.on('match:updated', (payload: {
+      matchId?: string;
+      lastMessage?: string;
+      lastMessageTime?: string;
+      unreadCount?: number;
+    }) => {
+      if (!payload?.matchId) return;
+      let found = false;
+      queryClient.setQueryData<any[]>(QUERY_KEYS.matches, (current) => {
+        if (!Array.isArray(current)) return current;
+        const next = current.map((match) => {
+          if (match.id !== payload.matchId) return match;
+          found = true;
+          return {
+            ...match,
+            ...(payload.lastMessage !== undefined ? { lastMessage: payload.lastMessage, last_message: payload.lastMessage } : {}),
+            ...(payload.lastMessageTime !== undefined ? { lastMessageTime: payload.lastMessageTime, last_message_time: payload.lastMessageTime } : {}),
+            ...(payload.unreadCount !== undefined ? { unreadCount: payload.unreadCount, unread_count: payload.unreadCount } : {}),
+          };
+        });
+        return next.sort((a, b) => {
+          const aTime = new Date(a.lastMessageTime || a.created_at || 0).getTime();
+          const bTime = new Date(b.lastMessageTime || b.created_at || 0).getTime();
+          return bTime - aTime;
+        });
+      });
+      if (!found) queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
+    });
+
+    const offMatchRemoved = socketService.on('match:removed', (payload: { matchId?: string }) => {
+      if (!payload?.matchId) return;
+      queryClient.setQueryData<any[]>(QUERY_KEYS.matches, (current) => (
+        Array.isArray(current) ? current.filter((match) => (match.id || match.match_id) !== payload.matchId) : current
+      ));
+      queryClient.removeQueries({ queryKey: QUERY_KEYS.messages(payload.matchId) });
+      queryClient.invalidateQueries({ queryKey: ['matches', 'unread-count'] });
+      if (window.location.pathname === `/chat/${payload.matchId}`) {
+        toast.show('Bu eşleşme kaldırıldı.', 'neutral');
+        navigate('/messages', { replace: true });
+      }
+    });
+
+    const offIncomingCall = socketService.on('call:incoming', (data: any) => {
+      nativeHaptics.impact();
+      useCallStore.getState().startCall({
+        callId: data.callId,
+        matchId: data.matchId,
+        targetUserId: data.callerUid,
+        targetUserName: data.callerName || 'Arayan Kişi',
+        type: data.type || 'voice',
+        status: 'RINGING',
+        direction: 'incoming',
+        offer: data.offer,
+      });
+    });
+
     return () => {
       offConnect();
       offDisconnect();
       offUserUpdated();
       offNotification();
+      offAccountStatus();
       offUnreadCount();
+      offNewMatch();
+      offMatchUpdated();
+      offMatchRemoved();
+      offIncomingCall();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
@@ -120,47 +209,91 @@ export const RealtimeSync: React.FC = () => {
       logLive('query-invalidated', QUERY_KEYS.inboundLikes.join('.'));
       queryClient.invalidateQueries({ queryKey: ['discovery', 'likes', 'unread-count'] });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications });
+      if (authenticatedUserId) {
+        pushRegistrationService.ensureCurrentUser(authenticatedUserId)
+          .then((synced) => logPush(synced ? 'token-resynced-on-resume' : 'token-sync-current'))
+          .catch((error) => console.warn('[RYVO_PUSH] resume token sync failed', error?.message || error));
+      }
       logApp('reconciliation-finished');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isForeground, isAuthenticated]);
+  }, [isForeground, isAuthenticated, authenticatedUserId]);
 
   // Push notification registration (permission, token, foreground receive, tap navigation).
   useEffect(() => {
-    if (!isAuthenticated || pushRegisteredRef.current) return;
-    pushRegisteredRef.current = true;
+    if (!isAuthenticated || !authenticatedUserId) return;
 
-    nativePush.register(
-      (token) => {
-        logPush('token-registered');
-        apiClient.post('/api/devices/push-token', { token, platform: 'android' }).catch(() => {});
+    // A cached native token is re-associated immediately when the account changes. Calling
+    // register() below then confirms the current FCM/APNs token and handles token rotation.
+    pushRegistrationService.ensureCurrentUser(authenticatedUserId)
+      .then((synced) => logPush(synced ? 'cached-token-associated' : 'cached-token-current'))
+      .catch((error) => console.warn('[RYVO_PUSH] cached token sync failed', error?.message || error));
+
+    void nativePush.register(
+      async (token) => {
+        const platform = Capacitor.getPlatform();
+        if (platform !== 'android' && platform !== 'ios') return;
+
+        logPush('registration-event', platform);
+        try {
+          const synced = await pushRegistrationService.registerToken(token, platform, authenticatedUserId);
+          logPush(synced ? 'token-associated' : 'token-already-current');
+        } catch (error: any) {
+          // Do not log the token. Keeping the failure visible is essential; the old silent
+          // catch made production registration failures indistinguishable from no event.
+          console.warn('[RYVO_PUSH] token association failed', error?.message || error);
+        }
       },
       (action: ActionPerformed) => {
         const data: any = action?.notification?.data || {};
-        if (data.type === 'chat' && data.matchId) {
-          navigate(`/chat/${data.matchId}`);
-        } else if (
-          data.type === 'moderator_message' ||
-          data.type === 'VERIFICATION_APPROVED' ||
-          data.type === 'VERIFICATION_REJECTED'
-        ) {
-          navigate('/profile');
-        } else if (data.type === 'incoming_call' || data.type === 'missed_call') {
-          navigate('/messages');
-        }
+        const destination = resolvePushDestination(data);
+        if (destination) navigate(destination);
       },
       (notification: PushNotificationSchema) => {
         logPush('foreground-received');
-        const title = notification.title || (notification.data as any)?.title;
-        const body = notification.body || (notification.data as any)?.body;
-        if (title || body) toast.show([title, body].filter(Boolean).join(': '), 'neutral');
+        const data = (notification.data || {}) as Record<string, unknown>;
+        const title = notification.title || data.title;
+        const body = notification.body || data.body;
+        const deliveryId = String(data.notificationId || data.deliveryId || '');
+        const duplicateRealtimeUi = shouldSuppressForegroundPush(data, window.location.pathname);
+        if (!duplicateRealtimeUi && (!deliveryId || !seenOfficialDeliveryIdsRef.current.has(deliveryId)) && (title || body)) {
+          if (deliveryId) seenOfficialDeliveryIdsRef.current.add(deliveryId);
+          toast.show([title, body].filter(Boolean).join(': '), 'neutral');
+        }
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications });
         // Whatever triggered this push likely also touched our own state (verification,
         // moderator message, etc.) -- reconcile rather than waiting for the next event/resume.
         reconcileProfile();
-      }
-    );
+      },
+      (error) => console.warn('[RYVO_PUSH] native registration failed', error)
+    ).catch((error) => console.warn('[RYVO_PUSH] registration setup failed', error?.message || error));
+
+    return () => {
+      void nativePush.removeAllListeners();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated]);
+  }, [isAuthenticated, authenticatedUserId]);
+
+  // Deep links (custom com.appryvo.ryvo:// scheme and https://appryvo.online/... universal
+  // links). Previously dead code -- nativeDeepLinks.addUrlListener was defined but never called
+  // anywhere, so a tapped share link or a browser-to-app handoff had no effect once the app
+  // launched. Registered once, independent of auth state, so a cold-start launch URL is still
+  // caught; an unauthenticated destination simply falls through to whatever route guard is
+  // already in place for that path.
+  useEffect(() => {
+    const listenerPromise = nativeDeepLinks.addUrlListener((event) => {
+      const destination = resolveDeepLinkDestination(event.url);
+      if (destination) navigate(destination);
+    });
+    return () => {
+      void listenerPromise.then((handle) => handle.remove());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    void crashReporting.setUserId(authenticatedUserId);
+  }, [authenticatedUserId]);
 
   return null;
 };

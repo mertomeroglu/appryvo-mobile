@@ -2,12 +2,12 @@
 // (users.languages, JSONB, free-form strings — see server/api/src/user_controller.js).
 // No ISO/i18n package exists in this project and the backend does zero validation against a
 // fixed list, so `name` (the Turkish display label, matching the app's existing convention) is
-// what actually gets sent over the wire — kept as plain uppercase strings for backward
-// compatibility with profiles that already have values from the old 7-item preset list.
+// what gets sent over the wire. Older profiles may still contain uppercase values, so every
+// read/write passes through the canonical display formatter below.
 // `code`/`englishName` exist purely for local search and as a stable React key.
 export interface LanguageOption {
   code: string; // ISO 639-1
-  name: string; // Turkish display name, uppercase (the wire value)
+  name: string; // Turkish source label; formatLanguageName returns the canonical wire/display value
   englishName: string;
   flag: string;
 }
@@ -96,15 +96,48 @@ export const WORLD_LANGUAGES: LanguageOption[] = [
   { code: 'lo', name: 'LAOCA', englishName: 'Lao', flag: '🇱🇦' },
 ];
 
-export const searchLanguages = (query: string): LanguageOption[] => {
+export const searchLanguages = (query: string, appLocale?: string): LanguageOption[] => {
   const q = query.trim().toLocaleLowerCase('tr');
   if (!q) return WORLD_LANGUAGES;
+  const qLower = q.toLowerCase();
   return WORLD_LANGUAGES.filter(
     (lang) =>
       lang.name.toLocaleLowerCase('tr').includes(q) ||
-      lang.englishName.toLowerCase().includes(q.toLowerCase()) ||
-      lang.code.toLowerCase() === q.toLowerCase()
+      lang.englishName.toLowerCase().includes(qLower) ||
+      lang.code.toLowerCase() === qLower ||
+      (appLocale ? getLocalizedLanguageName(lang, appLocale).toLowerCase().includes(qLower) : false)
   );
+};
+
+export const formatLanguageName = (value: string): string => {
+  const normalized = String(value || '').trim().toLocaleLowerCase('tr-TR');
+  if (!normalized) return '';
+  return normalized.charAt(0).toLocaleUpperCase('tr-TR') + normalized.slice(1);
+};
+
+export const languageNameEquals = (left: string, right: string): boolean =>
+  formatLanguageName(left) === formatLanguageName(right);
+
+// Display-only localization: the wire/stored value (formatLanguageName's Turkish-cased output)
+// never changes -- this only affects what a non-Turkish user SEES in the picker, via the
+// standard Intl.DisplayNames API (supported on both the Android WebView and iOS 14.5+, well
+// under this app's iOS 15 floor). Falls back to the always-present English name, then to the
+// Turkish source label, if the runtime can't resolve a name for a given locale/code pair.
+export const getLocalizedLanguageName = (lang: LanguageOption, appLocale: string): string => {
+  try {
+    const displayNames = new Intl.DisplayNames([appLocale], { type: 'language' });
+    const resolved = displayNames.of(lang.code);
+    if (resolved && resolved.toLowerCase() !== lang.code.toLowerCase()) return resolved;
+  } catch {
+    // Intl.DisplayNames unsupported or locale/code not resolvable -- fall through.
+  }
+  return lang.englishName || formatLanguageName(lang.name);
+};
+
+export const normalizeLanguageNames = (values: unknown): string[] => {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.filter((value): value is string => typeof value === 'string').map(formatLanguageName).filter(Boolean))]
+    .slice(0, LANGUAGE_SELECTION_MAX);
 };
 
 export const LANGUAGE_SELECTION_MAX = 10;

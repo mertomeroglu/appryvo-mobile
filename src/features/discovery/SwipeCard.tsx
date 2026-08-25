@@ -1,10 +1,13 @@
-import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { motion, useMotionValue, useTransform, useReducedMotion, animate, type PanInfo } from 'framer-motion';
-import { Crown, Info, MapPin } from 'lucide-react';
+import { Crown, Heart, MapPin, Star, X } from 'lucide-react';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { VerifiedBadge } from '../../components/ui/Badge';
 import { DURATION, SPRING } from '../../motion/tokens';
-import { getRelationshipGoalLabel, ZODIAC_LABELS } from '../../lib/profileLabels';
+import { getRelationshipGoalLabels, getZodiacLabel } from '../../lib/profileLabels';
+import { ZodiacIcon } from '../../components/ui/ZodiacIcon';
+import { getPhotoUrl } from '../../services/media/mediaService';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 const SWIPE_THRESHOLD = 120;
 const VELOCITY_THRESHOLD = 500;
@@ -23,6 +26,7 @@ export interface SwipeCardProfile {
   isPremium?: boolean;
   zodiac?: string;
   relationshipGoal?: string;
+  relationshipGoals?: string[];
   interests?: string[];
   photos?: any[];
   photoUrl?: string;
@@ -37,27 +41,26 @@ export interface SwipeCardHandle {
 interface SwipeCardProps {
   profile: SwipeCardProfile;
   isTop: boolean;
-  /** True while this card is a departing ghost, still finishing its own fly-off animation
-   *  after the deck has already advanced past it. Disables declarative entrance animation
-   *  so it doesn't fight the imperative exit tween on the same motion values. */
   isExiting?: boolean;
   onSwiped: (direction: SwipeDirection, profile: SwipeCardProfile) => void;
-  /** Fired once the exit fling animation finishes — lets the parent stop rendering the ghost. */
-  onExitComplete?: () => void;
+  onExitComplete?: (profileId: string) => void;
+  canSuperLike?: boolean;
+  onSuperLikeUnavailable?: () => void;
   onInfoClick: () => void;
 }
 
 function normalizePhotos(profile: SwipeCardProfile): string[] {
   if (Array.isArray(profile.photos) && profile.photos.length > 0) {
-    return profile.photos.map((p) => (typeof p === 'object' ? p?.url : p)).filter(Boolean);
+    return profile.photos.map((photo) => getPhotoUrl(photo)).filter((url): url is string => Boolean(url));
   }
   return profile.photoUrl ? [profile.photoUrl] : [];
 }
 
-export const SwipeCard = React.forwardRef<SwipeCardHandle, SwipeCardProps>(function SwipeCard(
-  { profile, isTop, isExiting, onSwiped, onExitComplete, onInfoClick },
+const SwipeCardComponent = React.forwardRef<SwipeCardHandle, SwipeCardProps>(function SwipeCard(
+  { profile, isTop, isExiting = false, onSwiped, onExitComplete, canSuperLike = true, onSuperLikeUnavailable, onInfoClick },
   ref
 ) {
+  const { locale } = useAppTranslation();
   const reduceMotion = useReducedMotion();
   // Direct-manipulation drag tracking stays 1:1 with the finger regardless of this setting —
   // only the non-essential bounce/overshoot on settle and stack entrance is dampened.
@@ -73,7 +76,12 @@ export const SwipeCard = React.forwardRef<SwipeCardHandle, SwipeCardProps>(funct
   const superLift = useTransform(y, [0, SUPERLIKE_OFFSET_THRESHOLD], [1, 1.03]);
 
   const [photoIndex, setPhotoIndex] = useState(0);
-  const photos = normalizePhotos(profile);
+  const photos = useMemo(() => normalizePhotos(profile).map((url) => normalizeMediaUrl(url)), [profile]);
+  const [failedPhotos, setFailedPhotos] = useState<Set<string>>(() => new Set());
+  const currentPhoto = photos[photoIndex];
+  const renderedPhoto = currentPhoto && !failedPhotos.has(currentPhoto)
+    ? currentPhoto
+    : normalizeMediaUrl(undefined);
 
   // Guards against the same card being committed twice -- e.g. a drag-release and an action
   // button tap landing in the same event batch, before the parent's re-render flips isTop to
@@ -84,9 +92,11 @@ export const SwipeCard = React.forwardRef<SwipeCardHandle, SwipeCardProps>(funct
   const commit = (direction: SwipeDirection, velocity: { x: number; y: number }) => {
     if (hasCommittedRef.current) return;
     hasCommittedRef.current = true;
-    // Advance the deck immediately so the next card becomes interactive right away —
-    // the fly-off below is purely a visual tail, not a gate on the next swipe.
+    // Commit the local deck before waiting for animation or network. The parent retains this
+    // exact keyed component as an exit layer, so the next card can accept input immediately
+    // without remounting a zero-position copy of the old card.
     onSwiped(direction, profile);
+    const finishSwipe = () => onExitComplete?.(profile.id);
 
     if (direction === 'up') {
       // Let horizontal drift continue naturally while the vertical exit drives completion.
@@ -96,7 +106,7 @@ export const SwipeCard = React.forwardRef<SwipeCardHandle, SwipeCardProps>(funct
         velocity: velocity.y,
         stiffness: 260,
         damping: 26,
-        onComplete: () => onExitComplete?.(),
+        onComplete: finishSwipe,
       });
       return;
     }
@@ -107,7 +117,7 @@ export const SwipeCard = React.forwardRef<SwipeCardHandle, SwipeCardProps>(funct
       velocity: velocity.x,
       stiffness: 220,
       damping: 24,
-      onComplete: () => onExitComplete?.(),
+      onComplete: finishSwipe,
     });
   };
 
@@ -116,6 +126,12 @@ export const SwipeCard = React.forwardRef<SwipeCardHandle, SwipeCardProps>(funct
     const isVerticalIntent = Math.abs(offset.y) > Math.abs(offset.x) * 1.2 && offset.y < 0;
 
     if (isVerticalIntent && (offset.y < SUPERLIKE_OFFSET_THRESHOLD || velocity.y < SUPERLIKE_VELOCITY_THRESHOLD)) {
+      if (!canSuperLike) {
+        animate(x, 0, settleSpring);
+        animate(y, 0, settleSpring);
+        onSuperLikeUnavailable?.();
+        return;
+      }
       commit('up', velocity);
       return;
     }
@@ -145,20 +161,21 @@ export const SwipeCard = React.forwardRef<SwipeCardHandle, SwipeCardProps>(funct
     if (!isTop) return;
     [photos[photoIndex + 1], photos[photoIndex - 1]].filter(Boolean).forEach((url) => {
       const img = new window.Image();
-      img.src = normalizeMediaUrl(url as string);
+      img.src = url as string;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTop, photoIndex]);
 
   return (
     <motion.div
+      data-moving={isTop || isExiting ? 'true' : 'false'}
       style={{ x, y, rotate, scale: isTop ? superLift : 1 }}
       drag={isTop}
       onDragEnd={isTop ? handleDragEnd : undefined}
       initial={isExiting || isTop ? false : { scale: 0.94, y: 14, opacity: 0.85 }}
       animate={isExiting ? undefined : isTop ? { scale: 1, y: 0, opacity: 1 } : { scale: 0.94, y: 14, opacity: 0.85 }}
       transition={reduceMotion ? { duration: DURATION.micro } : SPRING.soft}
-      className={`absolute inset-0 rounded-[30px] overflow-hidden shadow-floating bg-surface border border-app select-none ${
+      className={`discovery-swipe-card absolute inset-0 rounded-[30px] overflow-hidden shadow-elevated bg-surface border border-app select-none ${
         // Tailwind compiles pointer-events-none after pointer-events-auto, so with equal
         // specificity -none always wins the cascade if both classes are ever present at once
         // regardless of order in this string -- the previous version always included
@@ -169,13 +186,19 @@ export const SwipeCard = React.forwardRef<SwipeCardHandle, SwipeCardProps>(funct
         isTop ? 'cursor-grab active:cursor-grabbing pointer-events-auto' : 'pointer-events-none'
       }`}
     >
-      {photos[photoIndex] ? (
+      {currentPhoto ? (
         <img
-          src={normalizeMediaUrl(photos[photoIndex])}
+          src={renderedPhoto}
           alt={profile.name}
           decoding="async"
+          loading={isTop ? 'eager' : 'lazy'}
+          fetchPriority={isTop ? 'high' : 'low'}
           className="w-full h-full object-cover pointer-events-none"
           draggable={false}
+          onError={() => {
+            if (currentPhoto !== renderedPhoto) return;
+            setFailedPhotos((current) => new Set(current).add(currentPhoto));
+          }}
         />
       ) : (
         <div className="w-full h-full bg-app-secondary" />
@@ -217,32 +240,24 @@ export const SwipeCard = React.forwardRef<SwipeCardHandle, SwipeCardProps>(funct
         </div>
       )}
 
-      {/* Info button */}
-      <motion.button
-        onTap={() => onInfoClick()}
-        className="absolute top-4 right-4 p-2.5 rounded-full bg-black/40 text-white backdrop-blur-md z-20"
-      >
-        <Info className="w-5 h-5" />
-      </motion.button>
-
       {/* Intent overlays */}
       <motion.div
         style={{ opacity: likeOpacity }}
-        className="absolute top-8 left-8 border-4 border-[#32D583] text-[#32D583] px-6 py-2 rounded-2xl font-black text-3xl tracking-widest -rotate-12 shadow-lg z-20 pointer-events-none"
+        className="absolute top-10 left-8 w-16 h-16 rounded-full border-4 border-[#32D583] text-[#32D583] bg-black/45 flex items-center justify-center -rotate-12 shadow-lg z-20 pointer-events-none"
       >
-        BEĞENDİN
+        <Heart className="w-9 h-9 fill-current" />
       </motion.div>
       <motion.div
         style={{ opacity: passOpacity }}
-        className="absolute top-8 right-8 border-4 border-[#FF4B55] text-[#FF4B55] px-6 py-2 rounded-2xl font-black text-3xl tracking-widest rotate-12 shadow-lg z-20 pointer-events-none"
+        className="absolute top-10 right-8 w-16 h-16 rounded-full border-4 border-[#FF4B55] text-[#FF4B55] bg-black/45 flex items-center justify-center rotate-12 shadow-lg z-20 pointer-events-none"
       >
-        PAS
+        <X className="w-10 h-10 stroke-[3]" />
       </motion.div>
       <motion.div
         style={{ opacity: superOpacity }}
-        className="absolute top-8 inset-x-0 mx-auto w-fit border-4 border-[#25D9D0] text-[#25D9D0] px-6 py-2 rounded-2xl font-black text-3xl tracking-widest shadow-lg z-20 pointer-events-none"
+        className="absolute top-10 inset-x-0 mx-auto w-16 h-16 rounded-full border-4 border-[#25D9D0] text-[#25D9D0] bg-black/45 flex items-center justify-center shadow-lg z-20 pointer-events-none"
       >
-        SÜPER
+        <Star className="w-9 h-9 fill-current" />
       </motion.div>
 
       {/* Info gradient overlay */}
@@ -282,21 +297,22 @@ export const SwipeCard = React.forwardRef<SwipeCardHandle, SwipeCardProps>(funct
         )}
 
         <div className="flex flex-wrap gap-1.5">
-          {profile.zodiac && ZODIAC_LABELS[profile.zodiac] && (
-            <span className="text-[11px] font-semibold bg-white/15 backdrop-blur-md px-3 py-1 rounded-full text-white border border-white/10">
-              {ZODIAC_LABELS[profile.zodiac]}
+          {profile.zodiac && getZodiacLabel(profile.zodiac, locale) && (
+            <span className="flex items-center gap-1 text-[11px] font-semibold bg-black/35 px-3 py-1 rounded-full text-white border border-white/10">
+              <ZodiacIcon sign={profile.zodiac} size={13} />
+              {getZodiacLabel(profile.zodiac, locale)}
             </span>
           )}
-          {getRelationshipGoalLabel(profile.relationshipGoal) && (
-            <span className="text-[11px] font-semibold bg-white/15 backdrop-blur-md px-3 py-1 rounded-full text-white border border-white/10">
-              {getRelationshipGoalLabel(profile.relationshipGoal)}
+          {getRelationshipGoalLabels(profile.relationshipGoals || profile.relationshipGoal).map((label) => (
+            <span key={label} className="text-[11px] font-semibold bg-black/35 px-3 py-1 rounded-full text-white border border-white/10">
+              {label}
             </span>
-          )}
+          ))}
           {Array.isArray(profile.interests) &&
             profile.interests.slice(0, 3).map((interest, i) => (
               <span
                 key={i}
-                className="text-[11px] font-semibold bg-white/15 backdrop-blur-md px-3 py-1 rounded-full text-white border border-white/10"
+                className="text-[11px] font-semibold bg-black/35 px-3 py-1 rounded-full text-white border border-white/10"
               >
                 {interest}
               </span>
@@ -306,3 +322,14 @@ export const SwipeCard = React.forwardRef<SwipeCardHandle, SwipeCardProps>(funct
     </motion.div>
   );
 });
+
+SwipeCardComponent.displayName = 'SwipeCard';
+
+export const SwipeCard = React.memo(
+  SwipeCardComponent,
+  (previous, next) =>
+    previous.profile === next.profile &&
+    previous.isTop === next.isTop &&
+    previous.isExiting === next.isExiting &&
+    previous.canSuperLike === next.canSuperLike
+);

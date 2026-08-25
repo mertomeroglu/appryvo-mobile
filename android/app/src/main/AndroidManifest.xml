@@ -8,25 +8,23 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/launcher_icon"
-        android:label="Appryvo"
+        android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="false">
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:name="com.appryvo.ryvo.MainActivity"
-            android:label="Appryvo"
+            android:label="@string/app_name"
             android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/AppTheme.Launcher"
             android:launchMode="singleTask"
             android:exported="true">
@@ -43,6 +41,16 @@
                 <data android:scheme="@string/custom_url_scheme" />
             </intent-filter>
 
+            <!-- True Android App Links (verified via /.well-known/assetlinks.json on
+                 appryvo.online) so a tapped https://appryvo.online/... link opens the app
+                 directly instead of the browser, once the OS re-verifies the domain. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="appryvo.online" />
+            </intent-filter>
+
         </activity>
 
         <provider
@@ -54,6 +62,15 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- CONFIG REQUIRED for production: this is Google's own published TEST AdMob App ID
+             (ca-app-pub-3940256099942544~3347511713), safe to ship in a debug/dev build. Replace
+             with the real Ryvo AdMob App ID from the AdMob console before any release build.
+             See mobile/src/native/admob.ts for the matching TEST ad unit IDs that also need
+             swapping to production ad unit IDs at that time. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713" />
     </application>
 
 </manifest>

@@ -68,3 +68,24 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 if (typeof window !== 'undefined') {
   applyThemeToDocument(getInitialMode());
 }
+
+// Live system-theme updates: previously the OS-level dark/light preference was only ever read
+// once (at module load / on an explicit setMode call), so a user on 'system' mode who flipped
+// their OS theme while the app was open stayed on the stale theme until the next app restart.
+// Registered once at module scope (not per-component) so it survives regardless of which screens
+// mount/unmount, and it only re-applies anything when the user is actually on 'system' mode --
+// an explicit 'light'/'dark' choice is never overridden by an OS change.
+if (typeof window !== 'undefined' && window.matchMedia) {
+  const media = window.matchMedia('(prefers-color-scheme: dark)');
+  const handleSystemThemeChange = () => {
+    if (useThemeStore.getState().mode === 'system') {
+      applyThemeToDocument('system');
+    }
+  };
+  if (typeof media.addEventListener === 'function') {
+    media.addEventListener('change', handleSystemThemeChange);
+  } else if (typeof (media as any).addListener === 'function') {
+    // Older WebView engines (some Android system WebViews) only support the legacy API.
+    (media as any).addListener(handleSystemThemeChange);
+  }
+}

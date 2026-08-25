@@ -1,48 +1,200 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { Capacitor } from '@capacitor/core';
-import { Crown, Check, ArrowLeft, Heart, Eye, Zap, Compass, ShieldOff, Sparkles } from 'lucide-react';
+import type { Product } from '@capgo/native-purchases';
+import { motion } from 'framer-motion';
+import { ArrowLeft, Check, Compass, Crown, Eye, Heart, RotateCcw, ShieldOff, SlidersHorizontal, Sparkles, Star, TrendingUp, Zap } from 'lucide-react';
 import { nativeIap } from '../../native/iap';
+import { apiClient } from '../../services/api/apiClient';
 import { useEntitlementsQuery } from '../../hooks/useQueries';
 import { AppButton } from '../../components/ui/AppButton';
 import { IconButton } from '../../components/ui/IconButton';
 import { AppLogo } from '../../components/ui/AppLogo';
+import { Skeleton } from '../../components/ui/Skeleton';
 import { toast } from '../../stores/useToastStore';
 import { DURATION, EASE } from '../../motion/tokens';
+import { calculateStoreDiscount, getStoreProductId, getSubscriptionProduct, MIN_MEANINGFUL_DISCOUNT_PERCENT, PUBLIC_PLAN_FEATURES, PUBLIC_PLAN_NAMES, SUBSCRIPTION_PRODUCTS, type SubscriptionPeriod, type SubscriptionTier } from './subscriptionProducts';
+import { PASSPORT_LABELS, useAppLocaleStore, useAppTranslation } from '../../i18n/appLocale';
+import { LegalModal } from '../../components/LegalModal';
+import { PRIVACY_POLICY, TERMS_OF_SERVICE, type LegalDocument } from '../../lib/legalContent';
 
-const PLANS = [
-  { id: 'weekly', title: 'Haftalık', price: '₺49.99' },
-  { id: 'monthly', title: 'Aylık', price: '₺129.99', popular: true },
-  { id: 'yearly', title: 'Yıllık', price: '₺899.99' },
-] as const;
-
-// Every benefit maps to a real, already-shipped capability gated by /api/entitlements
-// or an existing feature (Likes blur, Boost, Passport, ad system) — nothing invented here.
-const FEATURES = [
-  { icon: Heart, label: 'Sınırsız Beğeni Hakkı' },
-  { icon: Eye, label: 'Seni Beğenenleri Anında Gör' },
-  { icon: Sparkles, label: 'Haftalık Ücretsiz Superlike' },
-  { icon: Zap, label: 'Aylık Ücretsiz Profil Boost' },
-  { icon: Compass, label: 'Passport ile Konum Değiştirme' },
-  { icon: ShieldOff, label: 'Reklamsız Deneyim' },
+const PERIODS: Array<{ id: SubscriptionPeriod; label: string; suffix: string }> = [
+  { id: 'WEEKLY', label: 'Haftalık', suffix: '/ hafta' },
+  { id: 'MONTHLY', label: 'Aylık', suffix: '/ ay' },
+  { id: 'THREE_MONTH', label: '3 Ay', suffix: '/ 3 ay' },
+  { id: 'SIX_MONTH', label: '6 Ay', suffix: '/ 6 ay' },
 ];
 
+const FEATURE_ICONS = [Heart, ShieldOff, RotateCcw, SlidersHorizontal, Compass, Star, Zap];
+const GOLD_FEATURE_ICONS = [Sparkles, Eye, TrendingUp, Star, Zap, ShieldOff, Crown];
+
+interface SubscriptionCatalogItem {
+  tier: SubscriptionTier;
+  period: SubscriptionPeriod;
+  productId: string;
+  androidProductId: string;
+  iosProductId: string;
+}
+
+function findStoreProduct(products: Product[], productId: string) {
+  const normalizedId = productId.trim().toLowerCase();
+  return products.find((product) =>
+    product.planIdentifier?.trim().toLowerCase() === normalizedId
+    || product.identifier?.trim().toLowerCase() === normalizedId
+  );
+}
+
+function hasStorePrice(product?: Product): product is Product {
+  return Boolean(product?.priceString && Number.isFinite(product.price) && product.price > 0 && product.currencyCode);
+}
+
+function formatLocalizedAmount(value: number, currencyCode: string) {
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode }).format(value);
+}
+
 export const PremiumScreen: React.FC = () => {
-  const [selectedPlan, setSelectedPlan] = useState<(typeof PLANS)[number]['id']>('monthly');
+  const locale = useAppLocaleStore((state) => state.locale);
+  const { t } = useAppTranslation();
+  const [legalDoc, setLegalDoc] = useState<LegalDocument | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState<SubscriptionPeriod>('MONTHLY');
+  const [selectedTier, setSelectedTier] = useState<SubscriptionTier>('GOLD');
+  const [storeProducts, setStoreProducts] = useState<Product[]>([]);
+  const [subscriptionCatalog, setSubscriptionCatalog] = useState<SubscriptionCatalogItem[]>([]);
+  const [storeLoadIssue, setStoreLoadIssue] = useState<string | null>(null);
+  const [isStoreLoading, setIsStoreLoading] = useState(Capacitor.isNativePlatform());
+  const [isPurchasing, setIsPurchasing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const selectedPeriodRef = useRef(selectedPeriod);
   const navigate = useNavigate();
   const { data: entitlements, isLoading, refetch } = useEntitlementsQuery();
+  const storePlatform = Capacitor.getPlatform() === 'ios' ? 'ios' : 'android';
 
-  const isPremium = entitlements?.isPremium === true;
+  const catalogProductFor = useCallback((tier: SubscriptionTier, period: SubscriptionPeriod) =>
+    subscriptionCatalog.find((product) => product.tier === tier && product.period === period),
+  [subscriptionCatalog]);
 
-  const handlePurchase = () => {
-    // There is no in-app-purchase SDK wired into this build (no native billing plugin —
-    // adding one is a native-config change out of scope here), so we cannot obtain a real
-    // store purchase token. Rather than fabricate one and fake a successful purchase, be
-    // honest about the current state instead of calling /api/subscriptions/verify with
-    // invented data.
-    toast.show('Ödeme altyapısı bu sürümde henüz bağlı değil.', 'neutral');
+  const storefrontIdFor = useCallback((tier: SubscriptionTier, period: SubscriptionPeriod) => {
+    const serverProduct = catalogProductFor(tier, period);
+    if (serverProduct) return storePlatform === 'ios' ? serverProduct.iosProductId : serverProduct.androidProductId;
+    return getStoreProductId(getSubscriptionProduct(tier, period), storePlatform);
+  }, [catalogProductFor, storePlatform]);
+
+  const loadStoreProducts = useCallback(async () => {
+    setIsStoreLoading(true);
+    setStoreLoadIssue(null);
+    try {
+      let catalog: SubscriptionCatalogItem[] = [];
+      try {
+        const response = await apiClient.get('/api/subscriptions/catalog');
+        catalog = Array.isArray(response?.data) ? response.data : [];
+        setSubscriptionCatalog(catalog);
+      } catch {
+        // A transient API failure must not prevent the native store from using the
+        // compiled mapping. The server catalog wins whenever it is reachable.
+      }
+      const compiledIds = SUBSCRIPTION_PRODUCTS.map((product) => getStoreProductId(product, storePlatform));
+      const catalogIds = catalog.map((product) => storePlatform === 'ios' ? product.iosProductId : product.androidProductId);
+      const productIds = [...new Set([...compiledIds, ...catalogIds].filter(Boolean))];
+      const products = await nativeIap.getSubscriptionProducts(productIds);
+      setStoreProducts((current) => products.length > 0 ? products : current);
+    } catch (error) {
+      setStoreLoadIssue(error instanceof Error ? error.message : 'STORE_LOAD_FAILED');
+    } finally {
+      setIsStoreLoading(false);
+    }
+  }, [storePlatform]);
+
+  useEffect(() => { void loadStoreProducts(); }, [loadStoreProducts]);
+  useEffect(() => { selectedPeriodRef.current = selectedPeriod; }, [selectedPeriod]);
+
+  const periodConfig = PERIODS.find((period) => period.id === selectedPeriod)!;
+  const selectedProduct = getSubscriptionProduct(selectedTier, selectedPeriod);
+  const selectedCatalogProduct = catalogProductFor(selectedTier, selectedPeriod);
+  const selectedStoreProductId = storefrontIdFor(selectedTier, selectedPeriod);
+  const storeProduct = findStoreProduct(storeProducts, selectedStoreProductId);
+  const priceAvailable = hasStorePrice(storeProduct);
+  const missingPriceCopy = !Capacitor.isNativePlatform()
+    ? 'Fiyatlar iOS ve Android uygulamasında mağazadan yüklenir.'
+    : storeLoadIssue === 'STORE_BILLING_UNAVAILABLE'
+      ? 'Bu cihazda mağaza fiyatları kullanılamıyor.'
+      : storeLoadIssue === 'STORE_PRODUCTS_NOT_CONFIGURED' || !storeLoadIssue
+        ? 'Mağaza fiyatı yükleniyor.'
+        : 'Mağaza bağlantısı yenileniyor.';
+  const offer = useMemo(() => {
+    const weeklyStore = findStoreProduct(storeProducts, storefrontIdFor(selectedTier, 'WEEKLY'));
+    if (hasStorePrice(weeklyStore) && hasStorePrice(storeProduct) && weeklyStore.currencyCode === storeProduct.currencyCode) {
+      return {
+        discount: calculateStoreDiscount(weeklyStore.price, storeProduct.price, selectedProduct.weeks),
+        weeklyLabel: formatLocalizedAmount(storeProduct.price / selectedProduct.weeks, storeProduct.currencyCode),
+      };
+    }
+    return { discount: 0, weeklyLabel: null };
+  }, [selectedProduct, selectedTier, storeProduct, storeProducts, storefrontIdFor]);
+
+  const periodOffers = useMemo(() => PERIODS.map((period) => {
+    const config = getSubscriptionProduct(selectedTier, period.id);
+    const product = findStoreProduct(storeProducts, storefrontIdFor(selectedTier, period.id));
+    const weekly = findStoreProduct(storeProducts, storefrontIdFor(selectedTier, 'WEEKLY'));
+    const discount = hasStorePrice(product) && hasStorePrice(weekly) && product.currencyCode === weekly.currencyCode
+      ? calculateStoreDiscount(weekly.price, product.price, config.weeks)
+      : 0;
+    return { ...period, config, product, discount };
+  }), [selectedTier, storeProducts, storefrontIdFor]);
+
+  const bestPeriod = periodOffers.reduce<(typeof periodOffers)[number] | null>((best, item) =>
+    item.discount >= MIN_MEANINGFUL_DISCOUNT_PERCENT && (!best || item.discount > best.discount) ? item : best, null);
+
+  const scrollPeriodIntoCenter = useCallback((period: SubscriptionPeriod, behavior: 'auto' | 'smooth' = 'smooth') => {
+    const carousel = carouselRef.current;
+    const card = carousel?.querySelector<HTMLElement>(`[data-period="${period}"]`);
+    if (!carousel || !card) return;
+    carousel.scrollTo({
+      left: card.offsetLeft - (carousel.clientWidth - card.clientWidth) / 2,
+      behavior,
+    });
+  }, []);
+
+  useEffect(() => {
+    const animationFrame = requestAnimationFrame(() => scrollPeriodIntoCenter(selectedPeriodRef.current, 'auto'));
+    return () => cancelAnimationFrame(animationFrame);
+    // Recenter the current period when the tier changes without introducing a leading spacer.
+  }, [scrollPeriodIntoCenter, selectedTier]);
+
+  const selectPeriod = (period: SubscriptionPeriod, shouldScroll = true) => {
+    setSelectedPeriod(period);
+    if (shouldScroll) scrollPeriodIntoCenter(period);
+  };
+
+  const handleCarouselScroll = () => {
+    const carousel = carouselRef.current;
+    if (!carousel) return;
+    const center = carousel.getBoundingClientRect().left + carousel.clientWidth / 2;
+    const closest = periodOffers.reduce<{ id: SubscriptionPeriod; distance: number } | null>((current, period) => {
+      const card = carousel.querySelector<HTMLElement>(`[data-period="${period.id}"]`);
+      if (!card) return current;
+      const rect = card.getBoundingClientRect();
+      const distance = Math.abs(rect.left + rect.width / 2 - center);
+      return !current || distance < current.distance ? { id: period.id, distance } : current;
+    }, null);
+    if (closest && closest.id !== selectedPeriod) setSelectedPeriod(closest.id);
+  };
+
+  const handlePurchase = async () => {
+    if (Capacitor.isNativePlatform() && !storeProduct) {
+      toast.error(missingPriceCopy);
+      return;
+    }
+    setIsPurchasing(true);
+    try {
+      await nativeIap.purchaseSubscription(selectedCatalogProduct?.productId || selectedProduct.productId, selectedStoreProductId, storeProduct);
+      await refetch();
+      toast.success('Satın alma mağaza tarafından doğrulandı.');
+    } catch (err: any) {
+      toast.error(err.message || 'Satın alma tamamlanamadı.');
+    } finally {
+      setIsPurchasing(false);
+    }
   };
 
   const handleRestore = async () => {
@@ -58,106 +210,70 @@ export const PremiumScreen: React.FC = () => {
     }
   };
 
+  const featureIcons = selectedTier === 'GOLD' ? GOLD_FEATURE_ICONS : FEATURE_ICONS;
+  const features = PUBLIC_PLAN_FEATURES[selectedTier].map((label, index) => ({
+    label: label === 'Passport' ? PASSPORT_LABELS[locale] : label,
+    icon: featureIcons[index],
+  }));
   return (
-    <div className="flex flex-col h-full w-full bg-app text-app overflow-y-auto no-scrollbar select-none">
-      {/* Top Bar */}
-      <header className="pt-safe px-4 flex items-center justify-between my-2">
-        <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate(-1)}>
-          <ArrowLeft className="w-5 h-5" />
-        </IconButton>
-        <div className="flex items-center gap-1.5">
-          <AppLogo size="sm" variant="icon" />
-          <h3 className="text-heading text-app">Appryvo VIP</h3>
-        </div>
+    <div className="h-full w-full overflow-y-auto bg-app text-app no-scrollbar select-none">
+      <header className="pt-safe mx-4 my-2 flex items-center justify-between">
+        <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-5 w-5" /></IconButton>
+        <div className="flex items-center gap-1.5"><AppLogo size="sm" variant="icon" /><h3 className="text-heading text-app">Ryvo Plus &amp; Gold</h3></div>
         <div className="w-9" />
       </header>
 
-      {/* Hero */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: DURATION.emphasis, ease: EASE.decelerate }}
-        className="relative flex flex-col items-center text-center px-6 my-8"
-      >
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 rounded-full bg-[#F5B942]/15 blur-3xl pointer-events-none" />
-        <div className="relative w-20 h-20 rounded-full bg-gradient-to-tr from-[#F5B942] to-[#FBD98A] flex items-center justify-center shadow-premium mb-5">
-          <Crown className="w-10 h-10 text-[#3A2A05] fill-current" />
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: DURATION.emphasis, ease: EASE.decelerate }} className="px-4 pb-8">
+        <div className="py-5 text-center">
+          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr from-[#F5B942] to-[#FBD98A] shadow-premium"><Crown className="h-8 w-8 fill-current text-[#3A2A05]" /></div>
+          <h1 className="text-title text-app">Sana uygun planı seç</h1>
+          <p className="mt-1 text-caption normal-case text-app-muted">Plus ve Gold arasında anında geçiş yapabilirsin.</p>
         </div>
-        <h1 className="relative text-display text-[#F5B942] mb-2">Sınırsız Ayrıcalıklar</h1>
-        <p className="relative text-body text-app-muted max-w-xs leading-relaxed">
-          Deneyimini zirveye çıkar, gerçek bağlantılara daha hızlı ulaş.
+
+        {entitlements?.isPremium === true && <div className="mb-4 rounded-2xl border border-[#F5B942]/40 bg-[#F5B942]/10 p-3 text-center text-caption font-bold text-[#B57A08]">{entitlements?.subscriptionTier === 'PLUS' ? 'Ryvo Plus' : 'Ryvo Gold'} üyeliğin aktif.</div>}
+
+        <div className="grid grid-cols-2 gap-2 rounded-2xl border border-app bg-surface p-1.5 shadow-soft">
+          {(['PLUS', 'GOLD'] as const).map((tier) => <button key={tier} type="button" onClick={() => setSelectedTier(tier)} className={`rounded-xl px-3 py-3 text-caption font-extrabold ${selectedTier === tier ? tier === 'GOLD' ? 'bg-[#F5B942] text-[#3A2A05]' : 'bg-brand-gradient text-white' : 'text-app-muted'}`}>{PUBLIC_PLAN_NAMES[tier]}</button>)}
+        </div>
+
+        <div ref={carouselRef} onScroll={handleCarouselScroll} aria-label="Abonelik dönemi" className="-mr-4 mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto py-3 pr-[15%] no-scrollbar">
+          {periodOffers.map(({ id, label, product, discount }) => {
+            const selected = selectedPeriod === id;
+            const priced = hasStorePrice(product);
+            return <button data-period={id} aria-pressed={selected} key={id} type="button" onClick={() => selectPeriod(id)} className={`relative min-h-32 w-[78%] shrink-0 snap-center rounded-3xl border px-4 py-4 text-left transition-[transform,border-color,background-color,opacity,box-shadow] ${selected ? selectedTier === 'GOLD' ? 'scale-100 border-[#F5B942] bg-[#F5B942]/10 shadow-premium' : 'scale-100 border-pink-500 bg-pink-500/10 shadow-elevated' : 'scale-[0.94] border-app bg-surface opacity-70 shadow-soft'}`}>
+              <span className="text-caption font-extrabold text-app">{label}</span>
+              <div className="mt-3">
+                {isStoreLoading ? <Skeleton className="h-7 w-24" /> : priced ? <span className="text-heading font-black text-app">{product.priceString}</span> : <span className="text-micro font-bold normal-case text-amber-600">{missingPriceCopy}</span>}
+              </div>
+              {id !== 'WEEKLY' && priced && <span className="mt-1 block text-micro normal-case text-app-muted">toplam</span>}
+              {discount >= MIN_MEANINGFUL_DISCOUNT_PERCENT && <span className="absolute right-3 top-3 rounded-full bg-emerald-500/15 px-2 py-1 text-[10px] font-black text-emerald-600">%{discount} İNDİRİM</span>}
+              {bestPeriod?.id === id && <span className="absolute bottom-3 right-3 text-[10px] font-black uppercase tracking-wide text-[#B57A08]">En İyi Teklif</span>}
+            </button>;
+          })}
+        </div>
+
+        <div className={`mt-4 rounded-3xl border p-5 ${selectedTier === 'GOLD' ? 'border-[#F5B942] bg-gradient-to-br from-[#F5B942]/20 via-surface to-[#FBD98A]/10 shadow-premium' : 'border-pink-500 bg-pink-500/5 shadow-elevated'}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div><div className="flex items-center gap-2">{selectedTier === 'GOLD' ? <Crown className="h-5 w-5 fill-current text-[#F5B942]" /> : <Sparkles className="h-5 w-5 text-pink-500" />}<h2 className="text-heading text-app">{PUBLIC_PLAN_NAMES[selectedTier]}</h2></div><p className="mt-1 text-micro normal-case text-app-muted">{periodConfig.label} abonelik</p></div>
+            {offer.discount >= MIN_MEANINGFUL_DISCOUNT_PERCENT && <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-micro font-black text-emerald-600">%{offer.discount} İNDİRİM</span>}
+          </div>
+          <div className="mt-4 flex min-h-10 items-center">{isStoreLoading ? <Skeleton className="h-9 w-36" /> : priceAvailable ? <><span className="text-title font-black text-app">{storeProduct.priceString}</span><span className="ml-1 text-micro font-semibold text-app-muted">{periodConfig.suffix}</span></> : <div><p className="text-caption font-bold text-amber-600">{missingPriceCopy}</p><button type="button" onClick={() => void loadStoreProducts()} className="mt-1 text-caption font-extrabold text-pink-500 underline">Fiyatları yenile</button></div>}</div>
+          {selectedPeriod !== 'WEEKLY' && offer.weeklyLabel && <p className="mt-1 text-caption normal-case text-app-muted">Haftalık eşdeğer {offer.weeklyLabel}</p>}
+          <div className="mt-4 grid gap-2">
+            {features.map(({ icon: Icon, label }) => <div key={label} className="flex items-center gap-2.5 text-caption font-semibold text-app"><span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${selectedTier === 'GOLD' ? 'bg-[#F5B942]/15 text-[#C58A13]' : 'bg-pink-500/10 text-pink-500'}`}><Icon className="h-3.5 w-3.5" /></span><span>{label}</span><Check className="ml-auto h-4 w-4 text-emerald-500" /></div>)}
+          </div>
+        </div>
+
+        <AppButton onClick={handlePurchase} loading={isPurchasing} disabled={isStoreLoading || !priceAvailable} variant="primary" size="lg" fullWidth className={selectedTier === 'GOLD' ? 'mt-5 bg-gradient-to-r from-[#F5B942] via-[#F0A93E] to-[#FBD98A] text-[#3A2A05] shadow-premium' : 'mt-5'}>{priceAvailable ? `${PUBLIC_PLAN_NAMES[selectedTier]}’a Geç · ${storeProduct.priceString}` : isStoreLoading ? 'Fiyatlar yükleniyor' : 'Fiyatları yenile'}</AppButton>
+        <button onClick={handleRestore} disabled={isRestoring || isLoading} className="mt-3 w-full text-caption font-bold text-app-muted underline disabled:opacity-50">{isRestoring ? 'Kontrol ediliyor...' : 'Satın Alımları Geri Yükle'}</button>
+        <p className="mt-4 text-micro normal-case leading-relaxed text-app-muted">
+          {t('subscriptionAutoRenewDisclosure')}{' '}
+          <button type="button" onClick={() => setLegalDoc(TERMS_OF_SERVICE)} className="font-bold underline">{TERMS_OF_SERVICE.title}</button>
+          {' · '}
+          <button type="button" onClick={() => setLegalDoc(PRIVACY_POLICY)} className="font-bold underline">{PRIVACY_POLICY.title}</button>
         </p>
       </motion.div>
-
-      <div className="px-4 pb-6 flex flex-col flex-1">
-        {isPremium ? (
-          <div className="p-6 rounded-3xl bg-gradient-to-tr from-[#F5B942]/15 to-transparent border border-[#F5B942]/30 text-center space-y-2 shadow-soft">
-            <Crown className="w-8 h-8 text-[#F5B942] mx-auto" fill="currentColor" />
-            <h4 className="text-body font-extrabold text-app">Zaten VIP Üyesin</h4>
-            <p className="text-caption text-app-muted normal-case">Tüm ayrıcalıklar hesabında aktif.</p>
-          </div>
-        ) : (
-          <>
-            {/* Plans Selector */}
-            <div className="grid grid-cols-3 gap-2 my-2">
-              {PLANS.map((plan) => (
-                <button
-                  key={plan.id}
-                  onClick={() => setSelectedPlan(plan.id)}
-                  className={`relative p-3.5 rounded-2xl border flex flex-col items-center text-center transition-all ${
-                    selectedPlan === plan.id
-                      ? 'border-[#F5B942] bg-[#F5B942]/10 scale-105 shadow-soft'
-                      : 'border-app bg-surface'
-                  }`}
-                >
-                  {plan.popular && (
-                    <span className="absolute -top-2.5 bg-[#F5B942] text-[#3A2A05] text-[9px] font-black px-2 py-0.5 rounded-full shadow-soft">
-                      POPÜLER
-                    </span>
-                  )}
-                  <span className="text-caption font-extrabold text-app-muted mb-1">{plan.title}</span>
-                  <span className="text-body font-black text-app">{plan.price}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Feature List */}
-            <div className="bg-surface border border-app rounded-2xl p-4 my-4 space-y-3 shadow-soft">
-              {FEATURES.map((feat, i) => {
-                const Icon = feat.icon;
-                return (
-                  <div key={i} className="flex items-center gap-3 text-caption font-semibold text-app">
-                    <div className="w-7 h-7 rounded-full bg-[#F5B942]/15 text-[#F5B942] flex items-center justify-center flex-shrink-0">
-                      <Icon className="w-4 h-4" />
-                    </div>
-                    <span>{feat.label}</span>
-                    <Check className="w-3.5 h-3.5 text-[#32D583] ml-auto" />
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Purchase CTA */}
-            <AppButton
-              onClick={handlePurchase}
-              variant="primary"
-              size="lg"
-              fullWidth
-              className="mt-auto bg-gradient-to-r from-[#F5B942] via-[#F0A93E] to-[#F5B942] text-[#3A2A05] shadow-premium"
-            >
-              {Capacitor.isNativePlatform() ? 'Satın Al ve Başlat' : 'Uygulamada Satın Al'}
-            </AppButton>
-
-            <button
-              onClick={handleRestore}
-              disabled={isRestoring || isLoading}
-              className="mt-3 text-caption font-bold text-app-muted underline disabled:opacity-50"
-            >
-              {isRestoring ? 'Kontrol ediliyor...' : 'Satın Alımları Geri Yükle'}
-            </button>
-          </>
-        )}
-      </div>
+      <LegalModal document={legalDoc} onClose={() => setLegalDoc(null)} />
     </div>
   );
 };

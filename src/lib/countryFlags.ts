@@ -1,7 +1,7 @@
 // Normalizes whatever loose country/nationality string the backend or older data might hold
-// (ISO alpha-2, ISO alpha-3, English name, Turkish name) into a real ISO 3166-1 alpha-2 code,
-// then renders that as a flag emoji. Never infers a country from UI language -- only from
-// actual stored data, falling back to a neutral globe when nothing usable is present.
+// (ISO alpha-2, ISO alpha-3, English name, Turkish name) into a real ISO 3166-1 alpha-2 code
+// for CountryFlagBadge to render as a vendored circular SVG. Never infers a country from UI
+// language -- only from actual stored data.
 
 const ALIASES: Record<string, string> = {
   TR: 'TR', TUR: 'TR', TURKEY: 'TR', TÜRKİYE: 'TR', TURKIYE: 'TR', TÜRKIYE: 'TR',
@@ -38,6 +38,10 @@ function normalizeKey(input: string): string {
     .trim()
     .toUpperCase()
     .replace(/[İI]/g, 'I')
+    // Fold Ü/Ö/Ç/Ş/Ğ (and other diacritics) to their base Latin letter before the final strip --
+    // otherwise a real Turkish name like "Türkiye" loses the Ü entirely instead of becoming "TURKIYE".
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
     .replace(/[^A-Z]/g, '');
 }
 
@@ -49,13 +53,6 @@ export function normalizeCountryCode(input?: string | null): string | null {
   // Already a bare ISO alpha-2 code we don't have an explicit alias for.
   if (key.length === 2) return key;
   return null;
-}
-
-export function countryCodeToFlag(code?: string | null): string {
-  const iso = normalizeCountryCode(code);
-  if (!iso) return '🌐';
-  const codePoints = [...iso].map((c) => 0x1f1e6 + (c.charCodeAt(0) - 65));
-  return String.fromCodePoint(...codePoints);
 }
 
 export const COMMON_COUNTRIES: { code: string; name: string }[] = [

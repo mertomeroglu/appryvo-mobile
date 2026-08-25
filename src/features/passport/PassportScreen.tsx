@@ -7,6 +7,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { AppButton } from '../../components/ui/AppButton';
 import { IconButton } from '../../components/ui/IconButton';
 import { toast } from '../../stores/useToastStore';
+import { PASSPORT_LABELS, useAppLocaleStore } from '../../i18n/appLocale';
 
 export const PassportScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -14,6 +15,8 @@ export const PassportScreen: React.FC = () => {
   const [activePassportCity, setActivePassportCity] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const navigate = useNavigate();
+  const locale = useAppLocaleStore((state) => state.locale);
+  const passportLabel = PASSPORT_LABELS[locale];
 
   const { data: entitlements, isLoading } = useEntitlementsQuery();
   const passportEnabled = entitlements?.passportEnabled === true;
@@ -34,11 +37,9 @@ export const PassportScreen: React.FC = () => {
     if (typeof city.lat !== 'number' || typeof city.lng !== 'number') return;
     setIsSaving(true);
     try {
-      // Real, documented endpoint — there is no separate "Passport activation" endpoint;
-      // Passport works by updating the user's location like any other location update.
-      await apiClient.post('/api/user/location', {
-        lat: city.lat,
-        lng: city.lng,
+      await apiClient.post('/api/user/passport', {
+        latitude: city.lat,
+        longitude: city.lng,
         city: city.name,
         country: city.country,
       });
@@ -58,7 +59,7 @@ export const PassportScreen: React.FC = () => {
         <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
-        <h3 className="text-heading text-app">Passport Modu</h3>
+        <h3 className="text-heading text-app">{passportLabel} Modu</h3>
         <div className="w-9" />
       </header>
 
@@ -79,12 +80,12 @@ export const PassportScreen: React.FC = () => {
       ) : !passportEnabled ? (
         <div className="my-auto p-6 rounded-3xl bg-surface border border-app text-center space-y-4 shadow-soft">
           <PremiumBadgeInline />
-          <p className="text-body font-extrabold text-app">Passport, Appryvo VIP ile açılır</p>
+          <p className="text-body font-extrabold text-app">{passportLabel}, Ryvo Plus ve Gold ile açılır</p>
           <p className="text-caption text-app-muted normal-case">
-            VIP üyeler konumlarını değiştirip dünyanın her yerinden insanlarla eşleşebilir.
+            Ryvo Plus ve Gold üyeleri konumlarını değiştirip dünyanın her yerinden insanlarla eşleşebilir.
           </p>
           <AppButton variant="primary" size="lg" fullWidth onClick={() => navigate('/premium')}>
-            VIP Ol
+            Ryvo Plus veya Gold’a Geç
           </AppButton>
         </div>
       ) : (
@@ -97,7 +98,7 @@ export const PassportScreen: React.FC = () => {
               placeholder="Hedef şehir ara (örn. Paris, Tokyo...)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-input-app border border-app rounded-full pl-12 pr-4 py-3 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-purple-500"
+              className="w-full bg-input-app border border-app rounded-full pl-12 pr-4 py-3 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-purple-500 focus-visible:ring-2 focus-visible:ring-purple-500/40"
             />
           </form>
 

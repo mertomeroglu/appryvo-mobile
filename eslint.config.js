@@ -7,7 +7,7 @@ import tsParser from '@typescript-eslint/parser';
 
 export default [
   {
-    ignores: ['dist', 'android', 'ios', 'node_modules'],
+    ignores: ['dist', 'android', 'ios', 'node_modules', 'artifacts'],
   },
   js.configs.recommended,
   {
@@ -22,6 +22,7 @@ export default [
         RTCIceServer: 'readonly',
         RTCSessionDescriptionInit: 'readonly',
         RTCIceCandidateInit: 'readonly',
+        RTCPeerConnectionState: 'readonly',
       },
       parser: tsParser,
     },

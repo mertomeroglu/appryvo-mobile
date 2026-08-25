@@ -1,4 +1,5 @@
 import { secureStorage } from '../../native/secureStorage';
+import { notifyVpnBlocked } from '../security/vpnAccess';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api.appryvo.online';
 
@@ -50,6 +51,9 @@ async function handleResponse(response: Response): Promise<any> {
 
   const message = data?.message || data?.error || 'Bir sunucu hatası oluştu.';
   const code = data?.code || (response.status === 401 ? 'UNAUTHORIZED' : 'API_ERROR');
+  if (code === 'VPN_NOT_ALLOWED') {
+    notifyVpnBlocked(data?.localizedMessage);
+  }
   throw new ApiException(message, response.status, code, data);
 }
 
@@ -66,6 +70,15 @@ export async function refreshTokenFlow(): Promise<boolean> {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ refreshToken }),
       });
+
+      if (res.status === 403) {
+        const blockedData = await res.json().catch(() => ({}));
+        if (blockedData?.code === 'VPN_NOT_ALLOWED') {
+          notifyVpnBlocked(blockedData.localizedMessage);
+          // A temporary network policy restriction must not destroy a recoverable session.
+          return false;
+        }
+      }
 
       if (res.ok) {
         const data = await res.json();
@@ -125,7 +138,10 @@ export async function customFetch(path: string, options: RequestOptions = {}): P
     });
 
     // 401 Unauthorized handling & automatic token refresh retry
-    if (response.status === 401 && !skipAuth && !path.includes('/api/auth/')) {
+    // A failed destructive-action re-authentication is not an expired app session.
+    // Retrying it after a token refresh would double-count the password attempt and can
+    // prematurely trigger the account-deletion limiter.
+    if (response.status === 401 && !skipAuth && !path.includes('/api/auth/') && path !== '/api/account') {
       const refreshed = await refreshTokenFlow();
       if (refreshed) {
         const retryHeaders = await getAuthHeaders();
@@ -151,6 +167,42 @@ export async function customFetch(path: string, options: RequestOptions = {}): P
       throw err;
     }
     throw new ApiException(err.message || 'Ağ bağlantı hatası.', 0, 'NETWORK_ERROR');
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function fetchAuthenticatedBlob(path: string, timeoutMs = 30000): Promise<Blob> {
+  const url = path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    let response = await fetch(url, {
+      method: 'GET',
+      headers: await getAuthHeaders(),
+      signal: controller.signal,
+    });
+
+    if (response.status === 401 && await refreshTokenFlow()) {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: await getAuthHeaders(),
+        signal: controller.signal,
+      });
+    }
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new ApiException(data?.message || 'Medya alınamadı.', response.status, data?.code || 'MEDIA_FETCH_FAILED');
+    }
+    return await response.blob();
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new ApiException('Medya isteği zaman aşımına uğradı.', 408, 'TIMEOUT');
+    }
+    if (err instanceof ApiException) throw err;
+    throw new ApiException(err?.message || 'Medya alınamadı.', 0, 'NETWORK_ERROR');
   } finally {
     clearTimeout(timeoutId);
   }

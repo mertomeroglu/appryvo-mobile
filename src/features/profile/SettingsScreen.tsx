@@ -6,7 +6,6 @@ import {
   Bell,
   Check,
   ChevronRight,
-  Flag,
   Languages,
   LifeBuoy,
   LogOut,
@@ -14,6 +13,7 @@ import {
   Moon,
   Shield,
   ShieldCheck,
+  Smartphone,
   Sun,
   Trash2,
   UserX,
@@ -29,12 +29,17 @@ import { SafetyReportModal } from '../../components/SafetyReportModal';
 import { SPRING } from '../../motion/tokens';
 import { toast } from '../../stores/useToastStore';
 import { CHAT_TRANSLATION_LANGUAGES, chatLanguageLabel } from '../../lib/chatTranslationLanguages';
-import { COMMON_COUNTRIES, countryCodeToFlag, normalizeCountryCode } from '../../lib/countryFlags';
+import {
+  APP_LOCALE_LABELS,
+  SUPPORTED_APP_LOCALES,
+  useAppLocaleStore,
+  useAppTranslation,
+} from '../../i18n/appLocale';
 
 const THEME_OPTIONS: { value: ThemeMode; label: string; icon: React.ReactNode }[] = [
   { value: 'light', label: 'Aydınlık', icon: <Sun className="w-4 h-4" /> },
   { value: 'dark', label: 'Karanlık', icon: <Moon className="w-4 h-4" /> },
-  { value: 'system', label: 'Sistem', icon: <span className="text-caption font-black">A</span> },
+  { value: 'system', label: 'Sistem', icon: <Smartphone className="w-4 h-4" /> },
 ];
 
 const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -106,14 +111,25 @@ export const SettingsScreen: React.FC = () => {
   const setMode = useThemeStore((s) => s.setMode);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isChatLanguageOpen, setIsChatLanguageOpen] = useState(false);
-  const [isCountryOpen, setIsCountryOpen] = useState(false);
+  const [isAppLanguageOpen, setIsAppLanguageOpen] = useState(false);
   const notificationsMutation = useNotificationsPreferenceMutation();
+  const locale = useAppLocaleStore((state) => state.locale);
+  const setLocale = useAppLocaleStore((state) => state.setLocale);
+  const { t } = useAppTranslation();
 
   const pushEnabled = user?.pushNotificationsEnabled !== false;
+  const verificationComplete = user?.verified === true || user?.verificationState === 'APPROVED';
+  const verificationPending = user?.verificationState === 'PENDING';
+  const verificationValue = verificationComplete
+    ? 'Doğrulandı'
+    : verificationPending
+      ? 'İnceleniyor'
+      : user?.verificationState === 'REJECTED' || user?.verificationState === 'REVERIFICATION_REQUIRED'
+        ? 'Tekrar dene'
+        : 'Doğrulanmadı';
   // Tier 2 of the chat-translation-language resolution chain (per-conversation override wins
   // when set; this is the fallback used across every conversation that hasn't overridden it).
   const chatLanguage = user?.chatLanguage || user?.languageCode || 'tr';
-  const countryCode = normalizeCountryCode(user?.countryCode) || 'TR';
 
   const handleSelectChatLanguage = async (code: string) => {
     if (!user) return;
@@ -125,19 +141,6 @@ export const SettingsScreen: React.FC = () => {
     } catch {
       setUser({ ...user, chatLanguage: previous });
       toast.error('Sohbet dili güncellenemedi.');
-    }
-  };
-
-  const handleSelectCountry = async (code: string) => {
-    if (!user) return;
-    const previous = user.countryCode;
-    setUser({ ...user, countryCode: code });
-    setIsCountryOpen(false);
-    try {
-      await apiClient.put('/api/profile', { targetCountry: code });
-    } catch {
-      setUser({ ...user, countryCode: previous });
-      toast.error('Ülke güncellenemedi.');
     }
   };
 
@@ -165,7 +168,7 @@ export const SettingsScreen: React.FC = () => {
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
         <AppLogo variant="icon" size="sm" />
-        <h2 className="text-heading text-app">Ayarlar</h2>
+        <h2 className="text-heading text-app break-words">{t('settings')}</h2>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6 no-scrollbar">
@@ -177,35 +180,35 @@ export const SettingsScreen: React.FC = () => {
             <ListRow
               icon={<ShieldCheck className="w-5 h-5" />}
               label="Kimlik Doğrulama"
-              value={user?.verified ? 'Doğrulandı' : 'Doğrulanmadı'}
-              onClick={() => navigate('/verification')}
+              value={verificationValue}
+              onClick={verificationComplete || verificationPending ? undefined : () => navigate('/verification')}
             />
           </div>
         </div>
 
         {/* Notifications & Support */}
         <div>
-          <SectionLabel>Tercihler</SectionLabel>
+          <SectionLabel>{t('preferences')}</SectionLabel>
           <div className="space-y-2.5">
             <ToggleRow
               icon={<Bell className="w-5 h-5" />}
-              label="Bildirimler"
+              label={t('notifications')}
               checked={pushEnabled}
               disabled={notificationsMutation.isPending}
               onChange={handleToggleNotifications}
             />
-            <ListRow icon={<LifeBuoy className="w-5 h-5" />} label="Destek" onClick={() => navigate('/support')} />
+            <ListRow icon={<LifeBuoy className="w-5 h-5" />} label={t('support')} onClick={() => navigate('/support')} />
             <ListRow
               icon={<Languages className="w-5 h-5" />}
-              label="Sohbet Dili"
-              value={chatLanguageLabel(chatLanguage)}
-              onClick={() => setIsChatLanguageOpen(true)}
+              label={t('appLanguage')}
+              value={APP_LOCALE_LABELS[locale]}
+              onClick={() => setIsAppLanguageOpen(true)}
             />
             <ListRow
-              icon={<Flag className="w-5 h-5" />}
-              label="Ülke"
-              value={`${countryCodeToFlag(countryCode)} ${COMMON_COUNTRIES.find((c) => c.code === countryCode)?.name || countryCode}`}
-              onClick={() => setIsCountryOpen(true)}
+              icon={<Languages className="w-5 h-5" />}
+              label={t('chatLanguage')}
+              value={chatLanguageLabel(chatLanguage)}
+              onClick={() => setIsChatLanguageOpen(true)}
             />
           </div>
         </div>
@@ -258,10 +261,10 @@ export const SettingsScreen: React.FC = () => {
         <div>
           <SectionLabel>Hesap İşlemleri</SectionLabel>
           <div className="space-y-2.5">
-            <ListRow icon={<LogOut className="w-5 h-5" />} label="Çıkış Yap" onClick={handleLogout} />
+            <ListRow icon={<LogOut className="w-5 h-5" />} label={t('logout')} onClick={handleLogout} />
             <ListRow
               icon={<Trash2 className="w-5 h-5" />}
-              label="Hesabı Sil"
+              label={t('deleteAccount')}
               destructive
               onClick={() => setIsDeleteOpen(true)}
             />
@@ -275,6 +278,33 @@ export const SettingsScreen: React.FC = () => {
         type="delete_account"
         onSuccess={() => navigate('/auth')}
       />
+
+      <Modal isOpen={isAppLanguageOpen} onClose={() => setIsAppLanguageOpen(false)}>
+        <div className="space-y-4">
+          <h3 className="text-heading text-app break-words">{t('appLanguage')}</h3>
+          <div className="grid grid-cols-2 gap-2 max-h-[55vh] overflow-y-auto no-scrollbar">
+            {SUPPORTED_APP_LOCALES.map((code) => {
+              const selected = code === locale;
+              return (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => {
+                    setLocale(code);
+                    setIsAppLanguageOpen(false);
+                  }}
+                  className={`min-w-0 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl border text-body font-semibold text-left ${
+                    selected ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app'
+                  }`}
+                >
+                  <span className="min-w-0 break-words">{APP_LOCALE_LABELS[code]}</span>
+                  {selected && <Check className="w-4 h-4 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </Modal>
 
       <Modal isOpen={isChatLanguageOpen} onClose={() => setIsChatLanguageOpen(false)}>
         <div className="space-y-4">
@@ -302,34 +332,6 @@ export const SettingsScreen: React.FC = () => {
         </div>
       </Modal>
 
-      <Modal isOpen={isCountryOpen} onClose={() => setIsCountryOpen(false)}>
-        <div className="space-y-4">
-          <h3 className="text-heading text-app">Ülke</h3>
-          <p className="text-micro text-app-muted normal-case">
-            Profilinde gösterilecek ülke/uyruk bayrağı. Doğrulama rozetinden bağımsızdır.
-          </p>
-          <div className="grid grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto no-scrollbar">
-            {COMMON_COUNTRIES.map((c) => {
-              const selected = c.code === countryCode;
-              return (
-                <button
-                  key={c.code}
-                  onClick={() => handleSelectCountry(c.code)}
-                  className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-body font-semibold text-left ${
-                    selected ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app'
-                  }`}
-                >
-                  <span className="truncate flex items-center gap-2">
-                    <span>{countryCodeToFlag(c.code)}</span>
-                    <span className="truncate">{c.name}</span>
-                  </span>
-                  {selected && <Check className="w-4 h-4 shrink-0" />}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 };

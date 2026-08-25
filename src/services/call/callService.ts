@@ -1,6 +1,8 @@
 import { socketService } from '../socket/socketService';
-import { webrtcService } from './webrtcService';
-import { useCallStore } from '../../stores/useCallStore';
+import { webrtcService, MediaAccessError } from './webrtcService';
+import { useCallStore, type CallError } from '../../stores/useCallStore';
+import { nativeCallAudio } from '../../native/callAudio';
+import { toast } from '../../stores/useToastStore';
 
 function generateCallId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -8,6 +10,65 @@ function generateCallId(): string {
   }
   return `call-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
+
+// A transient 'disconnected' state often self-recovers via ICE keepalive without any new
+// offer/answer (the signaling server has no renegotiation channel, so that's the only recovery
+// path available -- see socket_server.js). Give it a grace window before treating it as failed.
+const RECONNECT_GRACE_MS = 8000;
+// How long the FAILED/permission-denied state stays on screen before the overlay auto-dismisses.
+const FAILURE_DISPLAY_MS = 3000;
+
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearReconnectTimer() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+/** Tears down local WebRTC resources and the remote party's session, but leaves the failure
+ *  visible in the store briefly so CallOverlay can render it before the overlay unmounts. */
+function failCall(error: CallError, socketReason: string, message: string) {
+  clearReconnectTimer();
+  const call = useCallStore.getState().activeCall;
+  if (call) socketService.endCall({ callId: call.callId, reason: socketReason });
+  webrtcService.hangup();
+  void nativeCallAudio.resetAudioMode();
+  toast.error(message);
+  useCallStore.getState().setCallError(error);
+  useCallStore.getState().setCallStatus('FAILED');
+  window.setTimeout(() => {
+    if (useCallStore.getState().activeCall?.status === 'FAILED') useCallStore.getState().endCall();
+  }, FAILURE_DISPLAY_MS);
+}
+
+webrtcService.onConnectionStateChange = (state) => {
+  const call = useCallStore.getState().activeCall;
+  if (!call || call.status === 'ENDED' || call.status === 'FAILED') return;
+
+  if (state === 'connected') {
+    clearReconnectTimer();
+    if (call.status === 'RECONNECTING') useCallStore.getState().setCallStatus('ACTIVE');
+    return;
+  }
+
+  if (state === 'disconnected') {
+    if (call.status !== 'ACTIVE' && call.status !== 'RECONNECTING') return;
+    useCallStore.getState().setCallStatus('RECONNECTING');
+    clearReconnectTimer();
+    reconnectTimer = setTimeout(() => {
+      if (useCallStore.getState().activeCall?.status === 'RECONNECTING') {
+        failCall('CONNECTION_FAILED', 'connection_failed', 'Bağlantı kesildi.');
+      }
+    }, RECONNECT_GRACE_MS);
+    return;
+  }
+
+  if (state === 'failed') {
+    failCall('CONNECTION_FAILED', 'connection_failed', 'Bağlantı kesildi.');
+  }
+};
 
 export const callService = {
   async startOutgoingCall(params: {
@@ -38,8 +99,18 @@ export const callService = {
       });
     } catch (err) {
       console.error('[CALL START ERROR]', err);
-      webrtcService.hangup();
-      useCallStore.getState().endCall();
+      if (err instanceof MediaAccessError) {
+        failCall(
+          err.reason,
+          'media_error',
+          err.reason === 'PERMISSION_DENIED'
+            ? 'Mikrofon/kamera izni verilmedi.'
+            : 'Mikrofon/kamera kullanılamıyor.'
+        );
+      } else {
+        webrtcService.hangup();
+        useCallStore.getState().endCall();
+      }
     }
   },
 
@@ -53,16 +124,72 @@ export const callService = {
       useCallStore.getState().setCallStatus('ACTIVE');
     } catch (err) {
       console.error('[CALL ACCEPT ERROR]', err);
-      callService.endCall('error');
+      if (err instanceof MediaAccessError) {
+        failCall(
+          err.reason,
+          'media_error',
+          err.reason === 'PERMISSION_DENIED'
+            ? 'Mikrofon/kamera izni verilmedi.'
+            : 'Mikrofon/kamera kullanılamıyor.'
+        );
+      } else {
+        webrtcService.hangup();
+        useCallStore.getState().endCall();
+      }
     }
   },
 
   endCall(reason: string = 'ended') {
+    clearReconnectTimer();
     const call = useCallStore.getState().activeCall;
     if (call) {
       socketService.endCall({ callId: call.callId, reason });
     }
     webrtcService.hangup();
+    void nativeCallAudio.resetAudioMode();
     useCallStore.getState().endCall();
+  },
+
+  /** Requester side of a mid-call voice->video upgrade. Only meaningful on an ACTIVE voice call;
+   *  a failure here (e.g. camera permission denied) surfaces a toast but never ends the call --
+   *  the existing audio connection is untouched by this whole flow. */
+  async requestVideoUpgrade() {
+    const call = useCallStore.getState().activeCall;
+    if (!call || call.type === 'video' || call.status !== 'ACTIVE') return;
+    try {
+      const offer = await webrtcService.upgradeToVideo();
+      if (!offer) return;
+      socketService.sendRenegotiateOffer({ callId: call.callId, offer });
+      useCallStore.getState().setCallType('video');
+    } catch (err) {
+      console.error('[CALL VIDEO UPGRADE ERROR]', err);
+      toast.error(
+        err instanceof MediaAccessError && err.reason === 'PERMISSION_DENIED'
+          ? 'Kamera izni verilmedi.'
+          : 'Görüntülü aramaya geçilemedi.'
+      );
+    }
+  },
+
+  /** Peer side of a mid-call voice->video upgrade: received an offer that adds a video m-line to
+   *  the already-connected call. Auto-accepts (adds its own camera track and answers) rather than
+   *  prompting, matching this call flow's existing keep-it-simple style. */
+  async handleIncomingRenegotiateOffer(offer: any) {
+    const call = useCallStore.getState().activeCall;
+    if (!call) return;
+    try {
+      const answer = await webrtcService.acceptVideoUpgrade(offer);
+      if (!answer) return;
+      socketService.sendRenegotiateAnswer({ callId: call.callId, answer });
+      useCallStore.getState().setCallType('video');
+    } catch (err) {
+      // The peer already committed to sending video (their local preview is already live); not
+      // being able to reciprocate here must not drop the still-healthy voice connection.
+      console.error('[CALL VIDEO UPGRADE ACCEPT ERROR]', err);
+    }
+  },
+
+  async handleIncomingRenegotiateAnswer(answer: any) {
+    await webrtcService.confirmVideoUpgrade(answer);
   },
 };

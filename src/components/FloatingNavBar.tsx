@@ -1,15 +1,17 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Flame, Globe, Heart, MessageCircle, User } from 'lucide-react';
+import { Flame, Globe2, Heart, MessageCircle, User } from 'lucide-react';
 import { useUiStore } from '../stores/useUiStore';
 import { useLikesUnreadCountQuery } from '../hooks/useQueries';
-import { SPRING, PRESS_SCALE } from '../motion/tokens';
+import { useAppTranslation } from '../i18n/appLocale';
+import { preloadProfileExperience } from '../routes/routePreload';
+import { markProfileNavigationStart } from '../services/performance/profilePerformance';
 
 export const FloatingNavBar: React.FC = () => {
   const location = useLocation();
   const unreadCount = useUiStore((s) => s.unreadCount);
   const { data: unreadLikesCount } = useLikesUnreadCountQuery();
+  const { t } = useAppTranslation();
 
   // Hide nav bar on specific child/fullscreen views
   const isHidden = [
@@ -17,6 +19,7 @@ export const FloatingNavBar: React.FC = () => {
     '/premium',
     '/boost',
     '/chat/',
+    '/messages/ryvo',
     '/discover/',
     '/settings',
     '/verification',
@@ -27,29 +30,44 @@ export const FloatingNavBar: React.FC = () => {
   if (isHidden) return null;
 
   const navItems = [
-    { path: '/discover', label: 'Keşfet', icon: Flame },
-    { path: '/map', label: 'Harita', icon: Globe },
-    { path: '/likes', label: 'Beğeniler', icon: Heart, badge: unreadLikesCount },
-    { path: '/messages', label: 'Mesajlar', icon: MessageCircle, badge: unreadCount },
-    { path: '/profile', label: 'Profil', icon: User },
+    { path: '/discover', label: t('discover'), icon: Flame },
+    { path: '/likes', label: t('likes'), icon: Heart, badge: unreadLikesCount },
+    { path: '/map', label: t('map'), icon: Globe2 },
+    {
+      // Messages count only, never folded together with the unrelated generic in-app
+      // notifications count (admin campaigns, lifecycle events, etc.) -- that count belongs on
+      // its own bell icon, not here. Mixing them previously showed a phantom "6" on Messages for
+      // an account with zero unread chats but 6 unrelated notifications.
+      path: '/messages',
+      label: t('messages'),
+      icon: MessageCircle,
+      badge: unreadCount,
+    },
+    { path: '/profile', label: t('profile'), icon: User },
   ];
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-navigation pb-safe pointer-events-none flex justify-center">
-      <nav className="pointer-events-auto mb-4 mx-4 w-full max-w-md bg-surface/90 backdrop-blur-xl border border-app rounded-[24px] px-2 py-1.5 flex items-center justify-around shadow-elevated">
+      <nav className="pointer-events-auto mb-4 mx-4 w-full max-w-md bg-surface/90 backdrop-blur-xl border border-app rounded-[24px] px-2 py-1.5 flex items-center justify-around shadow-elevated contain-layout">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname.startsWith(item.path);
           return (
-            <motion.div key={item.path} whileTap={{ scale: PRESS_SCALE }} transition={SPRING.snappy}>
               <NavLink
+                key={item.path}
                 to={item.path}
-                className="relative flex flex-col items-center justify-center w-12 h-12 rounded-[18px]"
+                aria-label={item.label}
+                title={item.label}
+                onPointerDown={item.path === '/profile' ? () => {
+                  markProfileNavigationStart();
+                  void preloadProfileExperience();
+                } : undefined}
+                onFocus={item.path === '/profile' ? () => void preloadProfileExperience() : undefined}
+                className="relative flex flex-col items-center justify-center w-12 h-12 rounded-[18px] touch-manipulation transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 {isActive && (
-                  <motion.div
-                    layoutId="nav-active-pill"
-                    transition={SPRING.snappy}
+                  <div
+                    aria-hidden="true"
                     className="absolute inset-0 bg-brand-gradient rounded-[18px] shadow-md shadow-pink-500/20"
                   />
                 )}
@@ -66,7 +84,6 @@ export const FloatingNavBar: React.FC = () => {
                   )}
                 </div>
               </NavLink>
-            </motion.div>
           );
         })}
       </nav>

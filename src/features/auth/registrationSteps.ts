@@ -1,6 +1,6 @@
 // Single source of truth for the registration wizard's step order and progress indicator.
 // ALL of these run before the account is actually created — see RegistrationWizard.tsx.
-// There is no review step: the last step (location) creates the account directly.
+// Location is intentionally requested later, when the user first opens Discover.
 export type RegistrationStepId =
   | 'basic'
   | 'username'
@@ -9,8 +9,7 @@ export type RegistrationStepId =
   | 'interestedIn'
   | 'relationshipGoal'
   | 'interests'
-  | 'photos'
-  | 'location';
+  | 'photos';
 
 export interface RegistrationStepConfig {
   id: RegistrationStepId;
@@ -26,7 +25,6 @@ export const REGISTRATION_STEPS: RegistrationStepConfig[] = [
   { id: 'relationshipGoal', label: 'Hedef' },
   { id: 'interests', label: 'İlgi Alanları' },
   { id: 'photos', label: 'Fotoğraflar' },
-  { id: 'location', label: 'Konum' },
 ];
 
 export const REGISTRATION_STEP_COUNT = REGISTRATION_STEPS.length;

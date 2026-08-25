@@ -25,7 +25,6 @@ export const DualRangeSlider: React.FC<DualRangeSliderProps> = ({
   onChange,
   formatValue = (v) => String(v),
 }) => {
-  const midpoint = (min + max) / 2;
   const rangeStartPct = ((valueMin - min) / (max - min)) * 100;
   const rangeEndPct = ((valueMax - min) / (max - min)) * 100;
 
@@ -37,11 +36,16 @@ export const DualRangeSlider: React.FC<DualRangeSliderProps> = ({
           {formatValue(valueMin)} – {formatValue(valueMax)}
         </span>
       </div>
-      <div className="relative h-6 flex items-center">
-        <div className="absolute inset-x-0 h-1.5 rounded-full bg-app-secondary" />
+      <div className="relative h-11 flex items-center">
+        {/* The visible rail starts/ends at the thumb centres. Native range thumbs stop one
+            radius inside their input, so a 10px inset prevents either rail from protruding. */}
+        <div className="absolute left-[10px] right-[10px] h-1.5 rounded-full bg-app-secondary" />
         <div
           className="absolute h-1.5 rounded-full bg-brand-gradient"
-          style={{ left: `${rangeStartPct}%`, right: `${100 - rangeEndPct}%` }}
+          style={{
+            left: `calc(10px + (100% - 20px) * ${rangeStartPct / 100})`,
+            right: `calc(10px + (100% - 20px) * ${(100 - rangeEndPct) / 100})`,
+          }}
         />
         <input
           type="range"
@@ -51,7 +55,7 @@ export const DualRangeSlider: React.FC<DualRangeSliderProps> = ({
           value={valueMin}
           onChange={(e) => onChange(Math.min(Number(e.target.value), valueMax), valueMax)}
           className="dual-range-input"
-          style={{ zIndex: valueMin > midpoint ? 5 : 3 }}
+          style={{ zIndex: valueMin >= max - step ? 5 : 3 }}
           aria-label="Minimum yaş"
         />
         <input

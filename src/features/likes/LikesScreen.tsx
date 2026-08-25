@@ -46,10 +46,10 @@ export const LikesScreen: React.FC = () => {
       {!isLoading && !isPremium && likesList.length > 0 && (
         <div className="my-4 p-4 rounded-2xl bg-brand-gradient text-white flex items-center justify-between shadow-elevated shadow-pink-500/20">
           <div className="flex items-center gap-3">
-            <PremiumBadge label="VIP" className="text-[#3A2A05]" />
+            <PremiumBadge label="Ryvo Gold" className="text-[#3A2A05]" />
             <div>
               <h4 className="text-caption font-extrabold">Seni Beğenenleri Gör</h4>
-              <p className="text-micro text-white/80 normal-case">Fotoğrafların kilidini açmak için VIP ol</p>
+              <p className="text-micro text-white/80 normal-case">Fotoğrafların kilidini açmak için Ryvo Gold’a geç</p>
             </div>
           </div>
           <AppButton

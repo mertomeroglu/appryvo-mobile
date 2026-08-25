@@ -3,12 +3,14 @@ import { API_BASE_URL } from '../api/apiClient';
 import { secureStorage } from '../../native/secureStorage';
 
 type EventListenerMap = Map<string, Set<(...args: any[]) => void>>;
+const DEBUG = import.meta.env.DEV;
 
 export class SocketService {
   private static instance: SocketService | null = null;
   private socket: Socket | null = null;
   private listeners: EventListenerMap = new Map();
   private isConnecting = false;
+  private conversationRooms = new Set<string>();
 
   private constructor() {}
 
@@ -96,15 +98,21 @@ export class SocketService {
     if (!this.socket) return;
 
     this.socket.on('connect', () => {
-      console.log('[SOCKET CONNECTED] ID:', this.socket?.id);
+      if (DEBUG) console.log('[SOCKET CONNECTED] ID:', this.socket?.id);
+      // Socket.IO room membership belongs to the physical connection. Rejoin every open
+      // conversation after both first connect and reconnect so an in-flight chat never goes
+      // stale after a network handoff or token refresh.
+      this.conversationRooms.forEach((matchId) => {
+        this.socket?.emit('join:conversation', matchId);
+      });
     });
 
     this.socket.on('disconnect', (reason) => {
-      console.log('[SOCKET DISCONNECTED] Reason:', reason);
+      if (DEBUG) console.log('[SOCKET DISCONNECTED] Reason:', reason);
     });
 
     this.socket.on('connect_error', (err) => {
-      console.warn('[SOCKET CONNECT ERROR]', err.message);
+      if (DEBUG) console.warn('[SOCKET CONNECT ERROR]', err.message);
     });
   }
 
@@ -157,10 +165,14 @@ export class SocketService {
   }
 
   public emit(event: string, data?: any, ackCallback?: (response: any) => void) {
-    if (!this.socket || !this.socket.connected) {
-      console.warn('[SOCKET EMIT WARNING] Socket is not connected, attempting connect...');
+    if (this.socket && !this.socket.active) this.socket = null;
+    if (!this.socket) {
+      if (DEBUG) console.warn('[SOCKET EMIT WARNING] Socket is not connected, attempting connect...');
       this.connect().then((sock) => {
-        if (sock && sock.connected) {
+        if (sock) {
+          // socket.io buffers outbound events while its manager establishes/re-establishes the
+          // transport. Emitting here is intentional; checking sock.connected first used to
+          // silently drop joins and sends issued during the connection handshake.
           if (typeof ackCallback === 'function') {
             sock.emit(event, data, ackCallback);
           } else {
@@ -180,15 +192,33 @@ export class SocketService {
 
   // Domain Specific Contract Actions from docs/mobile-api-contract.json
   public joinConversation(matchId: string) {
+    this.conversationRooms.add(matchId);
     this.emit('join:conversation', matchId);
   }
 
   public leaveConversation(matchId: string) {
+    this.conversationRooms.delete(matchId);
     this.emit('leave:conversation', matchId);
   }
 
-  public sendMessage(payload: { matchId: string; text?: string; mediaUrl?: string; replyToMessageId?: string; clientMessageId?: string; messageType?: string; isViewOnce?: boolean; durationSeconds?: number; thumbnailUrl?: string }, ack?: (res: any) => void) {
-    this.emit('message:send', payload, ack);
+  public sendMessage(payload: { matchId: string; text?: string; mediaUrl?: string; replyToMessageId?: string; replyToStoryId?: string; clientMessageId?: string; messageType?: string; isViewOnce?: boolean; durationSeconds?: number; thumbnailUrl?: string }, ack?: (res: any) => void) {
+    if (!ack) {
+      this.emit('message:send', payload);
+      return;
+    }
+
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      ack({ status: 'error', code: 'SOCKET_TIMEOUT', message: 'Bağlantı kurulamadı. Tekrar dene.' });
+    }, 12000);
+    this.emit('message:send', payload, (response) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      ack(response);
+    });
   }
 
   public startTyping(matchId: string) {
@@ -221,6 +251,14 @@ export class SocketService {
 
   public sendIceCandidate(payload: { callId: string; candidate: any }) {
     this.emit('call:ice-candidate', payload);
+  }
+
+  public sendRenegotiateOffer(payload: { callId: string; offer: any }) {
+    this.emit('call:renegotiate-offer', payload);
+  }
+
+  public sendRenegotiateAnswer(payload: { callId: string; answer: any }) {
+    this.emit('call:renegotiate-answer', payload);
   }
 
   public endCall(payload: { callId: string; reason?: string }) {

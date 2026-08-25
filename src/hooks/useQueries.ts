@@ -1,5 +1,13 @@
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  type InfiniteData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { apiClient } from '../services/api/apiClient';
+import { normalizePublicTier } from '../features/premium/subscriptionProducts';
 
 export interface MapBbox {
   north: number;
@@ -19,8 +27,13 @@ export const QUERY_KEYS = {
   messages: (matchId: string) => ['matches', matchId, 'messages'],
   confessions: ['social', 'confessions'],
   frames: ['profile', 'frames'],
+  frameOwnership: ['profile', 'frames', 'ownership'],
   callHistory: ['calls', 'history'],
   notifications: ['notifications', 'in-app'],
+  stories: ['social', 'stories'],
+  followStatus: (userId: string) => ['follows', userId, 'status'],
+  followers: (userId: string) => ['follows', userId, 'followers'],
+  following: (userId: string) => ['follows', userId, 'following'],
 };
 
 // Hooks
@@ -36,15 +49,60 @@ export function useMeQuery() {
 export function useEntitlementsQuery() {
   return useQuery({
     queryKey: QUERY_KEYS.entitlements,
-    queryFn: () => apiClient.get('/api/entitlements').then((res) => res?.data),
+    queryFn: () => apiClient.get('/api/entitlements').then((res) => {
+      const data = res?.data || {};
+      return { ...data, subscriptionTier: normalizePublicTier(data.subscriptionTier) };
+    }),
     staleTime: 2 * 60 * 1000,
   });
 }
 
-export function useDiscoveryFeedQuery(page = 1, limit = 20) {
+export interface DiscoveryFeedPage<TProfile = any> {
+  profiles: TProfile[];
+  paging: {
+    limit: number;
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+  algorithmVersion?: string;
+}
+
+export interface ConfessionItem {
+  id: string;
+  text: string;
+  likesCount: number;
+  commentsCount: number;
+  createdAt: string;
+  isLikedByMe: boolean;
+  isMyPost: boolean;
+}
+
+export interface ConfessionsPage {
+  items: ConfessionItem[];
+  isQuotaExceeded: boolean;
+  quota: { limit: number; current: number } | null;
+  paging: {
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+}
+
+export function useDiscoveryFeedQuery(cursor: string | null, limit = 20, sessionKey = 0) {
   return useQuery({
-    queryKey: [...QUERY_KEYS.discoveryFeed, page, limit],
-    queryFn: () => apiClient.get(`/api/discovery/feed?page=${page}&limit=${limit}`).then((res) => res?.data),
+    queryKey: [...QUERY_KEYS.discoveryFeed, sessionKey, cursor, limit],
+    queryFn: () => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (cursor) params.set('cursor', cursor);
+      return apiClient.get(`/api/discovery/feed?${params.toString()}`).then((res) => ({
+        profiles: Array.isArray(res?.data) ? res.data : [],
+        paging: {
+          limit: Number(res?.paging?.limit) || limit,
+          hasMore: res?.paging?.hasMore === true,
+          nextCursor: typeof res?.paging?.nextCursor === 'string' ? res.paging.nextCursor : null,
+        },
+        algorithmVersion: res?.algorithmVersion,
+      } as DiscoveryFeedPage));
+    },
     staleTime: 1 * 60 * 1000,
   });
 }
@@ -117,33 +175,278 @@ export function useMessagesUnreadCountQuery() {
 export function useMatchesQuery() {
   return useQuery({
     queryKey: QUERY_KEYS.matches,
-    queryFn: () => apiClient.get('/api/matches').then((res) => res?.data),
+    queryFn: () => apiClient.get('/api/matches').then((res) => {
+      const rows = Array.isArray(res?.data) ? res.data : [];
+      return rows.map((match: any) => ({
+        ...match,
+        id: match.id || match.match_id,
+        user: match.user || match.otherUser || match.other_user || null,
+      }));
+    }),
     staleTime: 30 * 1000,
   });
+}
+
+export interface ChatMessagesPage<TMessage = any> {
+  messages: TMessage[];
+  olderCursor: string | null;
+  hasMore: boolean;
+  meta?: Record<string, unknown>;
 }
 
 export function useMessagesQuery(matchId: string, limit = 50) {
   return useQuery({
     queryKey: QUERY_KEYS.messages(matchId),
-    queryFn: () => apiClient.get(`/api/matches/${matchId}/messages?limit=${limit}`).then((res) => res?.data),
+    queryFn: () => apiClient.get(`/api/matches/${matchId}/messages?limit=${limit}`).then((res): ChatMessagesPage => ({
+      messages: Array.isArray(res?.data) ? res.data : [],
+      olderCursor: res?.paging?.olderCursor || null,
+      hasMore: res?.paging?.hasMore === true,
+      meta: res?.meta,
+    })),
     enabled: !!matchId,
     staleTime: 10 * 1000,
   });
 }
 
-/** Not a hook — a plain fetch for "load older messages" pagination (uses the real `before` cursor param). */
-export async function fetchOlderMessages(matchId: string, beforeMessageId: string, limit = 50) {
+/** Not a hook — fetches one older page using the opaque cursor returned by the API. */
+export async function fetchOlderMessages(matchId: string, cursor: string, limit = 50): Promise<ChatMessagesPage> {
   const res = await apiClient.get(
-    `/api/matches/${matchId}/messages?limit=${limit}&before=${encodeURIComponent(beforeMessageId)}`
+    `/api/matches/${matchId}/messages?limit=${limit}&cursor=${encodeURIComponent(cursor)}`
   );
-  return res?.data;
+  return {
+    messages: Array.isArray(res?.data) ? res.data : [],
+    olderCursor: res?.paging?.olderCursor || null,
+    hasMore: res?.paging?.hasMore === true,
+    meta: res?.meta,
+  };
 }
 
-export function useConfessionsQuery(page = 1, limit = 20) {
-  return useQuery({
-    queryKey: [...QUERY_KEYS.confessions, page, limit],
-    queryFn: () => apiClient.get(`/api/social/confessions?page=${page}&limit=${limit}`).then((res) => res?.data),
+export function useConfessionsQuery(limit = 10) {
+  return useInfiniteQuery({
+    queryKey: [...QUERY_KEYS.confessions, limit],
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (pageParam) params.set('cursor', pageParam);
+      try {
+        const res = await apiClient.get(`/api/social/confessions?${params.toString()}`);
+        return {
+          items: Array.isArray(res?.data) ? res.data : [],
+          isQuotaExceeded: res?.isQuotaExceeded === true,
+          quota: res?.quota || null,
+          paging: res?.paging || { hasMore: false, nextCursor: null },
+        } satisfies ConfessionsPage;
+      } catch (error: any) {
+        // Compatibility during rolling backend deployments: the previous API represented
+        // an exhausted product quota as HTTP 403, which must not become a technical error UI.
+        if (error?.rawDetails?.isQuotaExceeded === true) {
+          return {
+            items: [],
+            isQuotaExceeded: true,
+            quota: {
+              limit: Number(error.rawDetails.limit || 10),
+              current: Number(error.rawDetails.current || 10),
+            },
+            paging: { hasMore: false, nextCursor: null },
+          } satisfies ConfessionsPage;
+        }
+        throw error;
+      }
+    },
+    getNextPageParam: (lastPage) => !lastPage.isQuotaExceeded && lastPage.paging?.hasMore ? lastPage.paging.nextCursor : undefined,
     staleTime: 1 * 60 * 1000,
+  });
+}
+
+export interface StoryItem {
+  id: string;
+  userId: string;
+  userName: string;
+  userPhoto?: string;
+  mediaUrl: string;
+  caption?: string;
+  expiresAt: string;
+  createdAt: string;
+  viewedByMe: boolean;
+  isOwn: boolean;
+  isPromoted: boolean;
+}
+
+export function useStoriesQuery(limit = 30) {
+  return useQuery({
+    // Response envelope is { status, data: StoryItem[], paging }, not { items }. A previous
+    // version of this hook returned the raw envelope and StoryTray read a non-existent
+    // `data.items`, so the tray silently rendered nothing regardless of real story data.
+    queryKey: [...QUERY_KEYS.stories, limit],
+    queryFn: () => apiClient.get(`/api/social/stories?limit=${limit}`).then((res) => ({
+      items: Array.isArray(res?.data) ? (res.data as StoryItem[]) : [],
+      paging: res?.paging || { hasMore: false, nextCursor: null },
+    })),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useCreateStoryMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { mediaUrl: string; caption?: string }) => apiClient.post('/api/social/stories', payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.stories }),
+  });
+}
+
+export function useDeleteStoryMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (storyId: string) => apiClient.delete(`/api/social/stories/${storyId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.stories }),
+  });
+}
+
+/** Fire-and-forget-safe: POST /stories/:id/view is idempotent server-side, so this never needs
+ * to guard against being called twice for the same story (e.g. re-opening the viewer). */
+export function useMarkStoryViewedMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (storyId: string) => apiClient.post(`/api/social/stories/${storyId}/view`),
+    onSuccess: (_data, storyId) => {
+      queryClient.setQueriesData<{ items: StoryItem[]; paging: unknown } | undefined>(
+        { queryKey: QUERY_KEYS.stories },
+        (existing) => {
+          if (!existing?.items) return existing;
+          return { ...existing, items: existing.items.map((s) => (s.id === storyId ? { ...s, viewedByMe: true } : s)) };
+        }
+      );
+    },
+  });
+}
+
+export function useStoryViewersQuery(storyId: string | null) {
+  return useQuery({
+    queryKey: ['social', 'stories', storyId, 'viewers'],
+    queryFn: () => apiClient.get(`/api/social/stories/${storyId}/viewers`).then((res) => res?.data || []),
+    enabled: !!storyId,
+    staleTime: 15 * 1000,
+  });
+}
+
+export interface StorySpotlightConfig {
+  available: boolean;
+  costCoins: number | null;
+  durationHours: number | null;
+}
+
+export function useStorySpotlightConfigQuery() {
+  return useQuery({
+    queryKey: ['coins', 'story-spotlight', 'config'],
+    queryFn: () => apiClient.get('/api/coins/story-spotlight/config').then((res) => res?.data as StorySpotlightConfig),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useStorySpotlightMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { storyId: string; idempotencyKey: string }) =>
+      apiClient.post('/api/coins/story-spotlight', payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.entitlements }),
+  });
+}
+
+export function useInitRewardSessionMutation() {
+  return useMutation({
+    mutationFn: (rewardType: 'REWARDED_LIKE' | 'REWARDED_SUPERLIKE' | 'REWARDED_REWIND') =>
+      apiClient.post('/api/ads/reward-session/init', { rewardType }).then((res) => res?.data),
+  });
+}
+
+export function useVerifyRewardSessionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) => apiClient.post('/api/ads/reward-session/verify', { sessionId }).then((res) => res?.data),
+    onSuccess: (data) => {
+      if (data?.granted) queryClient.invalidateQueries({ queryKey: QUERY_KEYS.entitlements });
+    },
+  });
+}
+
+export function useReportStoryMutation() {
+  return useMutation({
+    mutationFn: ({ storyId, reason }: { storyId: string; reason: string }) =>
+      apiClient.post(`/api/social/stories/${storyId}/report`, { reason }),
+  });
+}
+
+export interface FollowStatus {
+  userId: string;
+  isFollowing: boolean;
+  isFollowedBy: boolean;
+  followersCount: number;
+  followingCount: number;
+}
+
+export function useFollowStatusQuery(userId?: string | null) {
+  return useQuery({
+    queryKey: QUERY_KEYS.followStatus(userId || ''),
+    queryFn: () => apiClient.get(`/api/follows/${userId}/status`).then((res) => res?.data as FollowStatus),
+    enabled: !!userId,
+    staleTime: 30 * 1000,
+  });
+}
+
+export interface FollowListPage {
+  items: Array<{ userId: string; name: string; age?: number; verified?: boolean; photoUrl?: string | null; followedAt: string }>;
+  paging: { hasMore: boolean; nextCursor: string | null };
+}
+
+function useFollowListQuery(userId: string | undefined, direction: 'followers' | 'following') {
+  return useInfiniteQuery({
+    queryKey: direction === 'followers' ? QUERY_KEYS.followers(userId || '') : QUERY_KEYS.following(userId || ''),
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: '30' });
+      if (pageParam) params.set('cursor', pageParam);
+      const res = await apiClient.get(`/api/follows/${userId}/${direction}?${params.toString()}`);
+      return {
+        items: Array.isArray(res?.data) ? res.data : [],
+        paging: res?.paging || { hasMore: false, nextCursor: null },
+      } satisfies FollowListPage;
+    },
+    getNextPageParam: (lastPage) => (lastPage.paging?.hasMore ? lastPage.paging.nextCursor : undefined),
+    enabled: !!userId,
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useFollowersQuery(userId?: string) {
+  return useFollowListQuery(userId, 'followers');
+}
+
+export function useFollowingQuery(userId?: string) {
+  return useFollowListQuery(userId, 'following');
+}
+
+/** Follow/unfollow are both idempotent server-side; the mutation itself is guarded by the
+ * FollowButton disabling on `isPending` so a double tap can't fire it twice client-side either. */
+export function useFollowMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => apiClient.post(`/api/follows/${userId}`).then((res) => res?.data as FollowStatus),
+    onSuccess: (data, userId) => {
+      if (data) queryClient.setQueryData(QUERY_KEYS.followStatus(userId), data);
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.followers(userId) });
+    },
+  });
+}
+
+export function useUnfollowMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => apiClient.delete(`/api/follows/${userId}`).then((res) => res?.data as FollowStatus),
+    onSuccess: (data, userId) => {
+      if (data) queryClient.setQueryData(QUERY_KEYS.followStatus(userId), data);
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.followers(userId) });
+    },
   });
 }
 
@@ -183,11 +486,48 @@ export function useBlockedUsersQuery() {
   });
 }
 
-export function useFramesQuery() {
+export function useFramesQuery(enabled = true) {
   return useQuery({
     queryKey: QUERY_KEYS.frames,
-    queryFn: () => apiClient.get('/api/profile/frames').then((res) => res?.data),
-    staleTime: 10 * 60 * 1000,
+    queryFn: () => apiClient.get('/api/profile/frames/catalog').then((res) => res?.data),
+    enabled,
+    // The authenticated app-level provider warms this rarely-changing catalogue once.
+    // It then survives Profile -> Frames -> Profile navigation without a network refetch.
+    staleTime: 24 * 60 * 60 * 1000,
+    gcTime: 7 * 24 * 60 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useFrameOwnershipQuery(enabled = true) {
+  return useQuery({
+    queryKey: QUERY_KEYS.frameOwnership,
+    queryFn: () => apiClient.get('/api/profile/frames/ownership').then((res) => res?.data),
+    enabled,
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useOfficialRyvoMessagesQuery(limit = 30) {
+  return useInfiniteQuery({
+    queryKey: [...QUERY_KEYS.notifications, 'official', limit],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (pageParam) params.set('cursor', pageParam);
+      return apiClient.get(`/api/notifications/in-app/official?${params.toString()}`);
+    },
+    getNextPageParam: (lastPage) => lastPage?.paging?.hasMore ? lastPage.paging.nextCursor : undefined,
+    staleTime: 15 * 1000,
+  });
+}
+
+export function useMarkOfficialNotificationsReadMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.put('/api/notifications/in-app/official/read'),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications }),
   });
 }
 
@@ -205,8 +545,11 @@ export function useLikeMutation() {
     // batch locally (see DiscoverScreen), and invalidating per-swipe used to replace that
     // batch out from under the in-progress deck. The server already excludes interacted
     // users from future fetches, so eager refetch isn't needed to stay correct.
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
+      if (variables.isSuperLike) {
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.entitlements });
+      }
     },
   });
 }
@@ -296,6 +639,55 @@ export function useDeleteConfessionMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiClient.delete(`/api/social/confessions/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.confessions }),
+  });
+}
+
+export function useUnmatchMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (matchId: string) => apiClient.delete(`/api/matches/${matchId}`),
+    onSuccess: (_data, matchId) => {
+      queryClient.setQueryData<any[]>(QUERY_KEYS.matches, (current) => (
+        Array.isArray(current) ? current.filter((match) => (match.id || match.match_id) !== matchId) : current
+      ));
+      queryClient.removeQueries({ queryKey: QUERY_KEYS.messages(matchId) });
+      queryClient.invalidateQueries({ queryKey: ['matches', 'unread-count'] });
+    },
+  });
+}
+
+export function useCreateConfessionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (text: string) => apiClient.post('/api/social/confessions', { text }),
+    onSuccess: (response) => {
+      const created = response?.data as (ConfessionItem & { moderationStatus?: string }) | undefined;
+      if (!created?.id || created.moderationStatus === 'REVIEW_REQUIRED') return;
+
+      // The create response is authoritative. Put it into every active confession feed
+      // immediately instead of depending on a refetch that may legitimately return a
+      // quota-only page for free users.
+      queryClient.setQueriesData<InfiniteData<ConfessionsPage, string | null>>(
+        { queryKey: QUERY_KEYS.confessions },
+        (existing) => {
+          if (!existing?.pages.length) return existing;
+          const pages = existing.pages.map((page) => ({
+            ...page,
+            items: page.items.filter((item) => item.id !== created.id),
+          }));
+          pages[0] = { ...pages[0], items: [created, ...pages[0].items] };
+          return { ...existing, pages };
+        }
+      );
+    },
+  });
+}
+
+export function useLikeConfessionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post(`/api/social/confessions/${id}/like`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.confessions }),
   });
 }

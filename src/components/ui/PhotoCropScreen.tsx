@@ -9,6 +9,7 @@ interface PhotoCropScreenProps {
   /** width / height, e.g. 3/4 for a portrait profile photo */
   aspect?: number;
   onConfirm: (blob: Blob) => void;
+  onUseOriginal?: () => void;
   onCancel: () => void;
 }
 
@@ -33,6 +34,7 @@ export const PhotoCropScreen: React.FC<PhotoCropScreenProps> = ({
   imageSrc,
   aspect = 3 / 4,
   onConfirm,
+  onUseOriginal,
   onCancel,
 }) => {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -201,17 +203,33 @@ export const PhotoCropScreen: React.FC<PhotoCropScreenProps> = ({
         </div>
       </div>
 
-      <div className="px-6 pb-2 text-center">
+      <div className="px-6 pb-2 space-y-3 text-center">
         <p className="text-caption font-semibold text-white/60 normal-case">
           Yakınlaştırmak için sıkıştır, konumlandırmak için sürükle
         </p>
+        <input
+          type="range"
+          min={1}
+          max={MAX_ZOOM}
+          step={0.05}
+          value={zoom}
+          aria-label="Fotoğraf yakınlaştırma"
+          onChange={(event) => {
+            const nextZoom = Number(event.target.value);
+            setZoom(nextZoom);
+            setPan((current) => clampPan(nextZoom, current));
+          }}
+          className="w-full max-w-sm accent-pink-500"
+        />
       </div>
 
-      <div className="px-6 pb-safe pt-2 flex items-center gap-3">
-        <AppButton variant="secondary" size="lg" onClick={onCancel} className="flex-1">
-          Vazgeç
-        </AppButton>
-        <motion.div className="flex-1" whileTap={{ scale: 0.97 }}>
+      <div className="px-6 pb-safe pt-2 grid grid-cols-2 gap-3">
+        {onUseOriginal && (
+          <AppButton variant="secondary" size="lg" onClick={onUseOriginal} className="min-w-0 px-3">
+            Orijinali Kullan
+          </AppButton>
+        )}
+        <motion.div className={onUseOriginal ? '' : 'col-span-2'} whileTap={{ scale: 0.97 }}>
           <AppButton
             variant="primary"
             size="lg"
@@ -221,7 +239,7 @@ export const PhotoCropScreen: React.FC<PhotoCropScreenProps> = ({
             leftIcon={<Check className="w-5 h-5" />}
             onClick={handleConfirm}
           >
-            Onayla
+            Kırpmayı Uygula
           </AppButton>
         </motion.div>
       </div>

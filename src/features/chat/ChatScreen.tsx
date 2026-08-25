@@ -1,30 +1,48 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Camera, Languages, Mic, Phone, Send, Video, X } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { ArrowDown, ArrowLeft, Camera, Flag, Gift as GiftIcon, Languages, Mic, MoreVertical, Phone, Send, Unlink, UserMinus, Video, X } from 'lucide-react';
 import {
+  QUERY_KEYS,
   useMessagesQuery,
   useMatchesQuery,
   useEditMessageMutation,
   useDeleteMessageMutation,
   useMarkViewOnceMutation,
+  useUnmatchMutation,
   fetchOlderMessages,
 } from '../../hooks/useQueries';
 import { socketService } from '../../services/socket/socketService';
 import { apiClient } from '../../services/api/apiClient';
-import { mediaService, normalizeMediaUrl } from '../../services/media/mediaService';
+import { getPhotoUrl, mediaService } from '../../services/media/mediaService';
 import { callService } from '../../services/call/callService';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { toast } from '../../stores/useToastStore';
 import { nativeHaptics } from '../../native/haptics';
-import { Avatar } from '../../components/ui/Avatar';
+import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
 import { IconButton } from '../../components/ui/IconButton';
+import { ActionSheet, type ActionSheetAction } from '../../components/ui/ActionSheet';
+import { Modal } from '../../components/ui/Modal';
+import { AppButton } from '../../components/ui/AppButton';
 import { MessageBubble, type ChatMessage, type MessageTranslation } from './MessageBubble';
 import { SafetyReportModal } from '../../components/SafetyReportModal';
 import { ChatTranslationSettingsModal } from '../../components/ChatTranslationSettingsModal';
+import { GiftShopSheet } from '../gifts/GiftShopSheet';
+import { GiftCelebrationOverlay } from '../gifts/GiftCelebrationOverlay';
+import type { GiftSnapshot } from '../gifts/types';
+import { formatMessageDay, formatMessageTime } from '../../lib/formatMessageTime';
+
+function isSameMessageGroup(first?: ChatMessage, second?: ChatMessage) {
+  if (!first || !second || first.senderId !== second.senderId) return false;
+  const firstTime = new Date(first.createdAt).getTime();
+  const secondTime = new Date(second.createdAt).getTime();
+  return Number.isFinite(firstTime) && Number.isFinite(secondTime) && Math.abs(secondTime - firstTime) <= 5 * 60 * 1000;
+}
 
 export const ChatScreen: React.FC = () => {
   const { matchId } = useParams<{ matchId: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const currentUserId = useAuthStore((s) => s.user?.id);
 
   const [text, setText] = useState('');
@@ -36,11 +54,18 @@ export const ChatScreen: React.FC = () => {
   const [reactionsMap, setReactionsMap] = useState<Record<string, { userId: string; reaction: string }[]>>({});
   const [revealedViewOnce, setRevealedViewOnce] = useState<Set<string>>(new Set());
   const [olderMessages, setOlderMessages] = useState<ChatMessage[]>([]);
-  const [hasMoreOlder, setHasMoreOlder] = useState(true);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [newMessagesBelow, setNewMessagesBelow] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
-  const [reportTarget, setReportTarget] = useState<ChatMessage | null>(null);
+  const [safetyAction, setSafetyAction] = useState<'report' | 'block' | null>(null);
+  const [isConversationActionsOpen, setIsConversationActionsOpen] = useState(false);
+  const [isUnmatchConfirmOpen, setIsUnmatchConfirmOpen] = useState(false);
+  const [isGiftShopOpen, setIsGiftShopOpen] = useState(false);
+  const [freshGiftIds, setFreshGiftIds] = useState<Set<string>>(new Set());
+  const [giftCelebration, setGiftCelebration] = useState<GiftSnapshot | null>(null);
 
   const [translationsMap, setTranslationsMap] = useState<Record<string, MessageTranslation>>({});
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
@@ -51,23 +76,37 @@ export const ChatScreen: React.FC = () => {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingMountedRef = useRef(true);
   const chunksRef = useRef<Blob[]>([]);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isNearBottomRef = useRef(true);
+  const initiallyScrolledMatchRef = useRef<string | null>(null);
 
   const { data: messagesData, refetch } = useMessagesQuery(matchId || '');
   const { data: matches } = useMatchesQuery();
   const editMutation = useEditMessageMutation(matchId || '');
   const deleteMutation = useDeleteMessageMutation(matchId || '');
   const viewOnceMutation = useMarkViewOnceMutation(matchId || '');
+  const unmatchMutation = useUnmatchMutation();
 
   const currentMatch = useMemo(() => (matches || []).find((m: any) => m.id === matchId), [matches, matchId]);
   const partner = currentMatch?.user || currentMatch;
   const partnerId = partner?.id;
+  const partnerLastSeen = partner?.lastActiveAt || partner?.last_active_at;
+  const partnerStatusText = isPartnerTyping
+    ? 'yazıyor...'
+    : isPartnerOnline
+      ? 'çevrimiçi'
+      : partnerLastSeen
+        ? `son görülme ${formatMessageTime(partnerLastSeen)}`
+        : 'çevrimdışı';
 
   const allMessages = useMemo<ChatMessage[]>(() => {
-    const base = Array.isArray(messagesData) ? messagesData : [];
+    const base = Array.isArray(messagesData?.messages) ? messagesData.messages : [];
     const merged = [...olderMessages, ...base];
     const seen = new Set<string>();
     const deduped = merged.filter((m) => {
@@ -84,6 +123,16 @@ export const ChatScreen: React.FC = () => {
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [messagesData, olderMessages, reactionsMap, translationsMap]);
 
+  useEffect(() => {
+    setOlderCursor(messagesData?.olderCursor || null);
+    setHasMoreOlder(messagesData?.hasMore === true);
+  }, [messagesData?.olderCursor, messagesData?.hasMore]);
+
+  useEffect(() => {
+    setOlderMessages([]);
+    setNewMessagesBelow(0);
+  }, [matchId]);
+
   const messagesById = useMemo(() => {
     const map = new Map<string, ChatMessage>();
     allMessages.forEach((m) => map.set(m.id, m));
@@ -97,13 +146,16 @@ export const ChatScreen: React.FC = () => {
     return null;
   }, [allMessages, currentUserId]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (behavior: 'auto' | 'smooth' = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+    setNewMessagesBelow(0);
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [matchId]);
+    if (!matchId || !messagesData || initiallyScrolledMatchRef.current === matchId) return;
+    initiallyScrolledMatchRef.current = matchId;
+    window.requestAnimationFrame(() => scrollToBottom('auto'));
+  }, [matchId, messagesData]);
 
   useEffect(() => {
     if (!matchId) return;
@@ -111,22 +163,38 @@ export const ChatScreen: React.FC = () => {
     socketService.joinConversation(matchId);
     socketService.markMessagesRead(matchId);
 
-    // Room membership lives on the socket.io connection itself, not the logical session --
-    // reconnecting after a network drop gets a brand-new underlying connection (confirmed
-    // on-device: listeners survive reconnect via socketService's own reattach logic, but this
-    // conversation's room join does not), so without re-joining here, message:received/
-    // message:translated silently stop arriving for whoever's sitting in an open chat when their
-    // connection drops and comes back.
+    // socketService restores the room on every physical reconnect. Re-assert the read state here
+    // as well because messages may have arrived while the transport was unavailable.
     const unsubReconnect = socketService.on('connect', () => {
-      socketService.joinConversation(matchId);
       socketService.markMessagesRead(matchId);
     });
 
     const unsubMsg = socketService.on('message:received', (data) => {
       if (data.matchId !== matchId) return;
-      refetch();
+      if (String(data.messageType || '').toUpperCase() === 'GIFT' && data.giftSnapshot) {
+        setFreshGiftIds((current) => new Set(current).add(data.id));
+        if (data.senderId !== currentUserId && data.giftSnapshot.tier !== 'STANDARD') {
+          setGiftCelebration(data.giftSnapshot);
+        }
+        window.setTimeout(() => {
+          setFreshGiftIds((current) => {
+            const next = new Set(current);
+            next.delete(data.id);
+            return next;
+          });
+        }, 2200);
+      }
+      queryClient.setQueryData<any>(QUERY_KEYS.messages(matchId), (current: any) => {
+        if (!current || !Array.isArray(current.messages)) return current;
+        if (current.messages.some((message: ChatMessage) => message.id === data.id)) return current;
+        return { ...current, messages: [...current.messages, data] };
+      });
       socketService.markMessagesRead(matchId);
-      setTimeout(scrollToBottom, 100);
+      if (isNearBottomRef.current || data.senderId === currentUserId) {
+        window.setTimeout(() => scrollToBottom(), 80);
+      } else {
+        setNewMessagesBelow((count) => count + 1);
+      }
     });
 
     const unsubTypingStart = socketService.on('typing:start', (data) => {
@@ -138,6 +206,55 @@ export const ChatScreen: React.FC = () => {
 
     const unsubRead = socketService.on('message:read', (data) => {
       if (data.matchId === matchId && data.readBy !== currentUserId) setPartnerReadAt(data.readAt);
+    });
+
+    const unsubEdit = socketService.on('message:edit', (data) => {
+      if (data.matchId !== matchId || !data.messageId) return;
+      queryClient.setQueryData<any>(QUERY_KEYS.messages(matchId), (current: any) => {
+        if (!current || !Array.isArray(current.messages)) return current;
+        return {
+          ...current,
+          messages: current.messages.map((message: ChatMessage) => (
+            message.id === data.messageId
+              ? { ...message, text: data.text, isEdited: true, editedAt: data.editedAt }
+              : message
+          )),
+        };
+      });
+      setTranslationsMap((current) => {
+        if (!current[data.messageId]) return current;
+        const next = { ...current };
+        delete next[data.messageId];
+        return next;
+      });
+      requestedTranslationIdsRef.current.delete(data.messageId);
+    });
+
+    const unsubDelete = socketService.on('message:delete', (data) => {
+      if (data.matchId !== matchId || !data.messageId) return;
+      queryClient.setQueryData<any>(QUERY_KEYS.messages(matchId), (current: any) => {
+        if (!current || !Array.isArray(current.messages)) return current;
+        return {
+          ...current,
+          messages: current.messages.map((message: ChatMessage) => (
+            message.id === data.messageId
+              ? { ...message, text: data.text || 'Bu mesaj silindi.', mediaUrl: null, isDeleted: true }
+              : message
+          )),
+        };
+      });
+      setTranslationsMap((current) => {
+        if (!current[data.messageId]) return current;
+        const next = { ...current };
+        delete next[data.messageId];
+        return next;
+      });
+      setReactionsMap((current) => {
+        if (!current[data.messageId]) return current;
+        const next = { ...current };
+        delete next[data.messageId];
+        return next;
+      });
     });
 
     const unsubReaction = socketService.on('message:reaction', (data) => {
@@ -159,16 +276,19 @@ export const ChatScreen: React.FC = () => {
     });
 
     return () => {
+      if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
       socketService.leaveConversation(matchId);
       unsubReconnect();
       unsubMsg();
       unsubTypingStart();
       unsubTypingStop();
       unsubRead();
+      unsubEdit();
+      unsubDelete();
       unsubReaction();
       unsubTranslated();
     };
-  }, [matchId, currentUserId, refetch]);
+  }, [matchId, currentUserId, queryClient]);
 
   // Conversation-level translation settings: fetched once per conversation, drives both the
   // settings modal's initial state and (indirectly, via the cache below) what's already showing.
@@ -225,17 +345,16 @@ export const ChatScreen: React.FC = () => {
     if (!el || isLoadingOlder || !hasMoreOlder || !matchId) return;
     if (el.scrollTop > 80) return;
 
-    const oldest = allMessages[0];
-    if (!oldest) return;
+    if (!olderCursor) return;
 
     setIsLoadingOlder(true);
     const prevHeight = el.scrollHeight;
     try {
-      const older = await fetchOlderMessages(matchId, oldest.id, 50);
-      if (!Array.isArray(older) || older.length === 0) {
-        setHasMoreOlder(false);
-      } else {
-        setOlderMessages((prev) => [...older, ...prev]);
+      const page = await fetchOlderMessages(matchId, olderCursor, 50);
+      setOlderCursor(page.olderCursor);
+      setHasMoreOlder(page.hasMore);
+      if (page.messages.length > 0) {
+        setOlderMessages((prev) => [...page.messages, ...prev]);
         requestAnimationFrame(() => {
           if (scrollContainerRef.current) {
             scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight - prevHeight;
@@ -247,6 +366,14 @@ export const ChatScreen: React.FC = () => {
     } finally {
       setIsLoadingOlder(false);
     }
+  };
+
+  const handleScroll = () => {
+    const element = scrollContainerRef.current;
+    if (!element) return;
+    isNearBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 96;
+    if (isNearBottomRef.current && newMessagesBelow > 0) setNewMessagesBelow(0);
+    void handleLoadOlder();
   };
 
   const handleSend = () => {
@@ -268,15 +395,42 @@ export const ChatScreen: React.FC = () => {
 
     if (!text.trim()) return;
     nativeHaptics.impact();
-    socketService.sendMessage({
-      matchId,
-      text: text.trim(),
-      replyToMessageId: replyTarget?.id,
-    });
+    const outgoingText = text.trim();
+    const outgoingReplyId = replyTarget?.id;
+    const clientMessageId = `mobile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    socketService.sendMessage(
+      {
+        matchId,
+        text: outgoingText,
+        replyToMessageId: outgoingReplyId,
+        clientMessageId,
+      },
+      (result) => {
+        if (result?.status === 'success') {
+          void refetch();
+          return;
+        }
+        setText(outgoingText);
+        toast.error(result?.message || 'Mesaj gönderilemedi.');
+      }
+    );
     setText('');
+    if (composerRef.current) composerRef.current.style.height = 'auto';
     setReplyTarget(null);
     socketService.stopTyping(matchId);
-    setTimeout(scrollToBottom, 100);
+    window.setTimeout(() => scrollToBottom(), 80);
+  };
+
+  const handleTextChange = (value: string) => {
+    setText(value);
+    if (!matchId) return;
+    if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
+    if (!value.trim()) {
+      socketService.stopTyping(matchId);
+      return;
+    }
+    socketService.startTyping(matchId);
+    typingTimerRef.current = window.setTimeout(() => socketService.stopTyping(matchId), 1200);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -296,7 +450,7 @@ export const ChatScreen: React.FC = () => {
         });
         setReplyTarget(null);
         refetch();
-        setTimeout(scrollToBottom, 100);
+        window.setTimeout(() => scrollToBottom(), 100);
       }
     } catch (err) {
       console.error('[CHAT MEDIA UPLOAD ERROR]', err);
@@ -307,6 +461,10 @@ export const ChatScreen: React.FC = () => {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!recordingMountedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const recorder = new MediaRecorder(stream);
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
@@ -346,7 +504,7 @@ export const ChatScreen: React.FC = () => {
           });
           setReplyTarget(null);
           refetch();
-          setTimeout(scrollToBottom, 100);
+          window.setTimeout(() => scrollToBottom(), 100);
         }
       } catch {
         toast.error('Sesli mesaj gönderilemedi.');
@@ -354,6 +512,23 @@ export const ChatScreen: React.FC = () => {
     };
     recorder.stop();
   };
+
+  useEffect(() => () => {
+    recordingMountedRef.current = false;
+    if (recordTimerRef.current) {
+      window.clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    const recorder = mediaRecorderRef.current;
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      if (recorder.state !== 'inactive') recorder.stop();
+      recorder.stream.getTracks().forEach((track) => track.stop());
+      mediaRecorderRef.current = null;
+    }
+    chunksRef.current = [];
+  }, []);
 
   const handleRevealViewOnce = (message: ChatMessage) => {
     setRevealedViewOnce((prev) => new Set(prev).add(message.id));
@@ -407,35 +582,72 @@ export const ChatScreen: React.FC = () => {
     if (matchId && partnerId) callService.startOutgoingCall({ matchId, calleeUid: partnerId, calleeName: partner?.name, type: 'video' });
   };
 
+  const handleUnmatch = () => {
+    if (!matchId || unmatchMutation.isPending) return;
+    unmatchMutation.mutate(matchId, {
+      onSuccess: () => {
+        socketService.leaveConversation(matchId);
+        setIsUnmatchConfirmOpen(false);
+        toast.show('Eşleşme kaldırıldı.', 'neutral');
+        navigate('/messages', { replace: true });
+      },
+      onError: (error: any) => toast.error(error?.message || 'Eşleşme kaldırılamadı.'),
+    });
+  };
+
+  const conversationActions: ActionSheetAction[] = [
+    {
+      label: 'Eşleşmeyi Kaldır',
+      icon: <Unlink className="h-5 w-5" />,
+      destructive: true,
+      onSelect: () => setIsUnmatchConfirmOpen(true),
+    },
+    {
+      label: 'Kullanıcıyı bildir',
+      icon: <Flag className="h-5 w-5" />,
+      onSelect: () => setSafetyAction('report'),
+    },
+    {
+      label: 'Kullanıcıyı engelle',
+      icon: <UserMinus className="h-5 w-5" />,
+      destructive: true,
+      onSelect: () => setSafetyAction('block'),
+    },
+  ];
+
   return (
-    <div className="flex flex-col h-full w-full bg-app text-app select-none overflow-hidden">
+    <div className="relative flex flex-col h-full w-full bg-app text-app select-none overflow-hidden">
+      <GiftCelebrationOverlay gift={giftCelebration} senderName={partner?.name} onDone={() => setGiftCelebration(null)} />
       {/* Top Header */}
-      <header className="pt-safe px-4 py-3 border-b border-app bg-surface/90 backdrop-blur-md flex items-center justify-between z-sticky shadow-soft">
-        <div className="flex items-center gap-3 min-w-0">
+      <header className="z-sticky flex min-h-16 shrink-0 items-center justify-between border-b border-app bg-surface/95 px-3 pb-2 pt-[calc(var(--safe-top)+8px)] backdrop-blur-xl">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate('/messages')}>
             <ArrowLeft className="w-5 h-5" />
           </IconButton>
 
           <button
+            type="button"
+            aria-label={`${partner?.name || 'Eşleşme'} profilini aç`}
             onClick={() => partnerId && navigate(`/discover/${partnerId}`)}
-            className="flex items-center gap-2.5 min-w-0 text-left"
+            className="flex min-w-0 items-center gap-2.5 rounded-xl pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
-            <Avatar
-              src={partner?.photoUrl || partner?.photos?.[0]?.url ? normalizeMediaUrl(partner?.photoUrl || partner?.photos?.[0]?.url) : undefined}
+            <ProfileAvatarFrame
+              photoUrl={getPhotoUrl(partner?.photos?.[0]) || partner?.photoUrl}
               name={partner?.name}
-              size="md"
+              activeFrameId={partner?.activeFrameId}
+              size="sm"
               online={isPartnerOnline}
             />
             <div className="min-w-0">
               <h3 className="text-caption font-black text-app truncate">{partner?.name || 'Sohbet'}</h3>
               <p className="text-micro text-app-muted normal-case">
-                {isPartnerTyping ? 'yazıyor...' : isPartnerOnline ? 'çevrimiçi' : 'çevrimdışı'}
+                {partnerStatusText}
               </p>
             </div>
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-0.5">
           <IconButton
             aria-label="Çeviri Ayarları"
             variant="surface"
@@ -450,45 +662,91 @@ export const ChatScreen: React.FC = () => {
           <IconButton aria-label="Görüntülü Ara" variant="surface" size="sm" onClick={handleVideoCall}>
             <Video className="w-4 h-4" />
           </IconButton>
+          <IconButton aria-label="Sohbet seçenekleri" variant="surface" size="sm" onClick={() => setIsConversationActionsOpen(true)}>
+            <MoreVertical className="w-4 h-4" />
+          </IconButton>
         </div>
       </header>
 
       {/* Messages Scroll Body */}
       <div
         ref={scrollContainerRef}
-        onScroll={handleLoadOlder}
-        className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar"
+        onScroll={handleScroll}
+        role="log"
+        aria-label="Sohbet geçmişi"
+        aria-live="polite"
+        aria-relevant="additions"
+        className="relative flex-1 overflow-y-auto bg-app px-3 py-3 no-scrollbar"
       >
         {isLoadingOlder && (
           <div className="text-center text-micro text-app-muted normal-case py-2">Eski mesajlar yükleniyor...</div>
         )}
-        {allMessages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            isMe={msg.senderId === currentUserId}
-            isLastMineRead={
-              msg.id === lastMineMessageId &&
-              !!partnerReadAt &&
-              new Date(msg.createdAt).getTime() <= new Date(partnerReadAt).getTime()
-            }
-            replySource={msg.replyToMessageId ? messagesById.get(msg.replyToMessageId) : undefined}
-            viewOnceRevealed={revealedViewOnce.has(msg.id)}
-            isTranslating={translatingIds.has(msg.id)}
-            onRevealViewOnce={handleRevealViewOnce}
-            onReply={setReplyTarget}
-            onEdit={(m) => {
-              setEditingMessage(m);
-              setText(m.text || '');
-            }}
-            onDelete={handleDelete}
-            onReact={handleReact}
-            onReport={setReportTarget}
-            onTranslate={handleManualTranslate}
-          />
-        ))}
+        {allMessages.length === 0 && (
+          <div className="mx-auto flex max-w-[18rem] flex-col items-center px-4 py-12 text-center">
+            <span className="grid h-14 w-14 place-items-center rounded-full bg-pink-500/10 text-pink-500"><Send className="h-6 w-6" /></span>
+            <p className="mt-4 text-caption font-black text-app">Yeni eşleşme</p>
+            <p className="mt-1 text-micro normal-case leading-relaxed text-app-muted">İlk mesajı gönder ve sohbeti başlat.</p>
+          </div>
+        )}
+        <div>
+          {allMessages.map((msg, index) => {
+            const previous = allMessages[index - 1];
+            const next = allMessages[index + 1];
+            const showDay = !previous || new Date(previous.createdAt).toDateString() !== new Date(msg.createdAt).toDateString();
+            const isFirstInGroup = showDay || !isSameMessageGroup(previous, msg);
+            const isLastInGroup = !isSameMessageGroup(msg, next);
+            return (
+              <React.Fragment key={msg.id}>
+                {showDay && (
+                  <div className="flex justify-center py-3">
+                    <time className="rounded-full bg-app-secondary px-3 py-1 text-micro font-bold normal-case text-app-muted">
+                      {formatMessageDay(msg.createdAt)}
+                    </time>
+                  </div>
+                )}
+                <MessageBubble
+                  message={msg}
+                  isMe={msg.senderId === currentUserId}
+                  isLastMineRead={
+                    msg.id === lastMineMessageId &&
+                    !!partnerReadAt &&
+                    new Date(msg.createdAt).getTime() <= new Date(partnerReadAt).getTime()
+                  }
+                  replySource={msg.replyToMessageId ? messagesById.get(msg.replyToMessageId) : undefined}
+                  viewOnceRevealed={revealedViewOnce.has(msg.id)}
+                  isTranslating={translatingIds.has(msg.id)}
+                  onRevealViewOnce={handleRevealViewOnce}
+                  onReply={setReplyTarget}
+                  onEdit={(message) => {
+                    setEditingMessage(message);
+                    setText(message.text || '');
+                  }}
+                  onDelete={handleDelete}
+                  onReact={handleReact}
+                  onReport={() => setSafetyAction('report')}
+                  onTranslate={handleManualTranslate}
+                  animateGift={freshGiftIds.has(msg.id)}
+                  giftSenderName={partner?.name}
+                  isFirstInGroup={isFirstInGroup}
+                  isLastInGroup={isLastInGroup}
+                />
+              </React.Fragment>
+            );
+          })}
+        </div>
         <div ref={messagesEndRef} />
       </div>
+
+      {newMessagesBelow > 0 && (
+        <button
+          type="button"
+          onClick={() => scrollToBottom()}
+          className="absolute bottom-24 right-4 z-sticky flex items-center gap-1.5 rounded-full bg-pink-500 px-3 py-2 text-micro font-extrabold normal-case text-white shadow-elevated"
+        >
+          <ArrowDown className="h-4 w-4" />
+          {newMessagesBelow} yeni mesaj
+        </button>
+      )}
 
       {/* Reply / Edit context bar */}
       {(replyTarget || editingMessage) && (
@@ -516,8 +774,8 @@ export const ChatScreen: React.FC = () => {
 
       {/* Recording bar */}
       {isRecording ? (
-        <div className="pb-safe px-4 py-3 border-t border-app bg-surface flex items-center gap-3">
-          <div className="w-2.5 h-2.5 rounded-full bg-[#FF4B55] animate-pulse" />
+        <div className="px-4 pt-3 pb-[calc(var(--safe-bottom)+12px)] border-t border-app bg-surface flex items-center gap-3">
+          <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--color-error)]" />
           <span className="flex-1 text-body font-semibold text-app tabular-nums">
             Kaydediliyor... {recordSeconds}s
           </span>
@@ -530,7 +788,7 @@ export const ChatScreen: React.FC = () => {
         </div>
       ) : (
         /* Input Controls Bar */
-        <div className="pb-safe px-3 py-2.5 border-t border-app bg-surface flex items-center gap-2">
+        <div className="flex items-end gap-1.5 border-t border-app bg-surface/95 px-2.5 pt-2.5 pb-[calc(var(--safe-bottom)+10px)] backdrop-blur-xl">
           <input
             ref={fileInputRef}
             type="file"
@@ -542,17 +800,32 @@ export const ChatScreen: React.FC = () => {
             <Camera className="w-6 h-6" />
           </IconButton>
 
-          <input
-            type="text"
-            placeholder="Mesaj yazın..."
+          <textarea
+            ref={composerRef}
+            rows={1}
+            aria-label="Mesaj"
+            placeholder="Mesaj"
             value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              if (matchId) socketService.startTyping(matchId);
+            onChange={(event) => handleTextChange(event.target.value)}
+            onInput={(event) => {
+              const element = event.currentTarget;
+              element.style.height = 'auto';
+              element.style.height = `${Math.min(element.scrollHeight, 112)}px`;
             }}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            className="flex-1 h-11 bg-input-app border border-app rounded-full px-4 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                handleSend();
+              }
+            }}
+            onBlur={() => matchId && socketService.stopTyping(matchId)}
+            onFocus={() => window.setTimeout(() => scrollToBottom(), 120)}
+            className="max-h-28 min-h-11 flex-1 resize-none overflow-y-auto rounded-3xl border border-app bg-input-app px-4 py-2.5 text-body font-semibold leading-6 text-app placeholder:text-app-muted focus:border-pink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/40"
           />
+
+          <IconButton aria-label="Hediye Gönder" variant="ghost" size="sm" onClick={() => setIsGiftShopOpen(true)}>
+            <GiftIcon className="h-5 w-5 text-pink-500" />
+          </IconButton>
 
           {text.trim() ? (
             <IconButton aria-label="Gönder" variant="gradient" size="md" onClick={handleSend}>
@@ -567,11 +840,49 @@ export const ChatScreen: React.FC = () => {
       )}
 
       <SafetyReportModal
-        isOpen={!!reportTarget}
-        onClose={() => setReportTarget(null)}
+        isOpen={safetyAction !== null}
+        onClose={() => setSafetyAction(null)}
         targetUserId={partnerId}
         targetUserName={partner?.name}
+        type={safetyAction || 'report'}
+        onSuccess={() => {
+          if (safetyAction !== 'block') return;
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
+          navigate('/messages', { replace: true });
+        }}
       />
+
+      <ActionSheet
+        isOpen={isConversationActionsOpen}
+        onClose={() => setIsConversationActionsOpen(false)}
+        title={partner?.name ? `${partner.name} · Sohbet seçenekleri` : 'Sohbet seçenekleri'}
+        actions={conversationActions}
+      />
+
+      <Modal isOpen={isUnmatchConfirmOpen} onClose={() => !unmatchMutation.isPending && setIsUnmatchConfirmOpen(false)}>
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 pr-8">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-red-500/10 text-red-500">
+              <Unlink className="h-5 w-5" />
+            </span>
+            <div>
+              <h3 className="text-heading text-app">Eşleşmeyi Kaldır</h3>
+              <p className="mt-1 text-caption normal-case text-app-muted">{partner?.name || 'Bu kişi'} ile sohbet erişimin sona erecek.</p>
+            </div>
+          </div>
+          <p className="text-caption normal-case leading-relaxed text-app-muted">
+            Sohbet listenizden kaldırılır ve artık birbirinize mesaj gönderemezsiniz. Engelleme ayrı bir güvenlik işlemidir.
+          </p>
+          <div className="flex gap-2 pt-1">
+            <AppButton type="button" variant="secondary" size="md" className="flex-1" disabled={unmatchMutation.isPending} onClick={() => setIsUnmatchConfirmOpen(false)}>
+              Vazgeç
+            </AppButton>
+            <AppButton type="button" variant="danger" size="md" className="flex-1" loading={unmatchMutation.isPending} onClick={handleUnmatch}>
+              Eşleşmeyi Kaldır
+            </AppButton>
+          </div>
+        </div>
+      </Modal>
 
       {matchId && (
         <ChatTranslationSettingsModal
@@ -590,6 +901,29 @@ export const ChatScreen: React.FC = () => {
               requestedTranslationIdsRef.current = new Set();
             }
             setTranslationLanguage(next.translationLanguage);
+          }}
+        />
+      )}
+
+      {matchId && (
+        <GiftShopSheet
+          isOpen={isGiftShopOpen}
+          onClose={() => setIsGiftShopOpen(false)}
+          matchId={matchId}
+          recipientName={partner?.name}
+          onGiftSent={(result) => {
+            if (result.message?.id) {
+              setFreshGiftIds((current) => new Set(current).add(result.message!.id));
+              window.setTimeout(() => {
+                setFreshGiftIds((current) => {
+                  const next = new Set(current);
+                  next.delete(result.message!.id);
+                  return next;
+                });
+              }, 2200);
+            }
+            void refetch();
+            window.setTimeout(() => scrollToBottom(), 100);
           }}
         />
       )}

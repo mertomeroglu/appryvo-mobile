@@ -97,13 +97,13 @@
     --shadow-premium: 0 8px 32px -4px rgba(245, 185, 66, 0.35);
   }
 
-  html, body, #root {
+  html, body {
     width: 100%;
     height: 100%;
-    height: 100dvh;
     margin: 0;
     padding: 0;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     background-color: var(--color-bg);
     color: var(--color-text-main);
     user-select: none;
@@ -111,6 +111,27 @@
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  #root {
+    width: 100%;
+    height: var(--app-viewport-height, 100dvh);
+    min-height: 0;
+    overflow: hidden;
+    background-color: var(--color-bg);
+    color: var(--color-text-main);
+  }
+
+  .auth-keyboard-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    scroll-padding-top: calc(var(--safe-top) + 5rem);
+    scroll-padding-bottom: calc(var(--safe-bottom) + 5rem);
+    touch-action: pan-y;
+  }
+
+  .keyboard-open .auth-keyboard-scroll {
+    padding-bottom: calc(1.5rem + var(--safe-bottom) + 1rem);
   }
 
   /* Utility helper classes for theme abstraction */
@@ -160,6 +181,15 @@
   }
   .shadow-premium {
     box-shadow: var(--shadow-premium);
+  }
+
+  .discovery-swipe-card {
+    backface-visibility: hidden;
+    contain: layout paint style;
+  }
+
+  .discovery-swipe-card[data-moving='true'] {
+    will-change: transform;
   }
 
   /* Z-index utilities */
@@ -245,21 +275,25 @@
     position: absolute;
     inset: 0;
     width: 100%;
+    height: 44px;
+    margin: 0;
     background: transparent;
     pointer-events: none;
   }
   .dual-range-input::-webkit-slider-runnable-track {
     background: transparent;
+    height: 20px;
   }
   .dual-range-input::-moz-range-track {
     background: transparent;
+    height: 20px;
   }
   .dual-range-input::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     pointer-events: auto;
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
     border-radius: 9999px;
     background: var(--color-primary);
     border: 3px solid var(--color-surface);
@@ -269,14 +303,35 @@
   }
   .dual-range-input::-moz-range-thumb {
     pointer-events: auto;
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
     border-radius: 9999px;
     background: var(--color-primary);
     border: 3px solid var(--color-surface);
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
     cursor: pointer;
   }
+}
+
+/* Android WebView creates large off-screen surfaces for backdrop-filter. Those surfaces are
+   especially expensive while a swipe card, map, or chat list moves beneath them. Keep the same
+   hierarchy/tokens on both platforms, but render opaque token surfaces and cheaper elevation on
+   Android. */
+html[data-platform='android'] {
+  --shadow-soft: 0 1px 4px rgba(23, 21, 29, 0.08);
+  --shadow-elevated: 0 3px 12px -3px rgba(23, 21, 29, 0.16);
+  --shadow-floating: 0 6px 18px -5px rgba(23, 21, 29, 0.2);
+}
+
+html[data-platform='android'].dark {
+  --shadow-soft: 0 1px 4px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 3px 12px -3px rgba(0, 0, 0, 0.45);
+  --shadow-floating: 0 6px 18px -5px rgba(0, 0, 0, 0.5);
+}
+
+html[data-platform='android'] [class*='backdrop-blur'] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

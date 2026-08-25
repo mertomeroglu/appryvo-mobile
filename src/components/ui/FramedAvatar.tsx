@@ -1,61 +1,153 @@
-import React from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useFramesQuery } from '../../hooks/useQueries';
+import { useAuthStore } from '../../stores/useAuthStore';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { cn } from '../../lib/utils';
-import { Avatar, AvatarRing } from './Avatar';
+import { Avatar } from './Avatar';
+import { CountryFlagBadge } from './CountryFlagBadge';
+import { isProfileFrameAssetDecoded, warmProfileFrameAssets } from '../../services/media/profileFrameCache';
+import {
+  getProfileFrameAsset,
+  getProfileFrameGeometry,
+  getProfileFramePreviewAsset,
+  getProfileFramePlacement,
+  PROFILE_AVATAR_SIZE_PX,
+  type ProfileAvatarSize,
+  type ProfileFrameRecord,
+} from './profileFrameGeometry';
 
-type AvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
-
-export interface FramedAvatarProps {
+export interface ProfileAvatarFrameProps {
   photoUrl?: string | null;
   name?: string;
   activeFrameId?: string | null;
-  size?: AvatarSize;
+  frame?: ProfileFrameRecord | null;
+  size?: ProfileAvatarSize;
   verified?: boolean;
+  online?: boolean;
+  countryCode?: string | null;
+  showCountryFlag?: boolean;
   className?: string;
+  eager?: boolean;
+  preferPreview?: boolean;
+  onFrameLoad?: () => void;
+}
+
+const ProfileFrameCatalogContext = createContext<ProfileFrameRecord[]>([]);
+
+/** One catalog subscription for the app, regardless of how many avatars are on screen. */
+export const ProfileFrameCatalogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const authenticated = useAuthStore((state) => state.isAuthenticated);
+  const activeFrameId = useAuthStore((state) => state.user?.activeFrameId);
+  const { data } = useFramesQuery(authenticated);
+  const frames = useMemo<ProfileFrameRecord[]>(
+    () => Array.isArray(data?.frames) ? data.frames : [],
+    [data?.frames]
+  );
+  useEffect(() => warmProfileFrameAssets(frames, activeFrameId), [activeFrameId, frames]);
+  return <ProfileFrameCatalogContext.Provider value={frames}>{children}</ProfileFrameCatalogContext.Provider>;
+};
+
+function flagSizeFor(size: ProfileAvatarSize): 'xs' | 'sm' | 'md' {
+  if (size === 'xs' || size === 'sm') return 'xs';
+  if (size === 'md' || size === 'lg') return 'sm';
+  return 'md';
 }
 
 /**
- * Avatar that renders the user's equipped decorative frame (see ProfileFramesScreen) around
- * their photo. Falls back to the plain brand/verified ring when no frame is equipped ("standard")
- * or the frames catalog hasn't loaded yet. The frame artwork PNGs are wide decorative rings with
- * a transparent circular window in the middle -- they need to render noticeably larger than the
- * avatar itself (~1.7x) so that window lines up with the avatar's edge and the ornamentation
- * (crown, gems, etc.) extends past it, instead of getting clipped to the avatar's own bounds.
+ * The single normalized avatar/frame renderer used by catalog and product surfaces.
+ * The avatar owns a stable square; decoration may overflow it without changing layout.
  */
-export const FramedAvatar: React.FC<FramedAvatarProps> = ({
+export const ProfileAvatarFrame: React.FC<ProfileAvatarFrameProps> = ({
   photoUrl,
   name,
   activeFrameId,
+  frame: suppliedFrame,
   size = 'lg',
   verified,
+  online,
+  countryCode,
+  showCountryFlag = false,
   className,
+  eager = false,
+  preferPreview = false,
+  onFrameLoad,
 }) => {
-  const { data: framesData } = useFramesQuery();
-  const frame =
-    activeFrameId && activeFrameId !== 'standard'
-      ? framesData?.frames?.find((f: any) => f.id === activeFrameId)
-      : null;
-  const frameAsset = frame?.circleAsset || frame?.portraitAsset;
+  const catalogFrames = useContext(ProfileFrameCatalogContext);
+  const resolvedFrame = suppliedFrame || catalogFrames.find((item) => item.id === activeFrameId) || null;
+  const resolvedFrameId = resolvedFrame?.id || activeFrameId || 'standard';
+  const frameAsset = resolvedFrameId === 'standard'
+    ? null
+    : preferPreview
+      ? getProfileFramePreviewAsset(resolvedFrame)
+      : getProfileFrameAsset(resolvedFrame);
+  const placement = getProfileFramePlacement(resolvedFrameId);
+  const flagAnchor = getProfileFrameGeometry(resolvedFrameId).flagAnchor;
+  const [failedAsset, setFailedAsset] = useState<string | null>(null);
+  const assetUrl = frameAsset ? normalizeMediaUrl(frameAsset) : null;
+  const showDecoration = Boolean(assetUrl && failedAsset !== assetUrl);
   const src = photoUrl ? normalizeMediaUrl(photoUrl) : undefined;
+  const pixelSize = PROFILE_AVATAR_SIZE_PX[size];
 
-  if (frameAsset) {
-    return (
-      <div className={cn('relative inline-flex shrink-0', className)}>
-        <Avatar src={src} name={name} size={size} />
-        <img
-          src={normalizeMediaUrl(frameAsset)}
-          alt=""
-          className="absolute top-1/2 left-1/2 pointer-events-none select-none"
-          style={{ width: '175%', height: '175%', transform: 'translate(-50%, -50%)' }}
-        />
-      </div>
-    );
-  }
+  useEffect(() => setFailedAsset(null), [assetUrl]);
 
   return (
-    <AvatarRing variant={verified ? 'verified' : 'brand'} className={className}>
-      <Avatar src={src} name={name} size={size} />
-    </AvatarRing>
+    <div
+      className={cn('relative inline-flex shrink-0 isolate overflow-visible', className)}
+      style={{ width: pixelSize, height: pixelSize }}
+      data-profile-avatar-frame={resolvedFrameId}
+      data-frame-state={showDecoration ? 'decorative' : 'standard'}
+    >
+      {!showDecoration && (
+        <span
+          aria-hidden="true"
+          className={cn(
+            'absolute -inset-[3px] rounded-full',
+            verified
+              ? 'bg-gradient-to-tr from-aqua to-indigo'
+              : 'bg-brand-gradient'
+          )}
+        />
+      )}
+
+      <Avatar src={src} name={name} size={size} className="relative z-10 w-full h-full" />
+
+      {showDecoration && assetUrl && (
+        <img
+          src={assetUrl}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          loading={eager || isProfileFrameAssetDecoded(assetUrl) ? 'eager' : 'lazy'}
+          fetchPriority={eager || isProfileFrameAssetDecoded(assetUrl) ? 'high' : 'auto'}
+          decoding="async"
+          onLoad={onFrameLoad}
+          onError={() => {
+            setFailedAsset(assetUrl);
+            if (import.meta.env.DEV) console.warn(`[PROFILE FRAME] Asset failed; using Standard: ${resolvedFrameId}`);
+          }}
+          className="absolute z-20 top-1/2 left-1/2 max-w-none h-auto pointer-events-none select-none"
+          style={{
+            ...placement,
+            transformOrigin: 'center',
+          }}
+        />
+      )}
+
+      {online && (
+        <span className={`absolute z-30 bottom-0 w-[22%] h-[22%] min-w-2.5 min-h-2.5 rounded-full bg-success border-2 border-surface ${showCountryFlag && countryCode ? 'left-0' : 'right-0'}`} />
+      )}
+
+      {showCountryFlag && countryCode && (
+        <CountryFlagBadge
+          countryCode={countryCode}
+          size={flagSizeFor(size)}
+          className="absolute z-30 -translate-x-1/2 -translate-y-1/2"
+          style={{ left: `${flagAnchor.x * 100}%`, top: `${flagAnchor.y * 100}%` }}
+        />
+      )}
+    </div>
   );
 };
+
+/** Backwards-compatible export; both names use the exact same geometry engine. */
+export const FramedAvatar = ProfileAvatarFrame;

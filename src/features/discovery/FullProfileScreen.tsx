@@ -9,29 +9,35 @@ import {
   Languages,
   MapPin,
   Ruler,
-  Sparkles,
+  Share2,
   Star,
   Volume2,
   Wine,
   X,
 } from 'lucide-react';
-import { useDiscoveryUserQuery, useLikeMutation, usePassMutation } from '../../hooks/useQueries';
+import { useDiscoveryUserQuery, useEntitlementsQuery, useLikeMutation, usePassMutation, useFollowStatusQuery } from '../../hooks/useQueries';
+import { FollowButton } from '../../components/FollowButton';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { VerifiedBadge } from '../../components/ui/Badge';
 import { nativeHaptics } from '../../native/haptics';
+import { nativeShare } from '../../native/share';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { IconButton } from '../../components/ui/IconButton';
+import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
+import { ZodiacIcon } from '../../components/ui/ZodiacIcon';
 import { SafetyReportModal } from '../../components/SafetyReportModal';
 import { MatchModal } from '../../components/MatchModal';
 import {
-  getRelationshipGoalLabel,
-  SMOKING_LABELS,
-  DRINKING_LABELS,
-  CHILDREN_STATUS_LABELS,
-  FAMILY_PLANS_LABELS,
-  ZODIAC_LABELS,
+  getRelationshipGoalLabels,
+  getSmokingLabel,
+  getDrinkingLabel,
+  getChildrenStatusLabel,
+  getFamilyPlansLabel,
+  getZodiacLabel,
 } from '../../lib/profileLabels';
+import { formatLanguageName } from '../../lib/languages';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 function normalizePhotos(user: any): string[] {
   if (Array.isArray(user?.photos) && user.photos.length > 0) {
@@ -44,6 +50,9 @@ export const FullProfileScreen: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
   const { data: user, isLoading, isError, refetch } = useDiscoveryUserQuery(userId);
+  const { locale } = useAppTranslation();
+  const { data: entitlements } = useEntitlementsQuery();
+  const { data: followStatus } = useFollowStatusQuery(userId);
   const likeMutation = useLikeMutation();
   const passMutation = usePassMutation();
 
@@ -81,6 +90,15 @@ export const FullProfileScreen: React.FC = () => {
 
   const handleLike = async (isSuperLike: boolean) => {
     if (!userId) return;
+    if (
+      isSuperLike &&
+      entitlements &&
+      entitlements.isUnlimitedSuperLike !== true &&
+      Number(entitlements.superlikeCount ?? entitlements.superLikeCount ?? 0) <= 0
+    ) {
+      navigate('/premium');
+      return;
+    }
     nativeHaptics.impact();
     try {
       const res: any = await likeMutation.mutateAsync({ targetUserId: userId, isSuperLike });
@@ -91,8 +109,9 @@ export const FullProfileScreen: React.FC = () => {
       } else {
         navigate(-1);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[FULL PROFILE LIKE ERROR]', err);
+      if (isSuperLike && err?.code === 'SUPERLIKE_QUOTA_EXHAUSTED') navigate('/premium');
     }
   };
 
@@ -151,34 +170,80 @@ export const FullProfileScreen: React.FC = () => {
           </>
         )}
 
-        <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-20">
+        <div className="absolute top-4 left-4 z-20">
           <IconButton aria-label="Geri" variant="overlay" size="md" onClick={() => navigate(-1)}>
             <ArrowLeft className="w-5 h-5" />
           </IconButton>
-          <IconButton aria-label="Bildir" variant="overlay" size="md" onClick={() => setIsReportOpen(true)}>
-            <Flag className="w-4 h-4" />
+        </div>
+
+        <div className="absolute top-4 right-4 z-20">
+          <IconButton
+            aria-label="Profili paylaş"
+            variant="overlay"
+            size="md"
+            onClick={() => {
+              if (!userId) return;
+              void nativeShare.share({
+                title: user.name,
+                text: `${user.name} — Ryvo'da profilime göz at`,
+                url: `https://appryvo.online/discover/${userId}`,
+                dialogTitle: 'Profili Paylaş',
+              }).catch(() => {});
+            }}
+          >
+            <Share2 className="w-5 h-5" />
           </IconButton>
         </div>
 
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent p-6 text-white z-10">
-          <div className="flex items-baseline gap-2">
-            <h1 className="text-3xl font-black">{user.name}</h1>
-            {user.age && <span className="text-2xl font-bold text-gray-300">{user.age}</span>}
-            {user.verified && <VerifiedBadge size={24} />}
-            {user.isPremium && <Crown className="w-6 h-6 text-[#F5B942] fill-current" />}
-          </div>
-          {(user.city || typeof user.distanceKm === 'number') && (
-            <div className="flex items-center gap-1.5 text-xs text-gray-300 mt-1">
-              <MapPin className="w-4 h-4 text-pink-500" />
-              {user.city && <span>{user.city}</span>}
-              {typeof user.distanceKm === 'number' && <span>• {user.distanceKm} km uzakta</span>}
+          <div className="flex items-end gap-3">
+            <ProfileAvatarFrame
+              photoUrl={photos[0]}
+              name={user.name}
+              activeFrameId={user.activeFrameId}
+              verified={user.verified}
+              countryCode={user.countryCode}
+              showCountryFlag
+              size="lg"
+              className="shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <h1 className="text-3xl font-black">{user.name}</h1>
+                {user.age && <span className="text-2xl font-bold text-gray-300">{user.age}</span>}
+                {user.verified && <VerifiedBadge size={24} />}
+                {user.isPremium && <Crown className="w-6 h-6 text-[#F5B942] fill-current" />}
+              </div>
+              {(user.city || typeof user.distanceKm === 'number') && (
+                <div className="flex items-center gap-1.5 text-xs text-gray-300 mt-1">
+                  <MapPin className="w-4 h-4 text-pink-500" />
+                  {user.city && <span>{user.city}</span>}
+                  {typeof user.distanceKm === 'number' && <span>• {user.distanceKm} km uzakta</span>}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
       {/* Content */}
       <div className="p-6 space-y-4 pb-44">
+        <div className="flex items-center justify-between gap-3 bg-surface border border-app p-4 rounded-2xl">
+          <button
+            type="button"
+            onClick={() => userId && navigate(`/connections/${userId}`)}
+            className="min-w-0 text-left"
+          >
+            <span className="block text-caption font-bold text-app normal-case">
+              {followStatus ? `${followStatus.followersCount} takipçi · ${followStatus.followingCount} takip` : 'Bağlantılar'}
+            </span>
+            {followStatus?.isFollowedBy && (
+              <span className="block text-micro text-app-muted normal-case mt-0.5">Seni takip ediyor</span>
+            )}
+          </button>
+          {userId && <FollowButton userId={userId} size="sm" />}
+        </div>
+
         {user.bio && (
           <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
             <h4 className="text-micro text-app-muted uppercase tracking-wider">Hakkımda</h4>
@@ -186,22 +251,28 @@ export const FullProfileScreen: React.FC = () => {
           </div>
         )}
 
-        {getRelationshipGoalLabel(user.relationshipGoal) && (
+        {getRelationshipGoalLabels(user.relationshipGoals || user.relationshipGoal).length > 0 && (
           <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
             <h4 className="text-micro text-app-muted uppercase tracking-wider">Aradığı</h4>
-            <p className="text-heading text-app">{getRelationshipGoalLabel(user.relationshipGoal)}</p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {getRelationshipGoalLabels(user.relationshipGoals || user.relationshipGoal).map((label) => (
+                <span key={label} className="text-caption px-3 py-1.5 rounded-full bg-app-secondary border border-app text-app font-semibold">
+                  {label}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
-        {(user.zodiac || user.heightCm || (SMOKING_LABELS[user.smokingStatus] || DRINKING_LABELS[user.drinkingStatus]) ||
-          CHILDREN_STATUS_LABELS[user.childrenStatus] || FAMILY_PLANS_LABELS[user.familyPlans]) && (
+        {(user.zodiac || user.heightCm || (getSmokingLabel(user.smokingStatus, locale) || getDrinkingLabel(user.drinkingStatus, locale)) ||
+          getChildrenStatusLabel(user.childrenStatus, locale) || getFamilyPlansLabel(user.familyPlans, locale)) && (
           <div className="space-y-2">
             <h4 className="text-micro text-app-muted uppercase tracking-wider">Yaşam Tarzı</h4>
             <div className="flex flex-wrap gap-2">
-              {user.zodiac && ZODIAC_LABELS[user.zodiac] && (
+              {user.zodiac && getZodiacLabel(user.zodiac, locale) && (
                 <span className="flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
-                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                  {ZODIAC_LABELS[user.zodiac]}
+                  <ZodiacIcon sign={user.zodiac} className="text-purple-400" />
+                  {getZodiacLabel(user.zodiac, locale)}
                 </span>
               )}
               {user.heightCm && (
@@ -210,26 +281,26 @@ export const FullProfileScreen: React.FC = () => {
                   {user.heightCm} cm
                 </span>
               )}
-              {SMOKING_LABELS[user.smokingStatus] && (
+              {getSmokingLabel(user.smokingStatus, locale) && (
                 <span className="flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
                   <Cigarette className="w-3.5 h-3.5 text-app-muted" />
-                  {SMOKING_LABELS[user.smokingStatus]}
+                  {getSmokingLabel(user.smokingStatus, locale)}
                 </span>
               )}
-              {DRINKING_LABELS[user.drinkingStatus] && (
+              {getDrinkingLabel(user.drinkingStatus, locale) && (
                 <span className="flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
                   <Wine className="w-3.5 h-3.5 text-app-muted" />
-                  {DRINKING_LABELS[user.drinkingStatus]}
+                  {getDrinkingLabel(user.drinkingStatus, locale)}
                 </span>
               )}
-              {CHILDREN_STATUS_LABELS[user.childrenStatus] && (
+              {getChildrenStatusLabel(user.childrenStatus, locale) && (
                 <span className="text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
-                  {CHILDREN_STATUS_LABELS[user.childrenStatus]}
+                  {getChildrenStatusLabel(user.childrenStatus, locale)}
                 </span>
               )}
-              {FAMILY_PLANS_LABELS[user.familyPlans] && (
+              {getFamilyPlansLabel(user.familyPlans, locale) && (
                 <span className="text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
-                  {FAMILY_PLANS_LABELS[user.familyPlans]}
+                  {getFamilyPlansLabel(user.familyPlans, locale)}
                 </span>
               )}
             </div>
@@ -246,7 +317,7 @@ export const FullProfileScreen: React.FC = () => {
                   className="flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium"
                 >
                   <Languages className="w-3.5 h-3.5 text-teal-400" />
-                  {lang}
+                  {formatLanguageName(lang)}
                 </span>
               ))}
             </div>
@@ -297,6 +368,20 @@ export const FullProfileScreen: React.FC = () => {
             })}
           </div>
         )}
+
+        <button
+          type="button"
+          onClick={() => setIsReportOpen(true)}
+          className="w-full flex items-center gap-3 p-4 rounded-2xl border border-red-500/20 bg-red-500/5 text-left active:scale-[0.99] transition-transform"
+        >
+          <Flag className="w-5 h-5 text-[#FF4B55] shrink-0" />
+          <span className="min-w-0">
+            <span className="block text-body font-bold text-[#FF4B55]">Raporla</span>
+            <span className="block text-micro text-app-muted normal-case break-words">
+              Sahte profil, taciz veya sana ait fotoğrafların kullanılması gibi bir sorunu bildir.
+            </span>
+          </span>
+        </button>
       </div>
 
       {/* Actions */}

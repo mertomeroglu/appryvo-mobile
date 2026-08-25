@@ -11,17 +11,19 @@ import { AppButton } from '../../components/ui/AppButton';
 import { IconButton } from '../../components/ui/IconButton';
 import { AppLogo } from '../../components/ui/AppLogo';
 
-// Codes match the backend's challenge sequence exactly (see user_controller.js
-// POST /verification/session -- always ['TURN_RIGHT', 'TURN_LEFT'], both directions).
-type ChallengeCode = 'BLINK' | 'TURN_LEFT' | 'TURN_RIGHT' | 'SMILE';
-type CaptureStepId = 'NEUTRAL' | ChallengeCode;
+// Codes match the server-issued temporal sequence. FINAL is captured last and becomes the
+// retained face-match reference; every earlier frame is a required liveness transition.
+type ChallengeCode = 'CENTER' | 'TURN_LEFT' | 'CENTER_RETURN' | 'TURN_RIGHT' | 'BLINK' | 'SMILE';
+type CaptureStepId = ChallengeCode | 'FINAL';
 
 // BLINK is checked backend-side as "eyes measurably closed vs. the neutral open-eye frame" --
 // a still photo can't capture the *act* of blinking, only a closed-eye state, so the instruction
 // asks for that directly (close your eyes, hold, then shoot) rather than "blink" mid-shutter,
 // which was confusing users into wondering what a still photo of a blink is even supposed to be.
 const STEP_TITLE: Record<CaptureStepId, string> = {
-  NEUTRAL: 'Düz Bak',
+  CENTER: 'Yüzünü Ortala',
+  CENTER_RETURN: 'Tekrar Ortaya Bak',
+  FINAL: 'Son Çekim',
   BLINK: 'Gözlerini Kapat',
   TURN_LEFT: 'Başını Sola Çevir',
   TURN_RIGHT: 'Başını Sağa Çevir',
@@ -29,7 +31,9 @@ const STEP_TITLE: Record<CaptureStepId, string> = {
 };
 
 const STEP_HINT: Record<CaptureStepId, string> = {
-  NEUTRAL: 'Yüzünü çerçevenin içine yerleştir ve doğrudan kameraya bak.',
+  CENTER: 'Yüzünü çerçevenin içine yerleştir ve doğrudan kameraya bak.',
+  CENTER_RETURN: 'Başını tekrar ortaya getir ve doğrudan kameraya bak.',
+  FINAL: 'Doğrudan kameraya bak. Bu son görüntü doğrulama referansın olacak.',
   BLINK: 'Gözlerini kapat, o şekilde sabit dur ve çek.',
   TURN_LEFT: 'Başını sola çevir, o pozisyonda dur ve çek.',
   TURN_RIGHT: 'Başını sağa çevir, o pozisyonda dur ve çek.',
@@ -37,57 +41,51 @@ const STEP_HINT: Record<CaptureStepId, string> = {
 };
 
 const STEP_ICON: Record<CaptureStepId, React.ReactNode> = {
-  NEUTRAL: <Circle className="w-7 h-7" />,
+  CENTER: <Circle className="w-7 h-7" />,
+  CENTER_RETURN: <Circle className="w-7 h-7" />,
+  FINAL: <ShieldCheck className="w-7 h-7" />,
   BLINK: <Eye className="w-7 h-7" />,
   TURN_LEFT: <RotateCcw className="w-7 h-7" />,
   TURN_RIGHT: <RotateCw className="w-7 h-7" />,
   SMILE: <Smile className="w-7 h-7" />,
 };
 
-type Phase = 'intro' | 'camera';
+type Phase = 'intro' | 'camera' | 'submitting';
 
 interface CapturedFrame {
   step: CaptureStepId;
   blob: Blob;
 }
 
-// Deliberately detached from component state: once the last frame is captured, we hand off
-// to this and leave the screen immediately (see performCapture) -- verification finishes in
-// the background and the user is told the outcome via push notification (and a toast/refetch
-// if they're still in the app), instead of sitting on a spinner while DeepFace runs.
-async function submitVerificationInBackground(sessionId: string, allFrames: CapturedFrame[]) {
-  try {
-    const neutral = allFrames.find((f) => f.step === 'NEUTRAL');
-    const challengeFrames = allFrames.filter((f) => f.step !== 'NEUTRAL');
-    if (!neutral) throw new Error('Selfie eksik.');
+const MAX_CAPTURE_EDGE = 1280;
+const CAMERA_READY_TIMEOUT_MS = 15000;
 
-    const neutralUpload = await mediaService.uploadMedia(neutral.blob, 'profile');
-    const selfieUrl = neutralUpload?.data?.url;
-    if (!selfieUrl) throw new Error('Selfie yüklenemedi.');
+async function submitVerification(sessionId: string, allFrames: CapturedFrame[]) {
+  const finalFrame = allFrames.find((frame) => frame.step === 'FINAL');
+  const challengeFrames = allFrames.filter((frame) => frame.step !== 'FINAL');
+  if (!finalFrame || challengeFrames.length === 0) throw new Error('Doğrulama çekimleri eksik.');
 
-    const frames: { challenge: ChallengeCode; imageUrl: string }[] = [];
-    for (const frame of challengeFrames) {
-      const uploaded = await mediaService.uploadMedia(frame.blob, 'profile');
-      if (uploaded?.data?.url) {
-        frames.push({ challenge: frame.step as ChallengeCode, imageUrl: uploaded.data.url });
-      }
-    }
+  // Verification captures are private media. Upload them in parallel so the liveness
+  // session does not expire while a slow connection serially sends every frame.
+  const [finalUpload, ...uploadedFrames] = await Promise.all([
+    mediaService.uploadMedia(finalFrame.blob, 'verification'),
+    ...challengeFrames.map((frame) => mediaService.uploadMedia(frame.blob, 'verification')),
+  ]);
+  const selfieUrl = finalUpload?.data?.url;
+  const frames = challengeFrames.map((frame, index) => ({
+    challenge: frame.step as ChallengeCode,
+    imageUrl: uploadedFrames[index]?.data?.url,
+  }));
 
-    const res: any = await apiClient.post(
-      '/api/verification/submit',
-      { sessionId, selfieUrl, frames },
-      { timeoutMs: 60000 }
-    );
-
-    if (res?.verified === true) {
-      toast.success(res?.message || 'Doğrulandın! 🎉');
-      await useAuthStore.getState().fetchMe();
-    } else {
-      toast.error(res?.message || 'Doğrulama başarısız oldu.');
-    }
-  } catch (err: any) {
-    toast.error(err.message || 'Doğrulama gönderilemedi. Lütfen tekrar dene.');
+  if (!selfieUrl || frames.some((frame) => !frame.imageUrl)) {
+    throw new Error('Doğrulama görselleri yüklenemedi.');
   }
+
+  return await apiClient.post(
+    '/api/verification/submit',
+    { sessionId, selfieUrl, frames },
+    { timeoutMs: 90000 }
+  ) as any;
 }
 
 export const VerificationScreen: React.FC = () => {
@@ -116,8 +114,14 @@ export const VerificationScreen: React.FC = () => {
   useEffect(() => {
     if (phase !== 'camera') return;
     let cancelled = false;
+    let cameraTimedOut = false;
     setErrorMsg('');
     setIsCameraReady(false);
+
+    const readyTimer = window.setTimeout(() => {
+      cameraTimedOut = true;
+      if (!cancelled) setErrorMsg('Kamera zamanında açılamadı. Kamerayı kullanan başka bir uygulamayı kapatıp tekrar dene.');
+    }, CAMERA_READY_TIMEOUT_MS);
 
     // Deliberately no width/height "ideal" constraints: on several Android camera HALs,
     // requesting a specific ideal resolution that doesn't match a native sensor mode makes
@@ -128,10 +132,11 @@ export const VerificationScreen: React.FC = () => {
     navigator.mediaDevices
       .getUserMedia({ video: { facingMode: 'user' }, audio: false })
       .then((stream) => {
-        if (cancelled) {
+        if (cancelled || cameraTimedOut) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
+        window.clearTimeout(readyTimer);
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -143,11 +148,13 @@ export const VerificationScreen: React.FC = () => {
         }
       })
       .catch(() => {
+        window.clearTimeout(readyTimer);
         if (!cancelled) setErrorMsg('Kameraya erişilemedi. Kamera izni verildiğinden emin ol.');
       });
 
     return () => {
       cancelled = true;
+      window.clearTimeout(readyTimer);
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
@@ -159,12 +166,24 @@ export const VerificationScreen: React.FC = () => {
     try {
       const res: any = await apiClient.post('/api/verification/session');
       const data = res?.data || {};
+      if (data.verified === true) {
+        await useAuthStore.getState().fetchMe();
+        toast.show(res?.message || 'Profilin zaten doğrulandı.');
+        navigate('/profile', { replace: true });
+        return;
+      }
+      if (data.pending === true) {
+        await useAuthStore.getState().fetchMe();
+        toast.show(res?.message || 'Doğrulaman inceleniyor.');
+        navigate('/profile', { replace: true });
+        return;
+      }
       const challenges: ChallengeCode[] = Array.isArray(data.challenges) ? data.challenges : [];
       if (!data.sessionId || challenges.length === 0) {
         throw new Error('Doğrulama oturumu geçersiz. Lütfen tekrar dene.');
       }
       setSessionId(data.sessionId);
-      setSteps(['NEUTRAL', ...challenges]);
+      setSteps([...challenges, 'FINAL']);
       setStepIndex(0);
       framesRef.current = [];
       setPhase('camera');
@@ -183,15 +202,19 @@ export const VerificationScreen: React.FC = () => {
         resolve(null);
         return;
       }
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      // WebView video pixels are already orientation-normalized and canvas output carries no
+      // EXIF orientation. Downscale without cropping so three captures stay small enough for a
+      // weak mobile uplink while preserving the complete face and both head-turn directions.
+      const scale = Math.min(1, MAX_CAPTURE_EDGE / Math.max(video.videoWidth, video.videoHeight));
+      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         resolve(null);
         return;
       }
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.92);
+      canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.84);
     });
 
   // No countdown: the user performs the gesture (or is already holding it) and taps Çek when
@@ -214,9 +237,32 @@ export const VerificationScreen: React.FC = () => {
 
     if (stepIndex + 1 >= steps.length) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
-      toast.show('Doğrulaman gönderildi. Sonucu birazdan bildirim olarak alacaksın.');
-      navigate('/profile');
-      if (sessionId) void submitVerificationInBackground(sessionId, nextFrames);
+      streamRef.current = null;
+      setIsCapturing(false);
+      setPhase('submitting');
+      setIsBusy(true);
+      try {
+        if (!sessionId) throw new Error('Doğrulama oturumu bulunamadı.');
+        const response = await submitVerification(sessionId, nextFrames);
+        await useAuthStore.getState().fetchMe();
+        if (response?.verified === true) {
+          toast.success(response?.message || 'Doğrulandın! 🎉');
+          navigate('/profile', { replace: true });
+          return;
+        }
+        if (response?.status === 'pending') {
+          toast.show(response?.message || 'Doğrulaman incelemeye alındı.');
+          navigate('/profile', { replace: true });
+          return;
+        }
+        setErrorMsg(response?.message || 'Doğrulama tamamlanamadı. Lütfen tekrar dene.');
+        setPhase('intro');
+      } catch (err: any) {
+        setErrorMsg(err.message || 'Doğrulama gönderilemedi. Lütfen tekrar dene.');
+        setPhase('intro');
+      } finally {
+        setIsBusy(false);
+      }
       return;
     }
 
@@ -258,13 +304,27 @@ export const VerificationScreen: React.FC = () => {
               <h3 className="text-title text-app mb-2">Profilini Doğrula</h3>
               <p className="text-body text-app-muted">
                 Kamera açılacak ve seni birkaç kısa hareket yaparken çekecek. Bu, hesabının
-                gerçek ve canlı bir kişiye ait olduğunu kanıtlar. Doğrulama arka planda
-                tamamlanır, sonucu bildirim olarak alırsın.
+                gerçek ve canlı bir kişiye ait olduğunu kanıtlar. Çekimlerden sonra sonucu
+                güvenli şekilde işleyip profil durumuna yansıtacağız.
               </p>
             </div>
             <AppButton variant="primary" size="lg" fullWidth loading={isBusy} onClick={startVerification}>
               Başla
             </AppButton>
+          </div>
+        </div>
+      )}
+
+      {phase === 'submitting' && (
+        <div className="flex flex-1 flex-col items-center justify-center p-6 text-center" aria-live="polite">
+          <div className="max-w-sm space-y-5">
+            <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-brand-gradient shadow-elevated">
+              <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-white/35 border-t-white" />
+            </div>
+            <div>
+              <h3 className="mb-2 text-title text-app">Doğrulama İşleniyor</h3>
+              <p className="text-body text-app-muted">Görsellerin güvenli şekilde yükleniyor ve yüz eşleşmesi kontrol ediliyor. Bu ekranı açık tut.</p>
+            </div>
           </div>
         </div>
       )}

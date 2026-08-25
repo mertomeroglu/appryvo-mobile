@@ -28,7 +28,7 @@ export const Badge: React.FC<BadgeProps> = ({ tone = 'neutral', className, child
 
 export const PremiumBadge: React.FC<{ className?: string; label?: string }> = ({
   className,
-  label = 'PREMIUM',
+  label = 'Ryvo Gold',
 }) => (
   <span
     className={cn(

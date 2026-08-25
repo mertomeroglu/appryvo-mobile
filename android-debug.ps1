@@ -33,7 +33,7 @@ if (Test-Path $platformTools) {
 
 # 2. Vite Build
 Write-Host "`n[STEP 1/4] Building Vite bundle..." -ForegroundColor Yellow
-Set-Location -Path "C:\Users\merto\Desktop\ryvo\mobile"
+Set-Location -Path $PSScriptRoot
 npm run build
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Vite production build failed!"
@@ -48,7 +48,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # 4. Gradle Debug Build
 Write-Host "`n[STEP 3/4] Running Gradle assembleDebug..." -ForegroundColor Yellow
-Set-Location -Path "C:\Users\merto\Desktop\ryvo\mobile\android"
+Set-Location -Path (Join-Path $PSScriptRoot "android")
 
 if (Test-Path ".\gradlew.bat") {
     .\gradlew.bat assembleDebug --stacktrace
@@ -61,7 +61,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # 5. APK Verification & Optional ADB Deploy
-$apkPath = "C:\Users\merto\Desktop\ryvo\mobile\android\app\build\outputs\apk\debug\app-debug.apk"
+$apkPath = Join-Path $PSScriptRoot "android\app\build\outputs\apk\debug\app-debug.apk"
 if (Test-Path $apkPath) {
     $apkSize = (Get-Item $apkPath).Length / 1MB
     Write-Host "`n[SUCCESS] Debug APK generated successfully!" -ForegroundColor Green

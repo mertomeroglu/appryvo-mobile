@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { cn } from '../../lib/utils';
+import type { ProfileAvatarSize } from './profileFrameGeometry';
 
-type AvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+export type AvatarSize = ProfileAvatarSize;
 
 const SIZE_CLASSES: Record<AvatarSize, string> = {
   xs: 'w-8 h-8 text-[11px]',
@@ -9,6 +10,7 @@ const SIZE_CLASSES: Record<AvatarSize, string> = {
   md: 'w-14 h-14 text-sm',
   lg: 'w-20 h-20 text-lg',
   xl: 'w-28 h-28 text-2xl',
+  hero: 'w-40 h-40 text-3xl',
 };
 
 export interface AvatarProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -29,14 +31,18 @@ function initialsFrom(name?: string) {
 }
 
 export const Avatar: React.FC<AvatarProps> = ({ src, name, size = 'md', online, className, ...props }) => {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [src]);
+
   return (
     <div className={cn('relative shrink-0', SIZE_CLASSES[size], className)} {...props}>
-      {src ? (
+      {src && !imageFailed ? (
         <img
           src={src}
           alt={name || 'avatar'}
           loading="lazy"
           decoding="async"
+          onError={() => setImageFailed(true)}
           className="w-full h-full rounded-full object-cover"
         />
       ) : (

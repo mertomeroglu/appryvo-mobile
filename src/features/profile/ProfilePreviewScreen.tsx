@@ -4,7 +4,11 @@ import { ArrowLeft, MapPin, ShieldCheck } from 'lucide-react';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { normalizeMediaUrl, getPhotoUrl } from '../../services/media/mediaService';
 import { IconButton } from '../../components/ui/IconButton';
-import { getRelationshipGoalLabel } from '../../lib/profileLabels';
+import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
+import { ZodiacIcon } from '../../components/ui/ZodiacIcon';
+import { normalizeCountryCode } from '../../lib/countryFlags';
+import { getRelationshipGoalLabels, getZodiacLabel } from '../../lib/profileLabels';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 function normalizePhotos(user: any): string[] {
   if (Array.isArray(user?.photos) && user.photos.length > 0) {
@@ -16,8 +20,10 @@ function normalizePhotos(user: any): string[] {
 export const ProfilePreviewScreen: React.FC = () => {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const { locale } = useAppTranslation();
   const [photoIndex, setPhotoIndex] = useState(0);
   const photos = normalizePhotos(user);
+  const showFlag = user?.showCountryFlag !== false && !!normalizeCountryCode(user?.countryCode);
 
   return (
     <div className="h-full w-full overflow-y-auto no-scrollbar bg-app text-app">
@@ -56,17 +62,31 @@ export const ProfilePreviewScreen: React.FC = () => {
         </div>
 
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent p-6 text-white z-10">
-          <div className="flex items-baseline gap-2">
-            <h1 className="text-3xl font-black">{user?.name}</h1>
-            {user?.age && <span className="text-2xl font-bold text-gray-300">{user.age}</span>}
-            {user?.verified && <ShieldCheck className="w-6 h-6 text-[#32D583]" />}
-          </div>
-          {user?.city && (
-            <div className="flex items-center gap-1.5 text-xs text-gray-300 mt-1">
-              <MapPin className="w-4 h-4 text-pink-500" />
-              <span>{user.city}</span>
+          <div className="flex items-end gap-3">
+            <ProfileAvatarFrame
+              photoUrl={photos[0]}
+              name={user?.name}
+              activeFrameId={user?.activeFrameId}
+              verified={user?.verified}
+              countryCode={showFlag ? user?.countryCode : null}
+              showCountryFlag={showFlag}
+              size="lg"
+              className="shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-3xl font-black">{user?.name}</h1>
+                {user?.age && <span className="text-2xl font-bold text-gray-300">{user.age}</span>}
+                {user?.verified && <ShieldCheck className="w-6 h-6 text-[#32D583]" />}
+              </div>
+              {user?.city && (
+                <div className="flex items-center gap-1.5 text-xs text-gray-300 mt-1">
+                  <MapPin className="w-4 h-4 text-pink-500" />
+                  <span>{user.city}</span>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
@@ -78,10 +98,26 @@ export const ProfilePreviewScreen: React.FC = () => {
           </div>
         )}
 
-        {getRelationshipGoalLabel(user?.relationshipGoal) && (
+        {getRelationshipGoalLabels(user?.relationshipGoals || user?.relationshipGoal).length > 0 && (
           <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
             <h4 className="text-micro text-app-muted uppercase tracking-wider">Aradığı</h4>
-            <p className="text-heading text-app">{getRelationshipGoalLabel(user?.relationshipGoal)}</p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {getRelationshipGoalLabels(user?.relationshipGoals || user?.relationshipGoal).map((label) => (
+                <span key={label} className="text-caption px-3 py-1.5 rounded-full bg-app-secondary border border-app text-app font-semibold">
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {user?.zodiac && getZodiacLabel(user.zodiac, locale) && (
+          <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">Burç</h4>
+            <p className="flex items-center gap-2 text-heading text-app">
+              <ZodiacIcon sign={user.zodiac} size={20} className="text-purple-400" />
+              {getZodiacLabel(user.zodiac, locale)}
+            </p>
           </div>
         )}
 

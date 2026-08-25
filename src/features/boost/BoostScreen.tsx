@@ -2,17 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion, useReducedMotion } from 'framer-motion';
-import { ArrowLeft, Zap } from 'lucide-react';
+import type { Product } from '@capgo/native-purchases';
+import { ArrowLeft, Clock3, Sparkles, Zap } from 'lucide-react';
 import { apiClient } from '../../services/api/apiClient';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useEntitlementsQuery, QUERY_KEYS } from '../../hooks/useQueries';
-import { normalizeMediaUrl, getPhotoUrl } from '../../services/media/mediaService';
-import { Avatar } from '../../components/ui/Avatar';
+import { getPhotoUrl } from '../../services/media/mediaService';
+import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
 import { AppButton } from '../../components/ui/AppButton';
 import { IconButton } from '../../components/ui/IconButton';
 import { AppLogo } from '../../components/ui/AppLogo';
 import { nativeHaptics } from '../../native/haptics';
 import { DURATION } from '../../motion/tokens';
+import { nativeIap } from '../../native/iap';
+import { Skeleton } from '../../components/ui/Skeleton';
 
 function formatRemaining(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -40,11 +43,19 @@ export const BoostScreen: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const reduceMotion = useReducedMotion();
   const queryClient = useQueryClient();
-  const { data: entitlements, isLoading: isLoadingEntitlements } = useEntitlementsQuery();
+  const {
+    data: entitlements,
+    isLoading: isLoadingEntitlements,
+    isError: isEntitlementsError,
+    refetch: refetchEntitlements,
+  } = useEntitlementsQuery();
 
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
   const [isLoading, setIsLoading] = useState(false);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [isStoreLoading, setIsStoreLoading] = useState(true);
+  const [boostProduct, setBoostProduct] = useState<Product | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
@@ -61,10 +72,28 @@ export const BoostScreen: React.FC = () => {
     if (until > Date.now()) setExpiresAt(until);
   }, [entitlements?.boostActiveUntil]);
 
+  useEffect(() => {
+    let active = true;
+    nativeIap.getBoostProduct()
+      .then((product) => { if (active) setBoostProduct(product); })
+      .catch(() => { if (active) setBoostProduct(null); })
+      .finally(() => { if (active) setIsStoreLoading(false); });
+    return () => { active = false; };
+  }, []);
+
   const isActive = !!expiresAt && expiresAt > now;
-  const isPremium = entitlements?.isPremium === true;
   const boostsRemaining = typeof entitlements?.boostCount === 'number' ? entitlements.boostCount : 0;
-  const canActivate = isPremium || boostsRemaining > 0;
+  const subscriptionTier = entitlements?.subscriptionTier || 'FREE';
+  const canActivate = boostsRemaining > 0;
+  const remainingMs = isActive ? expiresAt! - now : 0;
+  const progress = Math.max(0, Math.min(100, (remainingMs / (30 * 60 * 1000)) * 100));
+  const boostStateLabel = isActive
+    ? 'Aktif'
+    : subscriptionTier === 'GOLD'
+      ? 'Ryvo Gold'
+      : subscriptionTier === 'PLUS'
+        ? 'Ryvo Plus'
+        : 'Ücretsiz';
 
   const handleActivateBoost = async () => {
     setErrorMsg('');
@@ -84,88 +113,109 @@ export const BoostScreen: React.FC = () => {
     }
   };
 
+  const handlePurchaseBoost = async () => {
+    setErrorMsg('');
+    setIsPurchasing(true);
+    try {
+      await nativeIap.purchaseBoost();
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.entitlements });
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Boost satın alma tamamlanamadı.');
+    } finally {
+      setIsPurchasing(false);
+    }
+  };
+
   const photoUrl = getPhotoUrl(user?.photos?.[0]) || user?.photoUrl;
 
   return (
-    <div className="flex flex-col h-full w-full bg-app text-app p-4 overflow-y-auto no-scrollbar select-none">
-      {/* Top Bar */}
-      <header className="pt-safe flex items-center justify-between my-2">
+    <div className="h-full w-full overflow-y-auto bg-app px-4 pb-8 text-app no-scrollbar select-none">
+      <header className="pt-safe my-2 flex items-center justify-between">
         <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
         <div className="flex items-center gap-1.5">
           <AppLogo size="sm" variant="icon" />
-          <h3 className="text-heading text-app">Profil Boost</h3>
+          <h3 className="text-heading text-app">Boost</h3>
         </div>
         <div className="w-9" />
       </header>
 
-      {/* Hero: centered avatar with radar/pulse */}
-      <div className="flex flex-col items-center text-center my-8">
-        <div className="relative w-40 h-40 flex items-center justify-center mb-6">
-          {isActive && (
-            <>
-              <RadarRing delay={0} reduceMotion={!!reduceMotion} />
-              <RadarRing delay={0.9} reduceMotion={!!reduceMotion} />
-              <RadarRing delay={1.8} reduceMotion={!!reduceMotion} />
-            </>
-          )}
-          <div className="relative z-10 p-1 rounded-full bg-brand-gradient shadow-elevated shadow-pink-500/30">
-            <Avatar
-              src={photoUrl ? normalizeMediaUrl(photoUrl) : undefined}
-              name={user?.name}
-              size="xl"
-              className="w-32 h-32 border-4 border-app"
-            />
+      <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto mt-4 w-full max-w-sm overflow-hidden rounded-[28px] border border-pink-500/25 bg-gradient-to-br from-pink-500/10 via-surface to-violet-500/10 shadow-elevated">
+        <div className="relative flex items-center gap-5 px-5 py-6">
+          <div className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-pink-500/15 blur-3xl" />
+          <div className="relative grid h-32 w-32 shrink-0 place-items-center">
+            <RadarRing delay={0} reduceMotion={!!reduceMotion} />
+            <RadarRing delay={1.2} reduceMotion={!!reduceMotion} />
+            <div className="relative z-10 rounded-full bg-brand-gradient p-1 shadow-elevated shadow-pink-500/30">
+              <ProfileAvatarFrame photoUrl={photoUrl} name={user?.name} activeFrameId={user?.activeFrameId} verified={user?.verified} size="xl" eager />
+            </div>
+            <div className="absolute bottom-1 right-1 z-30 grid h-9 w-9 place-items-center rounded-full border-2 border-surface bg-brand-gradient shadow-elevated">
+              <Zap className="h-4.5 w-4.5 fill-current text-white" />
+            </div>
           </div>
-          <div className="absolute -bottom-1 -right-1 z-20 w-10 h-10 rounded-full bg-brand-gradient flex items-center justify-center shadow-elevated border-2 border-app">
-            <Zap className="w-5 h-5 text-white fill-current" />
+          <div className="relative min-w-0 text-left">
+            <span className="mb-2 inline-flex items-center gap-1 rounded-full bg-pink-500/10 px-2.5 py-1 text-micro font-black text-pink-500"><Sparkles className="h-3 w-3" /> {boostStateLabel}</span>
+            <h1 className="text-heading font-black text-app">Profilini Öne Çıkar</h1>
+            <p className="mt-2 text-caption normal-case leading-relaxed text-app-muted">Profilini 30 dakika boyunca Keşfet'te daha görünür yap.</p>
           </div>
         </div>
-
-        <h1 className="text-title text-brand-gradient mb-2">10 Kat Daha Fazla Görüntülenme</h1>
-        <p className="text-caption text-app-muted max-w-xs leading-relaxed normal-case">
-          30 dakika boyunca profilin bölgendeki keşfet akışında en üst sıraya yerleştirilir.
-        </p>
-      </div>
+      </motion.section>
 
       {errorMsg && (
-        <div className="mb-4 p-3 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-500 text-caption font-bold text-center">
+        <div className="mx-auto mt-4 w-full max-w-sm rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-center text-caption font-bold text-red-500">
           {errorMsg}
         </div>
       )}
 
-      {/* Status Card */}
-      {isActive ? (
-        <div className="p-6 rounded-3xl bg-surface border border-pink-500 text-center space-y-2 my-auto shadow-elevated">
-          <div className="flex items-center justify-center gap-2 text-pink-500 font-extrabold">
-            <span>Boost Aktif!</span>
+      {isLoadingEntitlements ? (
+        <section className="mx-auto mt-4 w-full max-w-sm space-y-4 rounded-3xl border border-app bg-surface p-5 shadow-soft" aria-label="Boost bilgileri yükleniyor">
+          <Skeleton className="h-5 w-40 rounded-full" />
+          <Skeleton className="h-4 w-28 rounded-full" />
+          <Skeleton className="h-14 w-full rounded-[20px]" />
+        </section>
+      ) : isEntitlementsError ? (
+        <section className="mx-auto mt-4 w-full max-w-sm rounded-3xl border border-app bg-surface p-5 text-center shadow-soft">
+          <p className="text-body font-extrabold text-app">Boost hakların alınamadı</p>
+          <p className="mt-1 text-caption normal-case text-app-muted">Satın alma veya kullanım yapmadan önce tekrar deneyebilirsin.</p>
+          <AppButton className="mt-4" variant="secondary" size="md" fullWidth onClick={() => void refetchEntitlements()}>
+            Tekrar Dene
+          </AppButton>
+        </section>
+      ) : isActive ? (
+        <section className="mx-auto mt-4 w-full max-w-sm rounded-3xl border border-pink-500 bg-surface p-5 shadow-elevated">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-extrabold text-pink-500"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-pink-500" /><span>Boost aktif</span></div>
+            <Clock3 className="h-5 w-5 text-app-muted" />
           </div>
-          <p className="text-title tabular-nums text-app">{formatRemaining(expiresAt! - now)}</p>
-          <p className="text-caption text-app-muted normal-case">Profilin şu an bölgende ilk sırada gösteriliyor.</p>
-        </div>
+          <p className="mt-3 text-title tabular-nums text-app">Boost aktif · {formatRemaining(remainingMs)}</p>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-app-secondary"><div className="h-full rounded-full bg-brand-gradient transition-[width] duration-500" style={{ width: `${progress}%` }} /></div>
+          <p className="mt-3 text-caption normal-case text-app-muted">Profilin keşfette daha görünür.</p>
+        </section>
       ) : (
-        <div className="p-6 rounded-3xl bg-surface border border-app text-center space-y-4 my-auto shadow-soft">
-          {!isLoadingEntitlements && (
-            <p className="text-body font-extrabold text-app">
-              {isPremium
-                ? 'VIP üye olarak sınırsız boost hakkına sahipsin'
-                : boostsRemaining > 0
-                  ? `${boostsRemaining} Ücretsiz Boost Hakkın Var`
-                  : 'Ücretsiz Boost Hakkın Kalmadı'}
-            </p>
-          )}
+        <section className="mx-auto mt-4 w-full max-w-sm rounded-3xl border border-app bg-surface p-5 shadow-soft">
+          <div className="mb-5">
+            <p className="text-body font-extrabold text-app">{subscriptionTier === 'GOLD' ? 'Ryvo Gold · Ayda 2 Boost' : subscriptionTier === 'PLUS' ? 'Ryvo Plus · Ayda 1 Boost' : 'Kullanılabilir Boost hakkın yok'}</p>
+            <p className="mt-1 text-caption normal-case text-app-muted">Kalan hakkın: {boostsRemaining}</p>
+          </div>
 
           {canActivate ? (
             <AppButton variant="primary" size="lg" fullWidth loading={isLoading} onClick={handleActivateBoost}>
-              Boost'u Başlat
+              Boost’u Başlat
             </AppButton>
+          ) : isStoreLoading ? (
+            <div className="space-y-3"><Skeleton className="h-14 w-full rounded-[20px]" /><Skeleton className="mx-auto h-5 w-32" /></div>
+          ) : boostProduct ? (
+            <div className="space-y-3">
+              <AppButton variant="primary" size="lg" fullWidth loading={isPurchasing} onClick={handlePurchaseBoost}>Boost Satın Al · {boostProduct.priceString}</AppButton>
+              <AppButton variant="secondary" size="md" fullWidth onClick={() => navigate('/premium')}>Paketleri İncele</AppButton>
+            </div>
           ) : (
             <AppButton variant="primary" size="lg" fullWidth onClick={() => navigate('/premium')}>
-              VIP Ol ve Boost Kazan
+              Ryvo Plus ve Gold’u İncele
             </AppButton>
           )}
-        </div>
+        </section>
       )}
     </div>
   );

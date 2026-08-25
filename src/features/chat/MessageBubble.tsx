@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Check,
@@ -9,7 +9,7 @@ import {
   Heart,
   Languages,
   Laugh,
-  MoreVertical,
+  MoreHorizontal,
   Pause,
   Pencil,
   Play,
@@ -17,10 +17,13 @@ import {
   ThumbsUp,
   Trash2,
 } from 'lucide-react';
-import { normalizeMediaUrl } from '../../services/media/mediaService';
+import { mediaService, normalizeMediaUrl } from '../../services/media/mediaService';
 import { ActionSheet, type ActionSheetAction } from '../../components/ui/ActionSheet';
 import { toast } from '../../stores/useToastStore';
 import { DURATION, EASE } from '../../motion/tokens';
+import { GiftMessageCard } from '../gifts/GiftMessageCard';
+import type { GiftSnapshot } from '../gifts/types';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 export interface MessageTranslation {
   translatedText: string;
@@ -33,6 +36,7 @@ export interface ChatMessage {
   matchId: string;
   senderId: string;
   text?: string;
+  title?: string;
   mediaUrl?: string;
   messageType?: string;
   isViewOnce?: boolean;
@@ -43,30 +47,39 @@ export interface ChatMessage {
   editedAt?: string;
   createdAt: string;
   translation?: MessageTranslation | null;
+  giftSendId?: string | null;
+  giftSnapshot?: GiftSnapshot | null;
 }
 
 interface MessageBubbleProps {
   message: ChatMessage;
   isMe: boolean;
-  isLastMineRead: boolean;
+  isLastMineRead?: boolean;
   replySource?: ChatMessage;
-  viewOnceRevealed: boolean;
+  viewOnceRevealed?: boolean;
   isTranslating?: boolean;
-  onRevealViewOnce: (message: ChatMessage) => void;
-  onReply: (message: ChatMessage) => void;
-  onEdit: (message: ChatMessage) => void;
-  onDelete: (message: ChatMessage) => void;
-  onReact: (message: ChatMessage, reaction: string) => void;
-  onReport: (message: ChatMessage) => void;
-  onTranslate: (message: ChatMessage) => void;
+  onRevealViewOnce?: (message: ChatMessage) => void;
+  onReply?: (message: ChatMessage) => void;
+  onEdit?: (message: ChatMessage) => void;
+  onDelete?: (message: ChatMessage) => void;
+  onReact?: (message: ChatMessage, reaction: string) => void;
+  onReport?: (message: ChatMessage) => void;
+  onTranslate?: (message: ChatMessage) => void;
+  animateGift?: boolean;
+  giftSenderName?: string;
+  isFirstInGroup?: boolean;
+  isLastInGroup?: boolean;
+  readOnly?: boolean;
+  senderAvatar?: React.ReactNode;
 }
 
-function VoicePlayer({ url, durationSeconds }: { url: string; durationSeconds?: number }) {
+function VoicePlayer({ url, durationSeconds, isMe }: { url: string; durationSeconds?: number; isMe: boolean }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const toggle = () => {
+  const toggle = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
     const audio = audioRef.current;
     if (!audio) return;
     if (isPlaying) {
@@ -78,15 +91,17 @@ function VoicePlayer({ url, durationSeconds }: { url: string; durationSeconds?: 
   };
 
   return (
-    <div className="flex items-center gap-2.5 min-w-[160px]">
+    <div className="flex min-w-[168px] items-center gap-2.5 py-0.5">
       <button
+        type="button"
         onClick={toggle}
-        className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center shrink-0"
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isMe ? 'bg-white/20' : 'bg-pink-500/10 text-pink-500'}`}
+        aria-label={isPlaying ? 'Sesli mesajı duraklat' : 'Sesli mesajı oynat'}
       >
         {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
       </button>
-      <div className="flex-1 h-1.5 rounded-full bg-white/25 overflow-hidden">
-        <div className="h-full bg-white rounded-full" style={{ width: `${progress * 100}%` }} />
+      <div className={`h-1.5 flex-1 overflow-hidden rounded-full ${isMe ? 'bg-white/25' : 'bg-app-secondary'}`}>
+        <div className={`h-full rounded-full ${isMe ? 'bg-white' : 'bg-pink-500'}`} style={{ width: `${progress * 100}%` }} />
       </div>
       <span className="text-micro opacity-80 tabular-nums">
         {durationSeconds ? `${Math.round(durationSeconds)}s` : ''}
@@ -108,6 +123,36 @@ function VoicePlayer({ url, durationSeconds }: { url: string; durationSeconds?: 
   );
 }
 
+function useAuthorizedMediaUrl(url?: string): string | undefined {
+  const normalized = url ? normalizeMediaUrl(url) : undefined;
+  const isPrivate = Boolean(normalized?.includes('/api/media/private/'));
+  const [resolvedUrl, setResolvedUrl] = useState<string | undefined>(isPrivate ? undefined : normalized);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | undefined;
+    setResolvedUrl(isPrivate ? undefined : normalized);
+    if (!normalized || !isPrivate) return () => { active = false; };
+
+    mediaService.getAuthenticatedObjectUrl(normalized)
+      .then((value) => {
+        objectUrl = value;
+        if (active) setResolvedUrl(value);
+        else URL.revokeObjectURL(value);
+      })
+      .catch(() => {
+        if (active) setResolvedUrl(undefined);
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [normalized, isPrivate]);
+
+  return resolvedUrl;
+}
+
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
   message,
   isMe,
@@ -122,11 +167,19 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   onReact,
   onReport,
   onTranslate,
+  animateGift = false,
+  giftSenderName,
+  isFirstInGroup = true,
+  isLastInGroup = true,
+  readOnly = false,
+  senderAvatar,
 }) => {
+  const { t, locale } = useAppTranslation();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   // Local to this bubble on purpose -- "show original" is a per-message glance, not app state
   // worth persisting or lifting; it resets naturally if the message scrolls out and back in.
   const [showOriginal, setShowOriginal] = useState(false);
+  const resolvedMediaUrl = useAuthorizedMediaUrl(message.mediaUrl);
   const reactionCounts = (message.reactions || []).reduce<Record<string, number>>((acc, r) => {
     acc[r.reaction] = (acc[r.reaction] || 0) + 1;
     return acc;
@@ -137,13 +190,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const hasTranslation = !isMe && !!message.translation;
   const displayText = hasTranslation && !showOriginal ? message.translation!.translatedText : message.text;
 
-  const actions: ActionSheetAction[] = [
-    { label: 'Yanıtla', icon: <Reply className="w-4 h-4" />, onSelect: () => onReply(message) },
-    { label: 'Beğen ❤️', icon: <Heart className="w-4 h-4" />, onSelect: () => onReact(message, '❤️') },
-    { label: 'Güldür 😂', icon: <Laugh className="w-4 h-4" />, onSelect: () => onReact(message, '😂') },
-    { label: 'Onayla 👍', icon: <ThumbsUp className="w-4 h-4" />, onSelect: () => onReact(message, '👍') },
+  const actions: ActionSheetAction[] = readOnly ? [] : [
+    { label: 'Yanıtla', icon: <Reply className="w-4 h-4" />, onSelect: () => onReply?.(message) },
+    { label: 'Beğen ❤️', icon: <Heart className="w-4 h-4" />, onSelect: () => onReact?.(message, '❤️') },
+    { label: 'Güldür 😂', icon: <Laugh className="w-4 h-4" />, onSelect: () => onReact?.(message, '😂') },
+    { label: 'Onayla 👍', icon: <ThumbsUp className="w-4 h-4" />, onSelect: () => onReact?.(message, '👍') },
   ];
-  if (message.text) {
+  if (!readOnly && message.text) {
     actions.push({
       label: 'Kopyala',
       icon: <Copy className="w-4 h-4" />,
@@ -153,72 +206,89 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       },
     });
   }
-  if (isMe && message.text) {
-    actions.push({ label: 'Düzenle', icon: <Pencil className="w-4 h-4" />, onSelect: () => onEdit(message) });
+  if (!readOnly && isMe && message.text) {
+    actions.push({ label: 'Düzenle', icon: <Pencil className="w-4 h-4" />, onSelect: () => onEdit?.(message) });
   }
-  if (isMe) {
+  if (!readOnly && isMe) {
     actions.push({
       label: 'Sil',
       icon: <Trash2 className="w-4 h-4" />,
       destructive: true,
-      onSelect: () => onDelete(message),
+      onSelect: () => onDelete?.(message),
     });
-  } else {
+  } else if (!readOnly) {
     if (message.text && !message.translation && !isTranslating) {
       actions.push({
         label: 'Çevir',
         icon: <Languages className="w-4 h-4" />,
-        onSelect: () => onTranslate(message),
+        onSelect: () => onTranslate?.(message),
       });
     }
     actions.push({
       label: 'Bildir',
       icon: <Flag className="w-4 h-4" />,
       destructive: true,
-      onSelect: () => onReport(message),
+      onSelect: () => onReport?.(message),
     });
   }
 
   const showViewOnceLock = message.isViewOnce && !isMe && !viewOnceRevealed;
 
+  if (String(message.messageType || '').toUpperCase() === 'GIFT' && message.giftSnapshot) {
+    return (
+      <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+        <GiftMessageCard gift={message.giftSnapshot} isMe={isMe} senderName={giftSenderName} animate={animateGift} />
+      </div>
+    );
+  }
+
   return (
-    <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} group`}>
-      <div className={`flex items-end gap-1 max-w-[80%] ${isMe ? 'flex-row-reverse' : ''}`}>
-        <button
-          onClick={() => setIsSheetOpen(true)}
-          className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 text-app-muted transition-opacity"
-          aria-label="Mesaj seçenekleri"
-        >
-          <MoreVertical className="w-3.5 h-3.5" />
-        </button>
+    <div className={`group flex ${isFirstInGroup ? 'mt-2.5' : 'mt-0.5'} ${isMe ? 'justify-end' : 'justify-start'}`}>
+      <div className={`relative flex max-w-[86%] items-end gap-2 ${isMe ? 'flex-row-reverse' : ''}`}>
+        {!isMe && senderAvatar && (
+          <div className="flex h-7 w-7 shrink-0 items-end">{isLastInGroup ? senderAvatar : null}</div>
+        )}
+        {actions.length > 0 && isLastInGroup && (
+          <button
+            type="button"
+            onClick={() => setIsSheetOpen(true)}
+            className={`absolute bottom-0 z-10 grid h-8 w-8 place-items-center rounded-full text-app-muted opacity-70 transition-colors active:bg-app-secondary md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isMe ? '-left-9' : '-right-9'}`}
+            aria-label="Mesaj seçenekleri"
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
+        )}
 
-        <div className="flex flex-col gap-1" style={{ alignItems: isMe ? 'flex-end' : 'flex-start' }}>
-          {replySource && (
-            <div
-              className={`px-3 py-1.5 rounded-xl text-micro border-l-2 ${
-                isMe ? 'bg-white/10 border-white/40 text-white/80' : 'bg-app-secondary border-pink-500 text-app-muted'
-              } max-w-full truncate`}
-            >
-              {replySource.text || (replySource.messageType ? `${replySource.messageType} mesajı` : 'Mesaj')}
-            </div>
-          )}
-
+        <div className="flex min-w-0 flex-col gap-1" style={{ alignItems: isMe ? 'flex-end' : 'flex-start' }}>
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: DURATION.micro, ease: EASE.standard }}
-            onClick={() => setIsSheetOpen(true)}
-            className={`px-4 py-2.5 rounded-2xl text-body shadow-soft cursor-pointer ${
+            onContextMenu={(event) => {
+              if (actions.length === 0) return;
+              event.preventDefault();
+              setIsSheetOpen(true);
+            }}
+            className={`min-w-0 px-3 py-2 text-body ${
               isMe
-                ? 'bg-brand-gradient text-white rounded-br-none font-medium'
-                : 'bg-surface border border-app text-app rounded-bl-none font-medium'
+                ? `bg-brand-gradient font-medium text-white ${isLastInGroup ? 'rounded-[18px] rounded-br-[5px]' : 'rounded-[18px] rounded-br-xl'}`
+                : `bg-surface-elevated font-medium text-app shadow-soft ${isLastInGroup ? 'rounded-[18px] rounded-bl-[5px]' : 'rounded-[18px] rounded-bl-xl'}`
             }`}
           >
+            {message.title && <p className={`mb-1 text-micro font-extrabold normal-case ${isMe ? 'text-white/85' : 'text-pink-500'}`}>{message.title}</p>}
+            {replySource && (
+              <div className={`mb-1.5 flex max-w-full items-stretch overflow-hidden rounded-xl ${isMe ? 'bg-white/[0.12]' : 'bg-app'}`}>
+                <span className={`w-0.5 shrink-0 ${isMe ? 'bg-white/70' : 'bg-pink-500'}`} />
+                <p className={`truncate px-2.5 py-1.5 text-micro normal-case ${isMe ? 'text-white/85' : 'text-app-muted'}`}>
+                  {replySource.text || (replySource.messageType ? `${replySource.messageType} mesajı` : 'Mesaj')}
+                </p>
+              </div>
+            )}
             {showViewOnceLock ? (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onRevealViewOnce(message);
+                  onRevealViewOnce?.(message);
                 }}
                 className="flex items-center gap-2 py-1"
               >
@@ -227,27 +297,27 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               </button>
             ) : (
               <>
-                {message.mediaUrl && message.messageType === 'VIDEO' && (
+                {resolvedMediaUrl && message.messageType === 'VIDEO' && (
                   <video
-                    src={normalizeMediaUrl(message.mediaUrl)}
+                    src={resolvedMediaUrl}
                     controls
-                    className="w-full max-h-60 rounded-xl mb-1.5"
+                    className="mb-1.5 max-h-60 w-full rounded-[14px]"
                   />
                 )}
-                {message.mediaUrl && message.messageType === 'AUDIO' && (
-                  <VoicePlayer url={message.mediaUrl} durationSeconds={message.durationSeconds} />
+                {resolvedMediaUrl && message.messageType === 'AUDIO' && (
+                  <VoicePlayer url={resolvedMediaUrl} durationSeconds={message.durationSeconds} isMe={isMe} />
                 )}
-                {message.mediaUrl &&
+                {resolvedMediaUrl &&
                   (message.messageType === 'IMAGE' || message.messageType === 'GIF' || !message.messageType) && (
                     <img
-                      src={normalizeMediaUrl(message.mediaUrl)}
+                      src={resolvedMediaUrl}
                       alt="Medya"
                       loading="lazy"
                       decoding="async"
-                      className="w-full max-h-60 object-cover rounded-xl mb-1.5"
+                      className="mb-1.5 max-h-60 w-full rounded-[14px] object-cover"
                     />
                   )}
-                {displayText && <p className="leading-relaxed whitespace-pre-wrap">{displayText}</p>}
+                {displayText && <p className="whitespace-pre-wrap leading-[1.42]">{displayText}</p>}
                 {!message.translation && isTranslating && (
                   <p className="text-micro italic opacity-70 mt-0.5">Çevriliyor...</p>
                 )}
@@ -266,14 +336,14 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             )}
 
             <div
-              className={`flex items-center gap-1 text-[10px] mt-1 ${
+              className={`mt-1 flex items-center gap-1 text-[10px] leading-none tabular-nums ${
                 isMe ? 'text-white/70 justify-end' : 'text-app-muted'
               }`}
             >
-              {message.editedAt && <span className="italic">düzenlendi</span>}
+              {message.editedAt && <span className="italic">{t('editedLabel')}</span>}
               <span>
                 {message.createdAt
-                  ? new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  ? new Date(message.createdAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
                   : ''}
               </span>
               {isMe && (isLastMineRead ? <CheckCheck className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />)}
@@ -281,11 +351,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </motion.div>
 
           {Object.keys(reactionCounts).length > 0 && (
-            <div className="flex gap-1">
+            <div className="-mt-1 flex gap-1 px-1">
               {Object.entries(reactionCounts).map(([reaction, count]) => (
                 <span
                   key={reaction}
-                  className="text-micro px-2 py-0.5 rounded-full bg-surface border border-app shadow-soft"
+                  className="rounded-full border border-app bg-surface px-2 py-0.5 text-micro shadow-soft"
                 >
                   {reaction} {count > 1 ? count : ''}
                 </span>
@@ -295,7 +365,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         </div>
       </div>
 
-      <ActionSheet isOpen={isSheetOpen} onClose={() => setIsSheetOpen(false)} actions={actions} />
+      {actions.length > 0 && <ActionSheet isOpen={isSheetOpen} onClose={() => setIsSheetOpen(false)} title="Mesaj işlemleri" actions={actions} />}
     </div>
   );
 };

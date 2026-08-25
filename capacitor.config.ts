@@ -2,11 +2,11 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.appryvo.ryvo',
-  appName: 'Appryvo',
+  appName: 'Ryvo',
   webDir: 'dist',
   plugins: {
     Keyboard: {
-      resize: 'body',
+      resize: 'native',
       style: 'DARK',
       resizeOnFullScreen: true,
     },

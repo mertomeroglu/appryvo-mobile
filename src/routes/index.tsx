@@ -1,7 +1,9 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { AppShell } from '../app/AppShell';
 import { SessionGate } from '../app/SessionGate';
+import { loadOwnProfileScreen } from './routePreload';
+import { measureProfileMilestone } from '../services/performance/profilePerformance';
 
 // Critical routes loaded directly
 import { AuthScreen } from '../features/auth/AuthScreen';
@@ -13,13 +15,14 @@ const SocialMapScreen = lazy(() => import('../features/map/SocialMapScreen').the
 const LikesScreen = lazy(() => import('../features/likes/LikesScreen').then((m) => ({ default: m.LikesScreen })));
 const NotificationsScreen = lazy(() => import('../features/notifications/NotificationsScreen').then((m) => ({ default: m.NotificationsScreen })));
 const MessagesScreen = lazy(() => import('../features/chat/MessagesScreen').then((m) => ({ default: m.MessagesScreen })));
+const OfficialRyvoThread = lazy(() => import('../features/chat/OfficialRyvoThread').then((m) => ({ default: m.OfficialRyvoThread })));
 const ChatScreen = lazy(() => import('../features/chat/ChatScreen').then((m) => ({ default: m.ChatScreen })));
-const OwnProfileScreen = lazy(() => import('../features/profile/OwnProfileScreen').then((m) => ({ default: m.OwnProfileScreen })));
+const OwnProfileScreen = lazy(() => loadOwnProfileScreen().then((m) => ({ default: m.OwnProfileScreen })));
 const SettingsScreen = lazy(() => import('../features/profile/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
 const BlockedUsersScreen = lazy(() => import('../features/profile/BlockedUsersScreen').then((m) => ({ default: m.BlockedUsersScreen })));
 const VerificationScreen = lazy(() => import('../features/profile/VerificationScreen').then((m) => ({ default: m.VerificationScreen })));
 const ProfilePreviewScreen = lazy(() => import('../features/profile/ProfilePreviewScreen').then((m) => ({ default: m.ProfilePreviewScreen })));
-const ConfessionsScreen = lazy(() => import('../features/social/ConfessionsScreen').then((m) => ({ default: m.ConfessionsScreen })));
+const ConnectionsListScreen = lazy(() => import('../features/profile/ConnectionsListScreen').then((m) => ({ default: m.ConnectionsListScreen })));
 const PremiumScreen = lazy(() => import('../features/premium/PremiumScreen').then((m) => ({ default: m.PremiumScreen })));
 const BoostScreen = lazy(() => import('../features/boost/BoostScreen').then((m) => ({ default: m.BoostScreen })));
 const ProfileFramesScreen = lazy(() => import('../features/frames/ProfileFramesScreen').then((m) => ({ default: m.ProfileFramesScreen })));
@@ -30,6 +33,20 @@ const SuspenseFallback = (
   <div className="flex items-center justify-center h-full w-full bg-app" />
 );
 
+const ProfileRouteFallback: React.FC = () => {
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => measureProfileMilestone('shell-ready'));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  return (
+    <div className="h-full w-full bg-app px-4 text-app" aria-label="Profil yükleniyor">
+      <div className="pt-safe mx-auto mt-4 h-7 w-28 rounded-full bg-app-secondary animate-pulse" />
+      <div className="mx-auto mt-6 h-28 w-28 rounded-full bg-app-secondary animate-pulse" />
+      <div className="mx-auto mt-5 h-5 w-36 rounded-full bg-app-secondary animate-pulse" />
+    </div>
+  );
+};
+
 const router = createBrowserRouter([
   {
     path: '/',
@@ -37,8 +54,8 @@ const router = createBrowserRouter([
     children: [
       {
         // SessionGate enforces: no session -> /auth, authenticated -> app. All onboarding
-        // (relationship goal, interests, lifestyle, photos, location) happens inside the
-        // registration wizard itself, before the account is created — see
+        // Required registration fields and photos are collected inside the registration
+        // wizard. Device location is requested later, on Discover — see
         // src/features/auth/RegistrationWizard.tsx. See src/app/SessionGate.tsx.
         element: <SessionGate />,
         children: [
@@ -94,9 +111,17 @@ const router = createBrowserRouter([
             ),
           },
           {
-            path: 'profile',
+            path: 'messages/ryvo',
             element: (
               <Suspense fallback={SuspenseFallback}>
+                <OfficialRyvoThread />
+              </Suspense>
+            ),
+          },
+          {
+            path: 'profile',
+            element: (
+              <Suspense fallback={<ProfileRouteFallback />}>
                 <OwnProfileScreen />
               </Suspense>
             ),
@@ -106,6 +131,14 @@ const router = createBrowserRouter([
             element: (
               <Suspense fallback={SuspenseFallback}>
                 <ProfilePreviewScreen />
+              </Suspense>
+            ),
+          },
+          {
+            path: 'connections/:userId',
+            element: (
+              <Suspense fallback={SuspenseFallback}>
+                <ConnectionsListScreen />
               </Suspense>
             ),
           },
@@ -135,11 +168,7 @@ const router = createBrowserRouter([
           },
           {
             path: 'confessions',
-            element: (
-              <Suspense fallback={SuspenseFallback}>
-                <ConfessionsScreen />
-              </Suspense>
-            ),
+            element: <Navigate to="/messages?tab=confessions" replace />,
           },
           {
             path: 'premium',

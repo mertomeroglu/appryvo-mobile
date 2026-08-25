@@ -1,4 +1,6 @@
-import { API_BASE_URL, customFetch } from '../api/apiClient';
+import { API_BASE_URL, apiClient, customFetch, fetchAuthenticatedBlob } from '../api/apiClient';
+
+const PUBLIC_ASSET_BASE_URL = (import.meta.env.VITE_PUBLIC_ASSET_BASE_URL || 'https://appryvo.online').replace(/\/+$/, '');
 
 export interface UploadMediaResult {
   status: string;
@@ -11,6 +13,12 @@ export interface UploadMediaResult {
     };
   };
 }
+
+export interface RegistrationPhotoUploadResult extends UploadMediaResult {
+  data: UploadMediaResult['data'] & { uploadToken: string };
+}
+
+export type MediaUploadCategory = 'profile' | 'chat' | 'social' | 'voice' | 'verification';
 
 // A "photo" shows up in three different shapes across the API depending on the endpoint:
 //   - a plain URL string (discovery feed / full profile / matches: server already flattens
@@ -35,12 +43,14 @@ export const getPhotoUrl = (photo: unknown): string | undefined => {
 
 export const normalizeMediaUrl = (url?: string | null): string => {
   if (!url) return `${API_BASE_URL}/media/public/default-avatar.png`;
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('file://') || url.startsWith('data:')) {
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('file://') || url.startsWith('data:') || url.startsWith('blob:')) {
     return url;
   }
   if (url.startsWith('/')) {
+    if (url.startsWith('/assets/frames/')) return `${PUBLIC_ASSET_BASE_URL}${url}`;
     return `${API_BASE_URL}${url}`;
   }
+  if (url.startsWith('assets/frames/')) return `${PUBLIC_ASSET_BASE_URL}/${url}`;
   return `${API_BASE_URL}/${url}`;
 };
 
@@ -53,13 +63,27 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
   });
 
 export const mediaService = {
+  async getAuthenticatedObjectUrl(url: string): Promise<string> {
+    const normalized = normalizeMediaUrl(url);
+    if (!normalized.includes('/api/media/private/')) return normalized;
+    const blob = await fetchAuthenticatedBlob(normalized);
+    return URL.createObjectURL(blob);
+  },
+  async uploadRegistrationPhoto(file: File | Blob): Promise<RegistrationPhotoUploadResult> {
+    const base64Data = await blobToBase64(file);
+    return await apiClient.post(
+      '/api/auth/register/photo',
+      { base64Data, mimeType: file.type || 'image/jpeg' },
+      { skipAuth: true, timeoutMs: 60000 }
+    );
+  },
   // Server contract (media_controller.js POST /api/media/upload) is JSON
   // { base64Data, category, mimeType }, not multipart/form-data — it never
   // parses multipart bodies, so a FormData POST silently 400s with
   // "base64Data gereklidir." for every upload.
   async uploadMedia(
     file: File | Blob,
-    category: 'profile' | 'chat' | 'social' | 'voice' = 'profile',
+    category: MediaUploadCategory = 'profile',
     abortSignal?: AbortSignal
   ): Promise<UploadMediaResult> {
     const base64Data = await blobToBase64(file);
@@ -69,7 +93,7 @@ export const mediaService = {
 
   async uploadBase64(
     base64Data: string,
-    category: 'profile' | 'chat' | 'social' | 'voice' = 'profile',
+    category: MediaUploadCategory = 'profile',
     abortSignal?: AbortSignal,
     mimeType: string = 'image/jpeg'
   ): Promise<UploadMediaResult> {

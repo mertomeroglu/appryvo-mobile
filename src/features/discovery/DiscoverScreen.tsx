@@ -207,6 +207,9 @@ export const DiscoverScreen: React.FC = () => {
       }
 
       try {
+        // Deliberately no mapVisible field: this is a distance-for-matching sync, not a map
+        // check-in, and must never flip the user's map visibility either way (see
+        // location_utils.js buildLocationUpsert's tri-state handling).
         await apiClient.post('/api/user/location', {
           latitude: lat,
           longitude: lng,

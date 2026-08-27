@@ -6,13 +6,15 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import { Search, Compass, Heart, ShieldCheck, LocateFixed, X, Sparkles, Crown } from 'lucide-react';
+import { Search, Compass, Heart, ShieldCheck, LocateFixed, X, Sparkles, Crown, MapPin, EyeOff } from 'lucide-react';
 import {
   useDiscoveryMapQuery,
   useDiscoveryUserQuery,
   useFramesQuery,
   useLikeMutation,
+  useMeQuery,
   usePassMutation,
+  useUpdateProfileMutation,
   type MapBbox,
 } from '../../hooks/useQueries';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
@@ -40,7 +42,9 @@ export interface MapUser {
   verified?: boolean;
   displayLat: number;
   displayLng: number;
-  distance?: string | null;
+  // Server sends a privacy-safe distance bucket object (see formatDistanceBucket in
+  // location_utils.js), never a plain string or exact figure.
+  distance?: { bucket: string; label: string; minKm: number; maxKm: number } | null;
   photo?: string;
   photoThumbnailUrl?: string;
   activeFrameId?: string;
@@ -50,12 +54,18 @@ interface SelectedPin {
   users: MapUser[];
 }
 
+// CARTO's basemaps.cartocdn.com now requires a registered API key per origin -- unauthenticated
+// requests (including this app's capacitor://localhost origin) get served a tile watermarked
+// "API KEY REQUIRED" instead of a 4xx, so this silently degraded rather than erroring loudly.
+// Standard OSM raster tiles have no such key/origin gate. Only one style exists (no native dark
+// variant) so both themes share it for now -- swap back to a keyed CARTO/Mapbox style if visual
+// dark-mode parity is wanted later.
 const TILE_URLS = {
-  light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-  dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  light: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  dark: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
 };
 const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
 const DEFAULT_CENTER: [number, number] = [39.0, 35.2]; // Türkiye — shown until location resolves
 const DEFAULT_ZOOM = 5.2;
 const LOCATE_ZOOM = 13;
@@ -207,7 +217,12 @@ export const SocialMapScreen: React.FC = () => {
   const moveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationStatus, setLocationStatus] = useState<'pending' | 'granted' | 'denied' | 'error'>('pending');
+  const [locationStatus, setLocationStatus] = useState<'idle' | 'pending' | 'granted' | 'denied' | 'error'>('idle');
+  // Whether the viewer has explicitly opted in to appear on the map for others. null while we
+  // haven't yet learned their current state from the server (see the sync effect below) --
+  // deliberately never defaults to true, since map presence is opt-in, not opt-out (Apple 5.1.2(i)).
+  const [checkedIn, setCheckedIn] = useState<boolean | null>(null);
+  const [checkingIn, setCheckingIn] = useState(false);
   const [bbox, setBbox] = useState<MapBbox | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [cityResults, setCityResults] = useState<any[]>([]);
@@ -221,12 +236,23 @@ export const SocialMapScreen: React.FC = () => {
   const { data: mapUsers, isFetching } = useDiscoveryMapQuery(bbox, 150);
   const { data: selectedUserDetail, isFetching: isDetailFetching } = useDiscoveryUserQuery(selectedUser?.id);
   const { data: framesData } = useFramesQuery();
+  const { data: me } = useMeQuery();
   const frameCatalog = useMemo<ProfileFrameRecord[]>(
     () => Array.isArray(framesData?.frames) ? framesData.frames : [],
     [framesData?.frames]
   );
   const likeMutation = useLikeMutation();
   const passMutation = usePassMutation();
+  const updateProfileMutation = useUpdateProfileMutation();
+
+  // Learn the viewer's current map-visibility state from their profile exactly once per screen
+  // visit (not on every refetch) -- once we've set a local value, an explicit check-in/hide
+  // action here is what should own it, not a background me-query refresh racing the tap.
+  useEffect(() => {
+    if (checkedIn === null && me && typeof me.mapVisible === 'boolean') {
+      setCheckedIn(me.mapVisible);
+    }
+  }, [me, checkedIn]);
 
   const openPin = useCallback((users: MapUser[]) => {
     nativeHaptics.impact();
@@ -353,8 +379,8 @@ export const SocialMapScreen: React.FC = () => {
     if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
     const layer = L.tileLayer(isDark ? TILE_URLS.dark : TILE_URLS.light, {
       attribution: TILE_ATTRIBUTION,
-      subdomains: 'abcd',
-      maxZoom: 20,
+      subdomains: 'abc',
+      maxZoom: 19,
       keepBuffer: 1,
       updateWhenIdle: true,
       updateWhenZooming: false,
@@ -364,30 +390,60 @@ export const SocialMapScreen: React.FC = () => {
     tileLayerRef.current = layer;
   }, [isDark]);
 
-  const reportLocation = (lat: number, lng: number) => {
-    apiClient.post('/api/user/location', { lat, lng }).catch(() => {});
-  };
-
-  const acquireLocation = useCallback((recenter: boolean) => {
+  // Purely local: reads the device's own GPS fix to center the map and draw the "you are here"
+  // dot. Never sent to the backend and never implies visibility to other users -- appearing on
+  // the map for others is the separate, explicit checkInToMap() action below. This is what the
+  // map screen itself and the recenter button trigger; it deliberately does NOT run on mount, so
+  // opening the map never fires an OS location prompt or shares anything on its own.
+  const acquireLocalLocation = useCallback((recenter: boolean): Promise<{ latitude: number; longitude: number; accuracy?: number }> => {
     setLocationStatus((s) => (s === 'granted' ? s : 'pending'));
-    nativeLocation
+    return nativeLocation
       .getCurrentPosition()
       .then((pos: any) => {
-        const { latitude, longitude } = pos.coords;
+        const { latitude, longitude, accuracy } = pos.coords;
         setCoords({ lat: latitude, lng: longitude });
         setLocationStatus('granted');
-        reportLocation(latitude, longitude);
         if (recenter) mapRef.current?.flyTo([latitude, longitude], LOCATE_ZOOM, { duration: 1.1 });
+        return { latitude, longitude, accuracy: Number.isFinite(accuracy) ? accuracy : undefined };
       })
       .catch((err: any) => {
         setLocationStatus(err?.code === 1 ? 'denied' : 'error');
+        throw err;
       });
   }, []);
 
-  useEffect(() => {
-    acquireLocation(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Explicit "appear on map" check-in: the only action in this screen that shares the viewer's
+  // position with the backend and turns on map_visible. Always uses a fresh GPS fix -- check-in
+  // means "show my current spot," not "reuse whatever we last had."
+  const checkInToMap = useCallback(async () => {
+    setCheckingIn(true);
+    try {
+      const pos = await acquireLocalLocation(true);
+      await apiClient.post('/api/user/location', {
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        accuracy: pos.accuracy,
+        mapVisible: true,
+      });
+      setCheckedIn(true);
+      nativeHaptics.impact();
+    } catch {
+      // acquireLocalLocation already reflected a permission/GPS failure via locationStatus;
+      // a POST failure just leaves checkedIn at its previous value.
+    } finally {
+      setCheckingIn(false);
+    }
+  }, [acquireLocalLocation]);
+
+  // Explicit "stop appearing": no GPS fix required, so this always works even if location is
+  // denied or stale. users.map_visible = FALSE alone is enough to drop the viewer out of every
+  // other user's /api/discovery/map query.
+  const hideFromMap = useCallback(() => {
+    nativeHaptics.impact();
+    updateProfileMutation.mutate({ mapVisible: false }, {
+      onSuccess: () => setCheckedIn(false),
+    });
+  }, [updateProfileMutation]);
 
   // Self location marker.
   useEffect(() => {
@@ -439,7 +495,7 @@ export const SocialMapScreen: React.FC = () => {
 
   const handleRecenter = () => {
     nativeHaptics.impact();
-    acquireLocation(true);
+    acquireLocalLocation(true).catch(() => {});
   };
 
   const handleCitySearch = async (e: React.FormEvent) => {
@@ -513,9 +569,9 @@ export const SocialMapScreen: React.FC = () => {
         )}
         {locationStatus === 'denied' && (
           <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
-            <span>Yakındaki kişileri görmek için konum izni gerekiyor.</span>
+            <span>Konum izni reddedildi. Haritayı gezinmeye devam edebilirsin.</span>
             <button
-              onClick={() => acquireLocation(true)}
+              onClick={() => acquireLocalLocation(true).catch(() => {})}
               className="shrink-0 text-pink-500 font-bold"
             >
               Tekrar Dene
@@ -525,12 +581,12 @@ export const SocialMapScreen: React.FC = () => {
         {locationStatus === 'error' && (
           <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
             <span>Konum alınamadı.</span>
-            <button onClick={() => acquireLocation(true)} className="shrink-0 text-pink-500 font-bold">
+            <button onClick={() => acquireLocalLocation(true).catch(() => {})} className="shrink-0 text-pink-500 font-bold">
               Tekrar Dene
             </button>
           </div>
         )}
-        {isFetching && bbox && locationStatus === 'granted' && (
+        {isFetching && bbox && (
           <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
             Yakındaki kişiler yükleniyor...
           </div>
@@ -542,8 +598,43 @@ export const SocialMapScreen: React.FC = () => {
         )}
       </div>
 
-      {/* Floating controls */}
-      <div className="absolute bottom-28 right-4 z-sticky flex flex-col gap-2">
+      {/* Map visibility consent — appearing on the map for others is always a separate, explicit,
+          reversible action from simply browsing it or recentering on your own device location. */}
+      {checkedIn === false && (
+        <div className="absolute bottom-28 inset-x-4 z-sticky pointer-events-auto">
+          <div className="max-w-md mx-auto px-4 py-3 rounded-2xl bg-surface-95 border border-app shadow-elevated backdrop-blur-md flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-brand-gradient flex items-center justify-center shrink-0">
+              <MapPin className="w-4.5 h-4.5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-caption font-bold text-app">Haritada görünmüyorsun</p>
+              <p className="text-caption text-app-muted leading-tight">İstersen yakındakilere görün — istediğin an kapatabilirsin.</p>
+            </div>
+            <button
+              onClick={checkInToMap}
+              disabled={checkingIn}
+              className="shrink-0 px-3.5 py-2 rounded-full bg-brand-gradient text-white text-caption font-extrabold shadow-soft active:scale-95 transition-transform disabled:opacity-60"
+            >
+              {checkingIn ? '...' : 'Görün'}
+            </button>
+          </div>
+        </div>
+      )}
+      {checkedIn === true && (
+        <div className="absolute bottom-28 left-4 z-sticky pointer-events-auto">
+          <button
+            onClick={hideFromMap}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-surface-95 border border-app shadow-elevated backdrop-blur-md text-caption font-bold text-app active:scale-95 transition-transform"
+          >
+            <span className="w-2 h-2 rounded-full bg-[#25D9D0]" />
+            Haritada görünüyorsun
+            <EyeOff className="w-3.5 h-3.5 text-app-muted" />
+          </button>
+        </div>
+      )}
+
+      {/* Floating controls — parked above the visibility banner/pill row so the two never collide */}
+      <div className="absolute bottom-44 right-4 z-sticky flex flex-col gap-2">
         <IconButton aria-label="Konumuma Dön" variant="surface" size="lg" onClick={handleRecenter}>
           {locationStatus === 'granted' ? (
             <Compass className="w-6 h-6 text-[#25D9D0]" />
@@ -610,7 +701,7 @@ export const SocialMapScreen: React.FC = () => {
                   </div>
                   <p className="text-caption text-app-muted mt-0.5">
                     {selectedUser.city || 'Yakınlarda'}
-                    {selectedUser.distance ? ` • ${selectedUser.distance}` : ''}
+                    {selectedUser.distance?.label ? ` • ${selectedUser.distance.label}` : ''}
                   </p>
 
                   {getRelationshipGoalLabels(selectedUserDetail?.relationshipGoals || selectedUserDetail?.relationshipGoal).length > 0 && (

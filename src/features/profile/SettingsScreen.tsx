@@ -6,10 +6,12 @@ import {
   Bell,
   Check,
   ChevronRight,
+  FileText,
   Languages,
   LifeBuoy,
   LogOut,
   Mail,
+  MapPin,
   Moon,
   Shield,
   ShieldCheck,
@@ -20,15 +22,17 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useThemeStore, type ThemeMode } from '../../theme/themeStore';
-import { useNotificationsPreferenceMutation } from '../../hooks/useQueries';
+import { useMeQuery, useNotificationsPreferenceMutation, useUpdateProfileMutation } from '../../hooks/useQueries';
 import { apiClient } from '../../services/api/apiClient';
 import { IconButton } from '../../components/ui/IconButton';
 import { AppLogo } from '../../components/ui/AppLogo';
 import { Modal } from '../../components/ui/Modal';
+import { LegalModal } from '../../components/LegalModal';
 import { SafetyReportModal } from '../../components/SafetyReportModal';
 import { SPRING } from '../../motion/tokens';
 import { toast } from '../../stores/useToastStore';
 import { CHAT_TRANSLATION_LANGUAGES, chatLanguageLabel } from '../../lib/chatTranslationLanguages';
+import { PRIVACY_POLICY, TERMS_OF_SERVICE, type LegalDocument } from '../../lib/legalContent';
 import {
   APP_LOCALE_LABELS,
   SUPPORTED_APP_LOCALES,
@@ -112,10 +116,28 @@ export const SettingsScreen: React.FC = () => {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isChatLanguageOpen, setIsChatLanguageOpen] = useState(false);
   const [isAppLanguageOpen, setIsAppLanguageOpen] = useState(false);
+  const [legalDoc, setLegalDoc] = useState<LegalDocument | null>(null);
   const notificationsMutation = useNotificationsPreferenceMutation();
+  const { data: me } = useMeQuery();
+  const updateProfileMutation = useUpdateProfileMutation();
   const locale = useAppLocaleStore((state) => state.locale);
   const setLocale = useAppLocaleStore((state) => state.setLocale);
   const { t } = useAppTranslation();
+
+  const mapVisible = me?.mapVisible === true;
+
+  const handleToggleMapVisible = (next: boolean) => {
+    if (!next) {
+      updateProfileMutation.mutate({ mapVisible: false }, {
+        onError: () => toast.error('Harita görünürlüğü güncellenemedi.'),
+      });
+      return;
+    }
+    // Turning visibility back on always requires a fresh manual check-in with a real location
+    // fix from the map screen itself (see SocialMapScreen's checkInToMap) -- never a silent
+    // settings toggle reusing old coordinates. This switch can only ever turn visibility off.
+    navigate('/map');
+  };
 
   const pushEnabled = user?.pushNotificationsEnabled !== false;
   const verificationComplete = user?.verified === true || user?.verificationState === 'APPROVED';
@@ -251,7 +273,25 @@ export const SettingsScreen: React.FC = () => {
               label="Engellenen Kullanıcılar"
               onClick={() => navigate('/settings/blocked')}
             />
-            <ListRow icon={<Shield className="w-5 h-5" />} label="Gizlilik Politikası" value="appryvo.online" />
+            <ToggleRow
+              icon={<MapPin className="w-5 h-5" />}
+              label="Haritada Görün"
+              checked={mapVisible}
+              disabled={updateProfileMutation.isPending}
+              onChange={handleToggleMapVisible}
+            />
+            <ListRow
+              icon={<Shield className="w-5 h-5" />}
+              label="Gizlilik Politikası"
+              value="appryvo.online"
+              onClick={() => setLegalDoc(PRIVACY_POLICY)}
+            />
+            <ListRow
+              icon={<FileText className="w-5 h-5" />}
+              label="Kullanım Koşulları"
+              value="appryvo.online"
+              onClick={() => setLegalDoc(TERMS_OF_SERVICE)}
+            />
           </div>
         </div>
 
@@ -278,6 +318,8 @@ export const SettingsScreen: React.FC = () => {
         type="delete_account"
         onSuccess={() => navigate('/auth')}
       />
+
+      <LegalModal document={legalDoc} onClose={() => setLegalDoc(null)} />
 
       <Modal isOpen={isAppLanguageOpen} onClose={() => setIsAppLanguageOpen(false)}>
         <div className="space-y-4">

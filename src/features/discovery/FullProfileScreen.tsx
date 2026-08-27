@@ -11,6 +11,7 @@ import {
   Ruler,
   Share2,
   Star,
+  UserMinus,
   Volume2,
   Wine,
   X,
@@ -58,6 +59,7 @@ export const FullProfileScreen: React.FC = () => {
 
   const [photoIndex, setPhotoIndex] = useState(0);
   const [isReportOpen, setIsReportOpen] = useState(false);
+  const [isBlockOpen, setIsBlockOpen] = useState(false);
   const [matchResult, setMatchResult] = useState<{ isOpen: boolean; matchUser?: any; matchId?: string }>({
     isOpen: false,
   });
@@ -382,6 +384,20 @@ export const FullProfileScreen: React.FC = () => {
             </span>
           </span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setIsBlockOpen(true)}
+          className="w-full flex items-center gap-3 p-4 rounded-2xl border border-red-500/20 bg-red-500/5 text-start active:scale-[0.99] transition-transform"
+        >
+          <UserMinus className="w-5 h-5 text-[#FF4B55] shrink-0" />
+          <span className="min-w-0">
+            <span className="block text-body font-bold text-[#FF4B55]">Engelle</span>
+            <span className="block text-micro text-app-muted normal-case break-words">
+              Bu kullanıcı seni bir daha göremez, mesajlaşamaz ve haritada karşılaşmazsınız.
+            </span>
+          </span>
+        </button>
       </div>
 
       {/* Actions */}
@@ -416,6 +432,15 @@ export const FullProfileScreen: React.FC = () => {
         onClose={() => setIsReportOpen(false)}
         targetUserId={userId}
         targetUserName={user.name}
+      />
+
+      <SafetyReportModal
+        isOpen={isBlockOpen}
+        onClose={() => setIsBlockOpen(false)}
+        type="block"
+        targetUserId={userId}
+        targetUserName={user.name}
+        onSuccess={() => navigate(-1)}
       />
 
       <MatchModal

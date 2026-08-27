@@ -30,7 +30,7 @@ export const CountryFlagBadge: React.FC<CountryFlagBadgeProps> = ({ countryCode,
   return (
     <span
       className={cn(
-        'inline-grid shrink-0 place-items-center overflow-hidden rounded-full border-surface bg-surface shadow-sm isolate',
+        'relative inline-grid shrink-0 place-items-center overflow-hidden rounded-full border-surface bg-surface shadow-sm isolate',
         SIZE_CLASSES[size],
         className
       )}

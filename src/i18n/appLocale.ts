@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from 'react';
 import { create } from 'zustand';
 
 export const APP_LOCALE_OPTIONS = [
@@ -1894,10 +1895,12 @@ export const useAppLocaleStore = create<AppLocaleState>((set) => ({
 
 export function useAppTranslation() {
   const locale = useAppLocaleStore((state) => state.locale);
-  return {
-    locale,
-    t: (key: AppMessageKey) => messages[locale][key] || tr[key],
-  };
+  // `t` and the returned object must stay referentially stable across renders when the locale
+  // hasn't changed -- callers routinely put `t` in useCallback/useMemo/useEffect dependency
+  // arrays (e.g. DiscoverScreen's location-gate flow), and a fresh closure every render there
+  // turns a one-shot effect into a runaway re-render loop (repeated permission/GPS/token calls).
+  const t = useCallback((key: AppMessageKey) => messages[locale][key] || tr[key], [locale]);
+  return useMemo(() => ({ locale, t }), [locale, t]);
 }
 
 /** Non-hook equivalent of `useAppTranslation().t` for class components (e.g. ErrorBoundary,

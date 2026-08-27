@@ -106,9 +106,12 @@ export function avatarMarkerIcon(user: MapUser, selected: boolean, frames: Profi
   const avatarSize = size - 8;
   const photo = firstPhoto(user);
   const initial = escapeHtml((user.name || '?').charAt(0).toUpperCase());
+  // Initials always render underneath -- a failed decode (e.g. a malformed WEBP) hides the <img>
+  // once via onerror (no retry loop) and reveals this fallback instead of a broken-image glyph.
+  const initialsTag = `<div class="absolute inset-0 flex items-center justify-center text-white font-bold bg-[#3a3a46]">${initial}</div>`;
   const photoTag = photo
-    ? `<img src="${escapeHtml(normalizeMediaUrl(photo) || '')}" alt="" class="w-full h-full object-cover" loading="lazy" decoding="async" draggable="false" />`
-    : `<div class="w-full h-full flex items-center justify-center text-white font-bold bg-[#3a3a46]">${initial}</div>`;
+    ? `<img src="${escapeHtml(normalizeMediaUrl(photo) || '')}" alt="" class="absolute inset-0 w-full h-full object-cover" loading="lazy" decoding="async" draggable="false" onerror="this.style.display='none'" />`
+    : '';
   const frame = frames.find((item) => item.id === user.activeFrameId);
   const frameAsset = user.activeFrameId && user.activeFrameId !== 'standard' ? getProfileFramePreviewAsset(frame) : null;
   const placement = getProfileFramePlacement(user.activeFrameId);
@@ -132,6 +135,7 @@ export function avatarMarkerIcon(user: MapUser, selected: boolean, frames: Profi
           <div class="absolute inset-0 z-10 rounded-full overflow-hidden shadow-[0_6px_18px_rgba(0,0,0,0.4)]" style="border:2.5px solid ${
       selected ? '#FF4D8D' : 'rgba(255,255,255,0.92)'
     }">
+            ${initialsTag}
             ${photoTag}
           </div>
           ${frameTag}
@@ -150,10 +154,13 @@ export function buildSocialClusterHtml(users: MapUser[], count: number): string 
   const faces = users.slice(0, 3).map((user, index) => {
     const photo = firstPhoto(user);
     const initial = escapeHtml((user.name || '?').charAt(0).toUpperCase());
-    const content = photo
-      ? `<img src="${escapeHtml(normalizeMediaUrl(photo) || '')}" alt="" loading="lazy" decoding="async" draggable="false" style="width:100%;height:100%;object-fit:cover" />`
-      : `<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;background:#454554;color:white;font-size:11px;font-weight:800">${initial}</span>`;
-    return `<span style="position:absolute;left:${index * 18}px;top:4px;width:30px;height:30px;overflow:hidden;border-radius:9999px;border:2px solid white;background:#454554;box-shadow:0 3px 9px rgba(0,0,0,.28);z-index:${3 - index}">${content}</span>`;
+    // Initials render underneath; a failed decode (e.g. malformed WEBP) hides the <img> once via
+    // onerror (no retry loop), revealing the initials fallback instead of a broken-image glyph.
+    const initialsTag = `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#454554;color:white;font-size:11px;font-weight:800">${initial}</span>`;
+    const photoTag = photo
+      ? `<img src="${escapeHtml(normalizeMediaUrl(photo) || '')}" alt="" loading="lazy" decoding="async" draggable="false" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'" />`
+      : '';
+    return `<span style="position:absolute;left:${index * 18}px;top:4px;width:30px;height:30px;overflow:hidden;border-radius:9999px;border:2px solid white;background:#454554;box-shadow:0 3px 9px rgba(0,0,0,.28);z-index:${3 - index}">${initialsTag}${photoTag}</span>`;
   }).join('');
 
   return `<div aria-label="${count} kişi bu bölgede" style="position:relative;width:68px;height:44px">

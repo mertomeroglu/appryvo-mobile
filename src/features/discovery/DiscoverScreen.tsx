@@ -86,10 +86,20 @@ export const DiscoverScreen: React.FC = () => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSuperLikeQuotaOpen, setIsSuperLikeQuotaOpen] = useState(false);
   const [isRewardedAdOpen, setIsRewardedAdOpen] = useState(false);
-  const [locationGate, setLocationGate] = useState<LocationGateState>('checking');
-  const [locationPromptDismissed, setLocationPromptDismissed] = useState(() => (
-    typeof localStorage !== 'undefined' && localStorage.getItem(DISCOVER_LOCATION_KEY) === 'global'
+  // Never call Geolocation.checkPermissions() just to decide the initial gate -- that's still a
+  // native location API call the user hasn't asked for. Read only the locally-remembered outcome
+  // of a *previous* explicit grant; anything else (never asked, previously chose global) starts
+  // at 'prompt' with zero native calls, and Discover renders the normal (global) feed underneath
+  // regardless of this gate -- the gate only controls the optional location opt-in banner.
+  const [locationGate, setLocationGate] = useState<LocationGateState>(() => (
+    typeof localStorage !== 'undefined' && localStorage.getItem(DISCOVER_LOCATION_KEY) === 'located'
+      ? 'located'
+      : 'prompt'
   ));
+  // Always start collapsed to the small dismissible pill, never the full-screen choice modal --
+  // opening Discover must never surface anything that looks like an automatic location prompt.
+  // Tapping the pill is the explicit user action that reveals the Grant/Global choice.
+  const [locationPromptDismissed, setLocationPromptDismissed] = useState(true);
   const [matchResult, setMatchResult] = useState<{ isOpen: boolean; matchUser?: any; matchId?: string }>({
     isOpen: false,
   });
@@ -245,8 +255,16 @@ export const DiscoverScreen: React.FC = () => {
     void resolveDiscoverLocation(true, true);
   }, [resolveDiscoverLocation]);
 
+  // Always call the latest resolveDiscoverLocation without making the resume-listener effect
+  // below depend on its identity -- resolveDiscoverLocation is recreated whenever any of its own
+  // closed-over values change (e.g. refetch, t), and depending on it directly would re-run a
+  // "register once" effect on every one of those renders instead of once per screen visit.
+  // Deliberately NOT invoked on mount: opening Discover must never touch Geolocation on its own
+  // (App Store privacy requirement -- map/discover location is opt-in only). The deck above
+  // already renders the ordinary (global) feed with no location involved.
+  const resolveDiscoverLocationRef = useRef(resolveDiscoverLocation);
   useEffect(() => {
-    void resolveDiscoverLocation(false);
+    resolveDiscoverLocationRef.current = resolveDiscoverLocation;
   }, [resolveDiscoverLocation]);
 
   const openLocationSettings = async () => {
@@ -267,10 +285,13 @@ export const DiscoverScreen: React.FC = () => {
     let disposed = false;
     let removeListener: (() => void) | undefined;
     nativeApp.addStateChangeListener((state) => {
-      if (state.isActive) {
-        const announceSuccess = retryLocationOnResumeRef.current;
+      // Resuming the app must NEVER touch GPS on its own. The single exception is a pending
+      // "we just sent the user to Settings for a location feature they explicitly requested"
+      // retry (see openLocationSettings/openPermissionSettings) -- that flag is consumed here
+      // and cleared immediately so it can only ever fire this one retry, not on every resume.
+      if (state.isActive && retryLocationOnResumeRef.current) {
         retryLocationOnResumeRef.current = false;
-        void resolveDiscoverLocation(false, announceSuccess, false);
+        void resolveDiscoverLocationRef.current(false, true, false);
       }
     }).then((handle) => {
       if (disposed) handle.remove();
@@ -280,7 +301,7 @@ export const DiscoverScreen: React.FC = () => {
       disposed = true;
       removeListener?.();
     };
-  }, [resolveDiscoverLocation]);
+  }, []);
 
   // Append newly-fetched pages to the local deck in the order the server returned them.
   // Never re-sort/filter locally — the server owns ranking.

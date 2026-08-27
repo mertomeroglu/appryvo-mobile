@@ -51,7 +51,7 @@ describe('P0 Discover recovery contract', () => {
     expect(screen).toContain("setLocationGate('syncFailed')");
     expect(screen).toContain("t('discoverServicesDisabledBanner')");
     expect(messages.tr.discoverServicesDisabledBanner).toBe('Cihaz konum servisini aç');
-    expect(screen).toContain('void resolveDiscoverLocation(false, announceSuccess, false)');
+    expect(screen).toContain('void resolveDiscoverLocationRef.current(false, true, false)');
     expect(screen).not.toContain('Yakındakileri görmek için konumu aç');
   });
 

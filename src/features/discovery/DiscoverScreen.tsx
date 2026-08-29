@@ -73,6 +73,17 @@ function isLocationServicesDisabled(error: unknown): boolean {
   return text.includes('0007') || text.includes('location services') || text.includes('location disabled');
 }
 
+// Module-level (not per-mount) so a remount doesn't forget which profiles were already swiped
+// this session. /discover and /discover/:userId are sibling routes (see routes/index.tsx), so
+// opening a full profile or the chat from a fresh match and navigating back unmounts and
+// remounts DiscoverScreen -- a per-mount useRef reset to empty here, while
+// useDiscoveryFeedQuery's first page keeps returning its cached (staleTime 60s) response under
+// the same query key (feedSession always restarts at 0). Without a session-lived dedup set, an
+// already-swiped -- possibly just matched -- profile could silently reappear in the deck.
+// handleReset (explicit rescan) and a location change both intentionally clear this for a truly
+// fresh session.
+const consumedProfileIds = new Set<string>();
+
 export const DiscoverScreen: React.FC = () => {
   const { t } = useAppTranslation();
   const [deck, setDeck] = useState<SwipeCardProfile[]>([]);
@@ -121,7 +132,6 @@ export const DiscoverScreen: React.FC = () => {
   const actionLockRef = useRef(false);
   const locationRequestInFlightRef = useRef(false);
   const retryLocationOnResumeRef = useRef(false);
-  const consumedProfileIdsRef = useRef(new Set<string>());
   const unreadNotificationCount = notificationsData?.unreadCount || 0;
   const currentUser = useAuthStore((state) => state.user);
   const viewerId = String(currentUser?.id || currentUser?.uid || '');
@@ -234,7 +244,7 @@ export const DiscoverScreen: React.FC = () => {
       setLocationPromptDismissed(false);
       setLocationGate('located');
       if (refreshFeed) {
-        consumedProfileIdsRef.current.clear();
+        consumedProfileIds.clear();
         setDeck([]);
         setCurrentIndex(0);
         setCursor(null);
@@ -310,7 +320,7 @@ export const DiscoverScreen: React.FC = () => {
     setDeck((prev) => {
       const seen = new Set(prev.map((p) => p.id));
       const additions = feedPage.profiles.filter(
-        (p: SwipeCardProfile) => !seen.has(p.id) && !consumedProfileIdsRef.current.has(p.id)
+        (p: SwipeCardProfile) => !seen.has(p.id) && !consumedProfileIds.has(p.id)
       );
       return [...prev, ...additions];
     });
@@ -358,7 +368,7 @@ export const DiscoverScreen: React.FC = () => {
     nativeHaptics.impact();
     // Commit immediately, then keep this same keyed card in renderedCards as a non-interactive
     // exit layer. The next profile becomes top/interactive without a stale zero-position remount.
-    consumedProfileIdsRef.current.add(profile.id);
+    consumedProfileIds.add(profile.id);
     setExitingCards((current) => (
       current.some((item) => item.id === profile.id) ? current : [...current, profile].slice(-1)
     ));
@@ -416,7 +426,7 @@ export const DiscoverScreen: React.FC = () => {
     if (!lastSwiped || currentIndex <= 0) return;
     try {
       await apiClient.post('/api/discovery/rewind', { targetUserId: lastSwiped.profile.id, direction: lastSwiped.direction });
-      consumedProfileIdsRef.current.delete(lastSwiped.profile.id);
+      consumedProfileIds.delete(lastSwiped.profile.id);
       setExitingCards([]);
       setCurrentIndex((value) => Math.max(0, value - 1));
       setLastSwiped(null);
@@ -452,7 +462,7 @@ export const DiscoverScreen: React.FC = () => {
   };
 
   const handleReset = () => {
-    consumedProfileIdsRef.current.clear();
+    consumedProfileIds.clear();
     setDeck([]);
     setCurrentIndex(0);
     setCursor(null);
@@ -546,9 +556,14 @@ export const DiscoverScreen: React.FC = () => {
       )}
 
       {/* Main Swipe / Empty Body */}
-      <div className="relative flex-1 w-full max-w-md mx-auto my-auto flex items-center justify-center px-3 py-2">
+      {/* min-h-0 is required here: without it, a flex item's automatic minimum size is its
+          content's size, so the h-full card box below (or the old fixed h-[65dvh]) could force
+          this flex-1 item taller than the space actually left after the header and action row,
+          silently pushing the action row down into/under the floating bottom nav on shorter
+          viewports instead of the card simply sizing to whatever room truly remains. */}
+      <div className="relative flex-1 min-h-0 w-full max-w-md mx-auto my-auto flex items-center justify-center px-3 py-2">
         {isInitialLoading ? (
-          <div className="relative w-full h-[65dvh] max-h-[600px]">
+          <div className="relative w-full h-full max-h-[600px]">
             <Skeleton variant="media" className="absolute inset-0 aspect-auto rounded-[30px]" />
           </div>
         ) : isError && !currentProfile ? (
@@ -579,7 +594,7 @@ export const DiscoverScreen: React.FC = () => {
             onAction={hasActiveFilters ? () => setIsFilterOpen(true) : handleReset}
           />
         ) : (
-          <div className="relative w-full h-[65dvh] max-h-[600px]">
+          <div className="relative w-full h-full max-h-[600px]">
             {renderedCards.map((profile) => {
               const isExiting = exitingCards.some((item) => item.id === profile.id);
               return (
@@ -602,8 +617,16 @@ export const DiscoverScreen: React.FC = () => {
       </div>
 
       {/* Action Control Floating Buttons */}
+      {/* The floating bottom nav is a fixed-position overlay reserving --nav-footprint (see
+          globals.css -- its own rendered height + bottom margin) above
+          env(safe-area-inset-bottom), and paints above this row (z-navigation > z-sticky). A bare
+          fixed mb-20 cleared that on devices with little/no safe-area-inset-bottom but let the
+          nav visually sit on top of these buttons (and their hit-targets) on devices with a
+          taller inset (e.g. the home-indicator area on notched phones). Add an explicit 24px
+          buffer on top of the nav's own footprint so rounding/OS differences in the reported
+          safe-area inset can't fully close the gap. */}
       {currentProfile && (
-        <div className="flex items-center justify-around max-w-sm mx-auto w-full py-2 mb-20 z-sticky">
+        <div className="flex items-center justify-around max-w-sm mx-auto w-full py-2 mb-[calc(var(--safe-bottom)+var(--nav-footprint)+24px)] z-sticky">
           <button onClick={handleRewind} disabled={!lastSwiped} aria-label={t('discoverRewindAriaLabel')} className="w-11 h-11 rounded-full bg-surface border border-app text-amber-500 flex items-center justify-center shadow-elevated disabled:opacity-35 active:scale-90 transition-transform"><RotateCcw className="w-5 h-5" /></button>
           <button
             onClick={() => handleAction('left')}

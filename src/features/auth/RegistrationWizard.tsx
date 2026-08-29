@@ -26,6 +26,9 @@ import { useAppTranslation } from '../../i18n/appLocale';
 const MAX_PHOTOS = 6;
 const MIN_PHOTOS = 2;
 const MIN_REGISTRATION_AGE = 18;
+// Mirrors auth_controller.js's/user_controller.js's MIN_USER_AGE/MAX_USER_AGE server-side bound
+// check exactly -- keep both in sync.
+const MAX_REGISTRATION_AGE = 99;
 // Mirrors auth_controller.js's passwordPolicyError() exactly -- client and server must agree
 // or the user gets blocked here only to hit the same rule again (or a laxer one) at submit.
 const PASSWORD_MIN_LENGTH = 8;
@@ -47,6 +50,18 @@ function computeAge(birthDateStr: string): number | null {
   if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
   return age;
 }
+
+// Native <input type="date"> min/max are a UX affordance only (some browsers/WebViews ignore
+// them entirely) -- computeAge()'s check above is what's actually authoritative client-side, and
+// the server re-validates regardless. Computed once at module load; a birthday picker doesn't
+// need to react to the clock ticking over midnight mid-session.
+function isoDateYearsAgo(years: number): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - years);
+  return d.toISOString().slice(0, 10);
+}
+const minBirthDate = isoDateYearsAgo(MAX_REGISTRATION_AGE);
+const maxBirthDate = isoDateYearsAgo(MIN_REGISTRATION_AGE);
 // Canonical set + order of the five selectable relationship goals (see profileLabels.ts) --
 // labels are resolved per the app's current locale so this list is never Turkish-only.
 const RELATIONSHIP_GOAL_KEYS = ['LONG_TERM', 'SHORT_TERM', 'FRIENDSHIP', 'OPEN_TO_EXPLORING', 'NOT_SURE'] as const;
@@ -134,6 +149,12 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   const [email, setEmail] = useState('');
   const [emailTouched, setEmailTouched] = useState(false);
   const [emailFieldError, setEmailFieldError] = useState('');
+  // Debounced server-side availability check, mirroring the username step's own pattern below --
+  // reports a duplicate email at this step instead of only after the user has completed every
+  // remaining step and hit final submit. 'checking'/'idle' both count as "not yet confirmed
+  // available" for canSubmitBasic, so a race between typing and the debounce can't let a
+  // not-yet-verified address through.
+  const [emailStatus, setEmailStatus] = useState<UsernameStatus>('idle');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [usernameEdited, setUsernameEdited] = useState(false);
@@ -194,6 +215,42 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
     setStepIndex((s) => Math.max(0, s - 1));
   };
 
+  // --- Email: debounced server-side availability check (format-valid, not a disallowed test
+  // domain, not already registered) -- see GET /api/auth/email/check, which reuses the exact
+  // same normalization/uniqueness query as POST /register's own final check. ---
+  useEffect(() => {
+    const trimmed = email.trim();
+    if (!EMAIL_FORMAT_REGEX.test(trimmed)) {
+      setEmailStatus('idle');
+      return;
+    }
+    setEmailStatus('checking');
+    const handle = setTimeout(async () => {
+      try {
+        const res = await apiClient.get(`/api/auth/email/check?email=${encodeURIComponent(trimmed)}`, {
+          skipAuth: true,
+        });
+        const data = res?.data;
+        if (!data?.valid) {
+          setEmailStatus('invalid');
+          setEmailFieldError(data?.message || t('invalidEmailMessage'));
+        } else if (data.available) {
+          setEmailStatus('available');
+          setEmailFieldError('');
+        } else {
+          setEmailStatus('taken');
+          setEmailFieldError(data?.message || t('emailAlreadyInUseError'));
+        }
+      } catch {
+        // Network/service hiccup -- don't block the user on a check we couldn't complete; the
+        // authoritative final check at submit still catches a real duplicate either way.
+        setEmailStatus('idle');
+      }
+    }, 450);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
+
   // --- Username: auto-suggest from email, debounced availability check on manual edits ---
   useEffect(() => {
     if (usernameEdited || !email.includes('@')) return;
@@ -232,7 +289,10 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         const data = res?.data;
         if (!data?.valid) {
           setUsernameStatus('invalid');
-          setUsernameHint(data?.message || t('usernameInvalidMessage'));
+          // Never show data?.message directly -- the backend's validation reason is untranslated
+          // prose (see the emailAlreadyInUseError / usernameTakenMessage fix above), so always use
+          // the localized generic message here regardless of what the server sent.
+          setUsernameHint(t('usernameInvalidMessage'));
         } else if (data.available) {
           setUsernameStatus('available');
           setUsernameHint(t('usernameAvailableLabel'));
@@ -263,9 +323,11 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   const hasPasswordDigit = /[0-9]/.test(password);
   const isPasswordValid = hasMinPasswordLength && hasPasswordLetter && hasPasswordDigit;
 
-  const canSubmitBasic = name.trim().length > 0 && isEmailFormatValid && isPasswordValid;
+  const canSubmitBasic = name.trim().length > 0 && isEmailFormatValid && isPasswordValid && emailStatus === 'available';
 
-  const canSubmitUsername = username.length >= 3 && usernameStatus === 'available';
+  // Mirrors username_utils.js's USERNAME_MIN exactly -- client and server must agree or the
+  // user gets blocked here only to hit the same rule (or a laxer one) again at submit.
+  const canSubmitUsername = username.length >= 5 && usernameStatus === 'available';
   const uploadedPhotoCount = photos.filter((photo) => photo.uploadStatus === 'uploaded').length;
 
   // --- Interests ---
@@ -412,6 +474,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         relationshipGoal,
         interests,
         photoUploadTokens,
+        targetLang: locale,
       });
       await fetchMe();
       onComplete();
@@ -421,17 +484,20 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
       if (code === 'NETWORK_ERROR' || code === 'TIMEOUT') {
         setErrorMsg(t('networkConnectionFailedMessage'));
       } else if (/e-posta adresi zaten kullanımda/i.test(message)) {
-        setEmailFieldError(message);
+        // The backend replies with a Turkish prose message, not a stable error code -- this regex
+        // only classifies *which* case it is; the text shown to the user always comes from t(),
+        // never the raw backend string, so a non-Turkish app locale doesn't see Turkish here.
+        setEmailFieldError(t('emailAlreadyInUseError'));
         setEmailTouched(true);
         setDirection('back');
         setStepIndex(BASIC_STEP_INDEX);
       } else if (/kullanıcı adı kullanılıyor/i.test(message)) {
         setUsernameStatus('taken');
-        setUsernameHint(message);
+        setUsernameHint(t('usernameTakenMessage'));
         setDirection('back');
         setStepIndex(USERNAME_STEP_INDEX);
       } else if (/18 yaşında/i.test(message)) {
-        setBirthDateError(message);
+        setBirthDateError(t('minAgeRequirementMessage'));
         setDirection('back');
         setStepIndex(BIRTHDATE_STEP_INDEX);
       } else {
@@ -531,8 +597,20 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                           }
                         }}
                         aria-invalid={showEmailFormatError || !!emailFieldError}
-                        className={`${inputClass} ${showEmailFormatError || emailFieldError ? 'border-red-500' : ''}`}
+                        className={`${inputClass} pe-10 ${
+                          showEmailFormatError || emailFieldError
+                            ? 'border-red-500'
+                            : emailStatus === 'available'
+                              ? 'border-green-500'
+                              : ''
+                        }`}
                       />
+                      {emailStatus === 'checking' && (
+                        <Loader2 className="absolute end-4 top-4 w-5 h-5 text-app-muted animate-spin" />
+                      )}
+                      {emailStatus === 'available' && (
+                        <Check className="absolute end-4 top-4 w-5 h-5 text-green-500" />
+                      )}
                     </div>
                     {(showEmailFormatError || emailFieldError) && (
                       <p role="alert" className="text-micro mt-1.5 ms-1 normal-case font-medium text-red-500">
@@ -669,10 +747,12 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                     e.preventDefault();
                     if (!birthDate) return;
                     const age = computeAge(birthDate);
-                    if (age === null || age < MIN_REGISTRATION_AGE) {
+                    if (age === null || age < MIN_REGISTRATION_AGE || age > MAX_REGISTRATION_AGE) {
                       // Same message the server would otherwise return after a full submit --
                       // shown immediately, before the user gets to the end of the wizard.
-                      const message = t('minAgeRequirementMessage');
+                      const message = age !== null && age > MAX_REGISTRATION_AGE
+                        ? t('maxAgeRequirementMessage')
+                        : t('minAgeRequirementMessage');
                       setBirthDateError(message);
                       toast.error(message);
                       return;
@@ -690,6 +770,8 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                       required
                       autoComplete="bday"
                       enterKeyHint="next"
+                      min={minBirthDate}
+                      max={maxBirthDate}
                       value={birthDate}
                       onChange={(e) => {
                         setBirthDate(e.target.value);
@@ -775,8 +857,15 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
 
             {/* INTERESTS */}
             {step.id === 'interests' && (
-              <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
-                <div>
+              // Unlike every other step, this one has enough content (8 categories of chips) to
+              // routinely exceed the viewport -- with a plain document-flow layout the Continue
+              // button sat at the very end of that content, so reaching the minimum selection
+              // count never made it reachable without an extra scroll. Header and button are now
+              // pinned outside the scrollable region (flex-1 min-h-0, the same idiom the wrapper
+              // above uses) so the button is always on screen and enables the instant the
+              // minimum is met, with no scrolling required to tap it.
+              <div className="flex-1 min-h-0 flex flex-col max-w-sm mx-auto w-full">
+                <div className="shrink-0">
                   <h2 className="text-title text-app">{t('interestsStepHeading')}</h2>
                   <p className="text-caption text-app-muted mt-1 normal-case">
                     {t('interestsCountTemplate')
@@ -785,7 +874,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                       .replace('{count}', String(interests.length))}
                   </p>
                 </div>
-                <div className="space-y-5">
+                <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar space-y-5 my-5">
                   {INTEREST_CATEGORIES.map((cat) => (
                     <div key={cat.id}>
                       <h3 className="text-micro font-bold text-app-muted uppercase tracking-wider mb-2">{cat.title}</h3>
@@ -813,6 +902,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                   rightIcon={<ChevronRight className="w-5 h-5" />}
                   disabled={interests.length < INTEREST_MIN}
                   onClick={goNext}
+                  className="shrink-0"
                 >
                   {t('continueButton')}
                 </AppButton>

@@ -133,7 +133,16 @@ export function useDiscoveryMapQuery(bbox?: MapBbox | null, limit = 80) {
       return apiClient.get(`/api/discovery/map?${params.toString()}`).then((res) => res?.data);
     },
     enabled: !!bbox,
-    staleTime: 30 * 1000,
+    // A user who taps "Gizlen" (hide) is removed from GET /api/discovery/map's result
+    // immediately server-side, but this query previously had no refetch trigger at all beyond
+    // the bbox changing (panning/zooming) -- the app disables the QueryClient's global
+    // refetchOnWindowFocus (main.tsx), and there was no refetchInterval either. A viewer who
+    // simply holds the map still would keep seeing a since-hidden user's marker indefinitely,
+    // not just briefly stale. Polling every 15s while the map is actually mounted (this query is
+    // only `enabled` once the screen has a bbox, and React Query stops polling once it's
+    // unmounted/inactive) bounds that exposure window instead of leaving it open-ended.
+    staleTime: 15 * 1000,
+    refetchInterval: 15 * 1000,
     placeholderData: keepPreviousData,
   });
 }
@@ -547,6 +556,11 @@ export function useLikeMutation() {
     // users from future fetches, so eager refetch isn't needed to stay correct.
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
+      // Liking someone who is already in "Seni Beğenenler" always creates a mutual match
+      // (they already liked us -- see the reciprocal check in POST /discovery/like), so they
+      // must drop out of that list immediately rather than waiting for its 30s staleTime or a
+      // socket round-trip to invalidate it.
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.inboundLikes });
       if (variables.isSuperLike) {
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.entitlements });
       }
@@ -577,7 +591,15 @@ export function useSupportCategoriesQuery() {
 
 export function useCreateSupportTicketMutation() {
   return useMutation({
-    mutationFn: (payload: { category: string; subject: string; message: string }) =>
+    // name/email are included directly rather than relying on the backend's own best-effort
+    // Bearer-token decode (support_controller.js) to resolve them server-side -- that decode is a
+    // raw, non-refreshing jwt.verify with no fallback, so a token that happens to have expired by
+    // the time the user finishes composing and submits (a realistic delay for a support message)
+    // silently degraded the request to "anonymous," and since this payload never carried name/
+    // email itself, the request then failed its required-field check. The client already knows
+    // its own authenticated user's name/email, so sending them directly removes this submission
+    // from depending on token freshness at all.
+    mutationFn: (payload: { category: string; subject: string; message: string; name?: string; email?: string }) =>
       apiClient.post('/api/support/ticket', payload),
   });
 }
@@ -608,7 +630,12 @@ export function useMarkViewOnceMutation(matchId: string) {
 export function useAddCommentMutation(confessionId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (text: string) => apiClient.post(`/api/social/confessions/${confessionId}/comments`, { text }),
+    // parentId threads this as a reply -- see social_controller.js's POST .../comments, which
+    // already accepted { text, parentId } and notified the specific parent comment's author, but
+    // had no mobile UI ever producing a parentId (every comment landed top-level regardless of
+    // user intent).
+    mutationFn: ({ text, parentId }: { text: string; parentId?: string }) =>
+      apiClient.post(`/api/social/confessions/${confessionId}/comments`, { text, parentId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['social', 'confessions', confessionId, 'comments'] });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.confessions });

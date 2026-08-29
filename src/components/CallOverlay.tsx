@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useCallStore } from '../stores/useCallStore';
-import { socketService } from '../services/socket/socketService';
 import { webrtcService } from '../services/call/webrtcService';
 import { callService } from '../services/call/callService';
 import { nativeCallAudio } from '../native/callAudio';
@@ -18,8 +17,11 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { nativeHaptics } from '../native/haptics';
+import { nativeAppSettings } from '../native/nativeSettings';
 import { Avatar } from './ui/Avatar';
 import { IconButton } from './ui/IconButton';
+import { AppButton } from './ui/AppButton';
+import { useAppTranslation } from '../i18n/appLocale';
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -28,7 +30,8 @@ function formatDuration(seconds: number): string {
 }
 
 export const CallOverlay: React.FC = () => {
-  const { activeCall, setCallStatus } = useCallStore();
+  const { t } = useAppTranslation();
+  const { activeCall } = useCallStore();
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
@@ -77,54 +80,10 @@ export const CallOverlay: React.FC = () => {
     return () => window.clearInterval(interval);
   }, [activeCall?.status, activeCall?.startedAt]);
 
-  useEffect(() => {
-    const unsubAnswered = socketService.on('call:answered', async (data) => {
-      await webrtcService.setRemoteAnswer(data.answer);
-      setCallStatus('ACTIVE');
-    });
-
-    const unsubIce = socketService.on('call:ice-candidate', (data) => {
-      webrtcService.addIceCandidate(data.candidate);
-    });
-
-    const unsubRenegotiateOffer = socketService.on('call:renegotiate-offer', (data) => {
-      void callService.handleIncomingRenegotiateOffer(data.offer);
-    });
-
-    const unsubRenegotiateAnswer = socketService.on('call:renegotiate-answer', (data) => {
-      void callService.handleIncomingRenegotiateAnswer(data.answer);
-    });
-
-    const unsubEnded = socketService.on('call:ended', () => {
-      webrtcService.hangup();
-      void nativeCallAudio.resetAudioMode();
-      useCallStore.getState().endCall();
-    });
-
-    const unsubBusy = socketService.on('call:busy', () => {
-      webrtcService.hangup();
-      void nativeCallAudio.resetAudioMode();
-      useCallStore.getState().endCall();
-    });
-
-    // The disconnected device cannot receive the server's call:ended event. Release its own
-    // camera/microphone immediately; the server notifies and cleans up the remote participant.
-    const unsubDisconnect = socketService.on('disconnect', () => {
-      webrtcService.hangup();
-      void nativeCallAudio.resetAudioMode();
-      useCallStore.getState().endCall();
-    });
-
-    return () => {
-      unsubAnswered();
-      unsubIce();
-      unsubRenegotiateOffer();
-      unsubRenegotiateAnswer();
-      unsubEnded();
-      unsubBusy();
-      unsubDisconnect();
-    };
-  }, [setCallStatus]);
+  // Call signaling responses (answered/ice-candidate/renegotiate/ended/busy) are handled in
+  // RealtimeSync.tsx, not here -- CallOverlay is lazy-loaded and only mounts once activeCall is
+  // already non-null, which is too late to reliably catch the peer's early signaling (see the
+  // comment there for the full reasoning). This component only owns local stream wiring and UI.
 
   // Video elements are always mounted (see JSX below) and only assigned a new srcObject when
   // the stream itself actually changes -- never conditionally created/destroyed as the call
@@ -216,22 +175,22 @@ export const CallOverlay: React.FC = () => {
 
   const failureMessage =
     activeCall.error === 'PERMISSION_DENIED'
-      ? 'Mikrofon/kamera izni verilmedi'
+      ? t('callPermissionDeniedError')
       : activeCall.error === 'DEVICE_UNAVAILABLE'
-        ? 'Mikrofon/kamera kullanılamıyor'
-        : 'Bağlantı kesildi';
+        ? t('callDeviceUnavailableError')
+        : t('callConnectionLostError');
 
   const statusLabel = isFailed
     ? failureMessage
     : isReconnecting
-      ? 'Yeniden bağlanılıyor...'
+      ? t('callReconnectingLabel')
       : isRinging
         ? isIncoming
-          ? 'Gelen Arama...'
-          : 'Aranıyor...'
+          ? t('callIncomingLabel')
+          : t('callRingingLabel')
         : activeCall.status === 'ACTIVE'
           ? formatDuration(elapsedSeconds)
-          : 'Arama Devam Ediyor';
+          : t('callOngoingLabel');
 
   return (
     <div className="fixed inset-0 z-call-overlay flex flex-col justify-between p-6 bg-app text-app select-none overflow-hidden">
@@ -273,7 +232,7 @@ export const CallOverlay: React.FC = () => {
 
       {/* Top Status Header */}
       <header className={`pt-safe text-center z-10 ${showRemoteVideo ? 'text-white' : 'text-app'}`}>
-        <h3 className="text-title">{isVideoCall ? 'Görüntülü Arama' : 'Sesli Arama'}</h3>
+        <h3 className="text-title">{isVideoCall ? t('callVideoCallTitle') : t('callVoiceCallTitle')}</h3>
         <p
           className={`text-caption mt-1 normal-case flex items-center justify-center gap-1.5 ${
             isFailed
@@ -303,16 +262,30 @@ export const CallOverlay: React.FC = () => {
               <Avatar name={activeCall.targetUserName} size="xl" className="w-full h-full" />
             </div>
           </div>
-          <h2 className="text-title text-app mb-1">{activeCall.targetUserName || 'Arayan Kişi'}</h2>
+          <h2 className="text-title text-app mb-1">{activeCall.targetUserName || t('callUnknownCallerFallback')}</h2>
         </div>
       )}
 
       {/* Bottom Actions Bar */}
       <footer className="pb-safe w-full max-w-sm mx-auto z-10">
         {isFailed ? (
-          <div className="flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            {/* A denied camera/mic permission has no in-call retry path -- unlike a dropped
+                connection, hanging up again changes nothing until the OS permission itself is
+                granted. Mirrors the existing openLocationSettings/openPermissionSettings pattern
+                (DiscoverScreen.tsx/SocialMapScreen.tsx) instead of leaving the user with only a
+                hangup button and a message telling them what's wrong but not how to fix it. */}
+            {activeCall.error === 'PERMISSION_DENIED' && (
+              <AppButton
+                variant="secondary"
+                size="md"
+                onClick={() => void nativeAppSettings.open()}
+              >
+                {t('callOpenSettingsAction')}
+              </AppButton>
+            )}
             <IconButton
-              aria-label="Kapat"
+              aria-label={t('closeAriaLabel')}
               variant="surface"
               size="lg"
               className="w-16 h-16 bg-[#FF4B55] text-white border-0 shadow-elevated shadow-red-500/30"
@@ -324,7 +297,7 @@ export const CallOverlay: React.FC = () => {
         ) : isRinging ? (
           <div className="flex items-center justify-around">
             <IconButton
-              aria-label="Reddet"
+              aria-label={t('callDeclineAriaLabel')}
               variant="surface"
               size="lg"
               className="w-16 h-16 bg-[#FF4B55] text-white border-0 shadow-elevated shadow-red-500/30"
@@ -335,7 +308,7 @@ export const CallOverlay: React.FC = () => {
 
             {isIncoming && (
               <IconButton
-                aria-label="Kabul Et"
+                aria-label={t('callAcceptAriaLabel')}
                 variant="surface"
                 size="lg"
                 className="w-16 h-16 bg-[#32D583] text-white border-0 shadow-elevated shadow-emerald-500/30"
@@ -348,7 +321,7 @@ export const CallOverlay: React.FC = () => {
         ) : (
           <div className="flex items-center justify-around bg-surface-90 backdrop-blur-xl border border-app rounded-3xl p-4 shadow-floating">
             <IconButton
-              aria-label={isMuted ? 'Sesi Aç' : 'Sesi Kapat'}
+              aria-label={isMuted ? t('callUnmuteAriaLabel') : t('callMuteAriaLabel')}
               variant={isMuted ? 'gradient' : 'surface'}
               size="md"
               onClick={toggleMute}
@@ -358,7 +331,7 @@ export const CallOverlay: React.FC = () => {
 
             {!isVideoCall && nativeCallAudio.isSupported() && (
               <IconButton
-                aria-label={isSpeakerOn ? 'Hoparlörü Kapat' : 'Hoparlörü Aç'}
+                aria-label={isSpeakerOn ? t('callSpeakerOffAriaLabel') : t('callSpeakerOnAriaLabel')}
                 variant={isSpeakerOn ? 'gradient' : 'surface'}
                 size="md"
                 onClick={toggleSpeaker}
@@ -369,7 +342,7 @@ export const CallOverlay: React.FC = () => {
 
             {!isVideoCall && activeCall.status === 'ACTIVE' && (
               <IconButton
-                aria-label="Görüntülü Aramaya Geç"
+                aria-label={t('callSwitchToVideoAriaLabel')}
                 variant="surface"
                 size="md"
                 disabled={isRequestingVideo}
@@ -380,7 +353,7 @@ export const CallOverlay: React.FC = () => {
             )}
 
             <IconButton
-              aria-label="Aramayı Sonlandır"
+              aria-label={t('callEndCallAriaLabel')}
               variant="surface"
               size="lg"
               className="bg-[#FF4B55] text-white border-0 shadow-elevated shadow-red-500/30"
@@ -391,7 +364,7 @@ export const CallOverlay: React.FC = () => {
 
             {isVideoCall && (
               <IconButton
-                aria-label={isVideoOff ? 'Kamerayı Aç' : 'Kamerayı Kapat'}
+                aria-label={isVideoOff ? t('callCameraOnAriaLabel') : t('callCameraOffAriaLabel')}
                 variant={isVideoOff ? 'gradient' : 'surface'}
                 size="md"
                 onClick={toggleVideo}
@@ -402,7 +375,7 @@ export const CallOverlay: React.FC = () => {
 
             {isVideoCall && !isVideoOff && canSwitchCamera && (
               <IconButton
-                aria-label="Kamerayı Değiştir"
+                aria-label={t('callSwitchCameraAriaLabel')}
                 variant="surface"
                 size="md"
                 disabled={isSwitchingCamera}

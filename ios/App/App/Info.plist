@@ -37,6 +37,14 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 
+	<!-- RYVO PATCH V2 03: required for the app to be woken up to process a push while backgrounded
+	     (data-payload handling, not just the OS-drawn alert banner, which doesn't need this). Was
+	     entirely missing. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+
 	<!-- Native Permissions Descriptions -->
 	<key>NSCameraUsageDescription</key>
 	<string>Profil fotoğrafı çekmek ve yüz doğrulaması gerçekleştirmek için kamera izni gereklidir.</string>

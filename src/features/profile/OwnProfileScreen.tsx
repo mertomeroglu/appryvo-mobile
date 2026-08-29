@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useFramesQuery, useFollowStatusQuery } from '../../hooks/useQueries';
 import { computeProfileCompletion } from '../../lib/profileCompletion';
+import { formatDisplayAge } from '../../lib/profileLabels';
 import { getPhotoUrl } from '../../services/media/mediaService';
 import { normalizeCountryCode } from '../../lib/countryFlags';
 import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
 import { BottomSheet } from '../../components/ui/BottomSheet';
 import { VerifiedBadge } from '../../components/ui/Badge';
 import { AppLogo } from '../../components/ui/AppLogo';
-import { PASSPORT_LABELS, useAppLocaleStore } from '../../i18n/appLocale';
+import { PASSPORT_LABELS, useAppLocaleStore, useAppTranslation } from '../../i18n/appLocale';
 import { preloadEditProfileModal } from '../../routes/routePreload';
 import { measureProfileMilestone } from '../../services/performance/profilePerformance';
 import {
@@ -61,6 +62,7 @@ const ProfileRow: React.FC<{
 );
 
 export const OwnProfileScreen: React.FC = () => {
+  const { t } = useAppTranslation();
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -89,12 +91,12 @@ export const OwnProfileScreen: React.FC = () => {
   const verificationComplete = user?.verified === true || user?.verificationState === 'APPROVED';
   const verificationPending = user?.verificationState === 'PENDING';
   const verificationValue = verificationComplete
-    ? 'Doğrulandı'
+    ? t('settingsVerifiedLabel')
     : verificationPending
-      ? 'İnceleniyor'
+      ? t('settingsVerificationPendingLabel')
       : user?.verificationState === 'REJECTED' || user?.verificationState === 'REVERIFICATION_REQUIRED'
-        ? 'Tekrar dene'
-        : 'Başlat';
+        ? t('settingsVerificationRetryLabel')
+        : t('ownProfileVerificationStartLabel');
 
   useEffect(() => {
     const animationFrame = requestAnimationFrame(() => {
@@ -128,13 +130,13 @@ export const OwnProfileScreen: React.FC = () => {
       {/* Header */}
       <header className="pt-safe flex items-center justify-center gap-2 mb-2 relative">
         <AppLogo variant="icon" size="sm" />
-        <h2 className="text-title text-app">Profilim</h2>
+        <h2 className="text-title text-app">{t('ownProfileTitle')}</h2>
         <button
           onClick={() => navigate('/profile/preview')}
           className="absolute end-0 px-3 py-2 rounded-full bg-surface border border-app text-caption font-extrabold text-app flex items-center gap-1.5 shadow-soft active:scale-95 transition-transform"
         >
           <Eye className="w-3.5 h-3.5" />
-          <span>Önizle</span>
+          <span>{t('ownProfilePreviewAction')}</span>
         </button>
       </header>
 
@@ -152,16 +154,34 @@ export const OwnProfileScreen: React.FC = () => {
         />
 
         <div className="flex items-center gap-2 mt-3">
-          <h2 className="text-title text-app">{user?.name || 'Kullanıcı'}</h2>
-          {user?.age && <span className="text-heading text-app-muted">{user.age}</span>}
+          <h2 className="text-title text-app">{user?.name || t('genericUserLabel')}</h2>
+          {formatDisplayAge(user?.age) !== undefined && <span className="text-heading text-app-muted">{formatDisplayAge(user?.age)}</span>}
           {/* Verification is a separate, backend-driven signal from nationality -- never
               inferred from or tied to the flag above. */}
           {user?.verified && <VerifiedBadge size={20} />}
         </div>
         <div className="flex items-center gap-1 text-caption text-app-muted font-semibold mt-0.5 normal-case">
           <MapPin className="w-3.5 h-3.5" />
-          <span>{user?.city || 'Lokasyon belirtilmedi'}</span>
+          <span>{user?.city || t('ownProfileNoLocationLabel')}</span>
         </div>
+
+        {/* Followers/following: primary content directly under the identity block, not a
+            Settings-nested "My Connections" row -- live counts, tap navigates to the shared
+            followers/following list. */}
+        {followStatus && (
+          <button
+            type="button"
+            onClick={() => user?.id && navigate(`/connections/${user.id}`)}
+            className="mt-2 flex items-center gap-1.5 text-caption font-bold text-app active:opacity-70 transition-opacity"
+          >
+            <Users className="w-3.5 h-3.5 text-app-muted" />
+            <span>
+              {t('ownProfileFollowStatsTemplate')
+                .replace('{followers}', String(followStatus.followersCount))
+                .replace('{following}', String(followStatus.followingCount))}
+            </span>
+          </button>
+        )}
 
         <div className="w-full max-w-[320px] mt-4">
           {completion < 100 ? (
@@ -172,7 +192,7 @@ export const OwnProfileScreen: React.FC = () => {
               className="relative z-content w-full rounded-2xl border border-app bg-surface p-3.5 text-start shadow-soft touch-manipulation active:scale-[0.98] transition-transform"
             >
               <div className="mb-2 flex items-center justify-between gap-3 text-caption font-bold text-app-muted">
-                <span>Profilini tamamla</span>
+                <span>{t('ownProfileCompleteProfileLabel')}</span>
                 <span className="rounded-full bg-pink-500/10 px-2 py-0.5 font-extrabold tabular-nums text-pink-500">%{completion}</span>
               </div>
               <div className="h-2 rounded-full bg-app-secondary overflow-hidden">
@@ -184,7 +204,7 @@ export const OwnProfileScreen: React.FC = () => {
             </button>
           ) : (
             <div className="rounded-2xl border border-app bg-surface p-3.5 shadow-soft flex items-center justify-center gap-1.5 text-caption font-bold text-success">
-              <span>Profilin hazır</span>
+              <span>{t('ownProfileReadyLabel')}</span>
               <span>✓</span>
             </div>
           )}
@@ -194,44 +214,38 @@ export const OwnProfileScreen: React.FC = () => {
 
       {/* Grouped card: profile */}
       <div className="mt-6">
-        <SectionLabel>Profil</SectionLabel>
+        <SectionLabel>{t('ownProfileSectionLabel')}</SectionLabel>
         <div className="space-y-2.5">
-          <ProfileRow icon={<Edit3 className="w-5 h-5" />} label="Profili düzenle" onClick={() => openEditModal()} />
-          <ProfileRow
-            icon={<Users className="w-5 h-5" />}
-            label="Bağlantılarım"
-            value={followStatus ? `${followStatus.followersCount} takipçi · ${followStatus.followingCount} takip` : undefined}
-            onClick={() => user?.id && navigate(`/connections/${user.id}`)}
-          />
+          <ProfileRow icon={<Edit3 className="w-5 h-5" />} label={t('ownProfileEditAction')} onClick={() => openEditModal()} />
           <ProfileRow
             icon={<Share2 className="w-5 h-5" />}
-            label="Profilimi paylaş"
+            label={t('ownProfileShareAction')}
             onClick={() => {
               if (!user?.id) return;
               void nativeShare.share({
                 title: user.name,
-                text: `${user.name} — Ryvo'da profilime göz at`,
+                text: t('ownProfileShareTextTemplate').replace('{name}', user.name),
                 url: `https://appryvo.online/discover/${user.id}`,
-                dialogTitle: 'Profili Paylaş',
+                dialogTitle: t('ownProfileShareDialogTitle'),
               }).catch(() => {});
             }}
           />
           <ProfileRow
             icon={<ShieldCheck className="w-5 h-5" />}
-            label="Kimlik doğrulama"
+            label={t('verificationScreenTitle')}
             value={verificationValue}
             onClick={verificationComplete || verificationPending ? undefined : () => navigate('/verification')}
           />
           <ProfileRow
             icon={<Crown className="w-5 h-5" />}
-            label="Ryvo Plus & Gold"
-            value={user?.isPremium ? 'Aktif' : 'Yükselt'}
+            label={t('premium')}
+            value={user?.isPremium ? t('ownProfilePremiumActiveLabel') : t('ownProfileUpgradeLabel')}
             accent="gold"
             onClick={() => navigate('/premium')}
           />
           <ProfileRow
             icon={<Frame className="w-5 h-5" />}
-            label="Profil çerçevesi seç"
+            label={t('ownProfileChooseFrameAction')}
             value={activeFrameName}
             onClick={() => {
               if (typeof performance !== 'undefined') performance.mark('ryvo:frames:navigation-start');
@@ -243,27 +257,27 @@ export const OwnProfileScreen: React.FC = () => {
 
       {/* Grouped card: quick access */}
       <div className="mt-6">
-        <SectionLabel>Daha Fazla</SectionLabel>
+        <SectionLabel>{t('ownProfileMoreSectionLabel')}</SectionLabel>
         <div className="space-y-2.5">
-          <ProfileRow icon={<Zap className="w-5 h-5" />} label="Boost ile öne çık" onClick={() => navigate('/boost')} />
-          <ProfileRow icon={<Compass className="w-5 h-5" />} label={`${PASSPORT_LABELS[locale]} lokasyonu`} onClick={() => navigate('/passport')} />
+          <ProfileRow icon={<Zap className="w-5 h-5" />} label={t('ownProfileBoostAction')} onClick={() => navigate('/boost')} />
+          <ProfileRow icon={<Compass className="w-5 h-5" />} label={t('ownProfilePassportLocationTemplate').replace('{passport}', PASSPORT_LABELS[locale])} onClick={() => navigate('/passport')} />
         </div>
       </div>
 
       {/* Grouped card: settings entry point */}
       <div className="mt-6">
-        <SectionLabel>Ayarlar</SectionLabel>
+        <SectionLabel>{t('settings')}</SectionLabel>
         <div className="space-y-2.5">
-          <ProfileRow icon={<Settings className="w-5 h-5" />} label="Tüm ayarlar" onClick={() => navigate('/settings')} />
+          <ProfileRow icon={<Settings className="w-5 h-5" />} label={t('ownProfileAllSettingsAction')} onClick={() => navigate('/settings')} />
         </div>
       </div>
 
       <BottomSheet isOpen={isCompletionOpen} onClose={() => setIsCompletionOpen(false)}>
         <section className="px-5 pb-6 pt-2" role="dialog" aria-modal="true" aria-labelledby="profile-completion-title">
           <div className="mb-4">
-            <h3 id="profile-completion-title" className="text-heading text-app">Profilini tamamla</h3>
+            <h3 id="profile-completion-title" className="text-heading text-app">{t('ownProfileCompleteProfileLabel')}</h3>
             <p className="mt-1 text-caption normal-case text-app-muted">
-              Profilinde eksik olan alanları tamamla.
+              {t('ownProfileCompleteProfileDescription')}
             </p>
           </div>
           <div className="space-y-2.5">
@@ -277,7 +291,7 @@ export const OwnProfileScreen: React.FC = () => {
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-pink-500/10 text-pink-500">
                   <CheckCircle2 className="h-4.5 w-4.5" />
                 </span>
-                <span className="min-w-0 flex-1 text-body font-bold text-app">{field.cta}</span>
+                <span className="min-w-0 flex-1 text-body font-bold text-app">{t(field.ctaKey)}</span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-app-muted" />
               </button>
             ))}

@@ -1,3 +1,5 @@
+import type { AppMessageKey } from '../../i18n/appLocale';
+
 export type SubscriptionTier = 'PLUS' | 'GOLD';
 export type SubscriptionPeriod = 'WEEKLY' | 'MONTHLY' | 'THREE_MONTH' | 'SIX_MONTH';
 export const MIN_MEANINGFUL_DISCOUNT_PERCENT = 5;
@@ -26,24 +28,28 @@ export function normalizePublicTier(value: unknown): SubscriptionTier | 'FREE' {
   return 'FREE';
 }
 
-export const PUBLIC_PLAN_FEATURES: Record<SubscriptionTier, readonly string[]> = {
+/** Feature list rendered on PremiumScreen. Each entry is either an AppMessageKey (translated
+ * via t()) or the literal sentinel 'Passport' -- PremiumScreen swaps that one for
+ * PASSPORT_LABELS[locale] instead, since the Passport feature's display name is itself already
+ * a full per-locale label map (see appLocale.ts). */
+export const PUBLIC_PLAN_FEATURES: Record<SubscriptionTier, readonly (AppMessageKey | 'Passport')[]> = {
   PLUS: [
-    'Sınırsız Beğeni',
-    'Reklamsız Kullanım',
-    'Sınırsız Geri Alma',
-    'Gelişmiş Filtreler',
+    'planFeaturePlusUnlimitedLikes',
+    'planFeaturePlusAdFree',
+    'planFeaturePlusUnlimitedRewind',
+    'filterAdvancedFiltersLabel',
     'Passport',
-    '3 Super Like / hafta',
-    '1 adet 30 dk Boost / ay',
+    'planFeaturePlusSuperLike',
+    'planFeaturePlusBoost',
   ],
   GOLD: [
-    "Ryvo Plus'ın tüm özellikleri",
-    'Seni Beğenenleri Anında Gör',
-    'Öncelikli Beğeni / Keşfet Sıralaması',
-    '5 Super Like / hafta',
-    '2 adet 30 dk Boost / ay',
-    'Incognito',
-    'Gold rozeti',
+    'planFeatureGoldAllPlusFeatures',
+    'planFeatureGoldSeeLikesInstantly',
+    'planFeatureGoldPriorityRanking',
+    'planFeatureGoldSuperLike',
+    'planFeatureGoldBoost',
+    'planFeatureGoldIncognito',
+    'planFeatureGoldBadge',
   ],
 };
 

@@ -13,6 +13,7 @@ import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
 import { AppLogo } from '../../components/ui/AppLogo';
 import { StoryTray } from '../../components/StoryTray';
 import { buildOfficialRyvoThread, officialMessageTimestamp } from './officialRyvo';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 const ConfessionsScreen = lazy(() => import('../social/ConfessionsScreen').then((module) => ({
   default: module.ConfessionsScreen,
@@ -28,6 +29,7 @@ interface ConversationRowProps {
 }
 
 export const ConversationRow: React.FC<ConversationRowProps> = ({ match, online, onOpen, onMarkRead }) => {
+  const { t } = useAppTranslation();
   const [actionOpen, setActionOpen] = useState(false);
   const user = match.user || match;
   const unreadCount = Number(match.unreadCount || 0);
@@ -41,7 +43,7 @@ export const ConversationRow: React.FC<ConversationRowProps> = ({ match, online,
       {unreadCount > 0 && (
         <button
           type="button"
-          aria-label={`${user.name} sohbetini okundu işaretle`}
+          aria-label={t('msgsMarkReadAriaLabelTemplate').replace('{name}', user.name)}
           onClick={() => {
             onMarkRead();
             setActionOpen(false);
@@ -50,14 +52,14 @@ export const ConversationRow: React.FC<ConversationRowProps> = ({ match, online,
         >
           <span className="flex flex-col items-center gap-1 text-micro font-extrabold normal-case">
             <CheckCheck className="h-5 w-5" />
-            Okundu
+            {t('msgsMarkAsReadLabel')}
           </span>
         </button>
       )}
 
       <motion.button
         type="button"
-        aria-label={`${user.name} sohbetini aç`}
+        aria-label={t('msgsOpenChatAriaLabelTemplate').replace('{name}', user.name)}
         drag={unreadCount > 0 ? 'x' : false}
         dragConstraints={{ left: -78, right: 0 }}
         dragElastic={0.04}
@@ -69,28 +71,47 @@ export const ConversationRow: React.FC<ConversationRowProps> = ({ match, online,
           if (actionOpen) setActionOpen(false);
           else onOpen();
         }}
-        className={`relative flex w-full items-center gap-3 rounded-2xl px-2.5 py-3 text-start transition-colors active:bg-surface-elevated ${unreadCount > 0 ? 'touch-pan-y bg-pink-500/[0.055]' : 'bg-transparent'}`}
+        // An opaque base (bg-surface) is required here, not just a translucent pink tint: this
+        // row sits directly on top of the green "Okundu" swipe-reveal button (an absolutely
+        // positioned sibling filling the same w-[78px] on the right), and a <50%-alpha
+        // background lets that solid button bleed through underneath at rest -- visible right
+        // under the timestamp/unread-count badge, which both sit at that same right edge. The
+        // tint itself now lives on its own overlay layer inside this now-opaque button instead.
+        className={`relative flex w-full items-center gap-3 overflow-hidden rounded-2xl bg-surface px-2.5 py-3 text-start transition-colors active:bg-surface-elevated ${unreadCount > 0 ? 'touch-pan-y' : ''}`}
       >
+        {unreadCount > 0 && <span aria-hidden="true" className="absolute inset-0 bg-pink-500/[0.055]" />}
+
         <ProfileAvatarFrame
           photoUrl={getPhotoUrl(user.photos?.[0]) || user.photoUrl}
           name={user.name}
           activeFrameId={user.activeFrameId}
           size="md"
           online={online}
+          countryCode={user.countryCode}
+          showCountryFlag
+          className="relative"
         />
 
-        <span className="min-w-0 flex-1">
+        <span className="relative min-w-0 flex-1">
           <span className="mb-0.5 flex items-baseline justify-between gap-3">
-            <span className={`truncate text-body text-app ${unreadCount > 0 ? 'font-black' : 'font-bold'}`}>
-              {user.name}
+            <span className="flex min-w-0 items-baseline gap-1.5">
+              <span className={`truncate text-body text-app ${unreadCount > 0 ? 'font-black' : 'font-bold'}`}>
+                {user.name}
+              </span>
+              {online && (
+                <span className="flex shrink-0 items-center gap-1 text-micro font-bold normal-case text-success">
+                  <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                  {t('msgsOnlineLabel')}
+                </span>
+              )}
             </span>
             <time className={`shrink-0 text-micro normal-case ${unreadCount > 0 ? 'font-bold text-pink-500' : 'text-app-muted'}`}>
-              {match.lastMessageTime ? formatMessageTime(match.lastMessageTime) : 'Yeni'}
+              {match.lastMessageTime ? formatMessageTime(match.lastMessageTime) : t('msgsNewLabel')}
             </time>
           </span>
           <span className="flex min-w-0 items-center gap-2">
             <span className={`min-w-0 flex-1 truncate text-caption normal-case ${unreadCount > 0 ? 'font-semibold text-app' : 'text-app-muted'}`}>
-              {match.lastMessage || 'Bir merhaba ile sohbeti başlat.'}
+              {match.lastMessage || t('msgsStartChatPrompt')}
             </span>
             {unreadCount > 0 && (
               <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-pink-500 px-1.5 text-micro font-black text-white">
@@ -105,6 +126,7 @@ export const ConversationRow: React.FC<ConversationRowProps> = ({ match, online,
 };
 
 export const MessagesScreen: React.FC = () => {
+  const { t } = useAppTranslation();
   const { data: matches, isLoading } = useMatchesQuery();
   const { data: notificationData } = useInAppNotificationsQuery();
   const queryClient = useQueryClient();
@@ -164,27 +186,27 @@ export const MessagesScreen: React.FC = () => {
           <div className="flex items-center gap-2.5">
             <AppLogo variant="icon" size="sm" />
             <div>
-              <p className="text-micro font-extrabold uppercase tracking-[0.18em] text-pink-500">Bağlantıların</p>
-              <h1 className="text-title text-app">Mesajlar</h1>
+              <p className="text-micro font-extrabold uppercase tracking-[0.18em] text-pink-500">{t('msgsHeaderEyebrow')}</p>
+              <h1 className="text-title text-app">{t('messages')}</h1>
             </div>
           </div>
           {mode === 'chats' && matchItems.length > 0 && (
             <span className="rounded-full border border-app bg-surface px-2.5 py-1 text-micro font-bold normal-case text-app-muted">
-              {matchItems.length} sohbet
+              {t('msgsConversationCountTemplate').replace('{count}', String(matchItems.length))}
             </span>
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-1 rounded-2xl border border-app bg-surface p-1 shadow-soft" role="tablist" aria-label="Mesajlar bölümü">
-          <button id="messages-chats-tab" type="button" role="tab" aria-selected={mode === 'chats'} aria-controls="messages-chats-panel" onClick={() => setMode('chats')} className={`rounded-xl px-4 py-2.5 text-caption font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${mode === 'chats' ? 'bg-brand-gradient text-white shadow-soft' : 'text-app-muted'}`}>Sohbetler</button>
-          <button id="messages-confessions-tab" type="button" role="tab" aria-selected={mode === 'confessions'} aria-controls="messages-confessions-panel" onClick={() => setMode('confessions')} className={`rounded-xl px-4 py-2.5 text-caption font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${mode === 'confessions' ? 'bg-brand-gradient text-white shadow-soft' : 'text-app-muted'}`}>İtiraflar</button>
+        <div className="grid grid-cols-2 gap-1 rounded-2xl border border-app bg-surface p-1 shadow-soft" role="tablist" aria-label={t('msgsSectionAriaLabel')}>
+          <button id="messages-chats-tab" type="button" role="tab" aria-selected={mode === 'chats'} aria-controls="messages-chats-panel" onClick={() => setMode('chats')} className={`rounded-xl px-4 py-2.5 text-caption font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${mode === 'chats' ? 'bg-brand-gradient text-white shadow-soft' : 'text-app-muted'}`}>{t('msgsChatsTabLabel')}</button>
+          <button id="messages-confessions-tab" type="button" role="tab" aria-selected={mode === 'confessions'} aria-controls="messages-confessions-panel" onClick={() => setMode('confessions')} className={`rounded-xl px-4 py-2.5 text-caption font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${mode === 'confessions' ? 'bg-brand-gradient text-white shadow-soft' : 'text-app-muted'}`}>{t('confessionsTitle')}</button>
         </div>
 
         {mode === 'chats' && (
           <label className="relative mt-3 block w-full">
-            <span className="sr-only">Sohbetlerde ara</span>
+            <span className="sr-only">{t('msgsSearchPlaceholder')}</span>
             <Search className="absolute start-4 top-3.5 h-4 w-4 text-app-muted" />
-            <input type="search" placeholder="Sohbetlerde ara" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="w-full rounded-2xl border border-app bg-input-app py-2.5 ps-11 pe-4 text-body font-semibold text-app placeholder:text-app-muted focus:border-pink-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
+            <input type="search" placeholder={t('msgsSearchPlaceholder')} value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="w-full rounded-2xl border border-app bg-input-app py-2.5 ps-11 pe-4 text-body font-semibold text-app placeholder:text-app-muted focus:border-pink-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
           </label>
         )}
       </header>
@@ -201,13 +223,13 @@ export const MessagesScreen: React.FC = () => {
 
           {matchItems.some((match: any) => isOnline(match.user || match)) && !searchQuery && (
             <section className="my-3">
-              <h2 className="mb-3 text-micro font-extrabold uppercase tracking-wider text-app-muted">Şu An Çevrimiçi</h2>
+              <h2 className="mb-3 text-micro font-extrabold uppercase tracking-wider text-app-muted">{t('msgsOnlineNowHeading')}</h2>
               <div className="flex items-center gap-4 overflow-x-auto pb-2 no-scrollbar">
                 {matchItems.filter((match: any) => isOnline(match.user || match)).map((match: any) => {
                   const user = match.user || match;
                   return (
                     <button key={match.id} type="button" onClick={() => navigate(`/chat/${match.id}`)} className="flex shrink-0 flex-col items-center gap-1.5 transition-transform active:scale-95">
-                      <ProfileAvatarFrame photoUrl={getPhotoUrl(user.photos?.[0]) || user.photoUrl} name={user.name} activeFrameId={user.activeFrameId} size="lg" online />
+                      <ProfileAvatarFrame photoUrl={getPhotoUrl(user.photos?.[0]) || user.photoUrl} name={user.name} activeFrameId={user.activeFrameId} size="lg" online countryCode={user.countryCode} showCountryFlag />
                       <span className="max-w-16 truncate text-caption font-bold text-app">{user.name}</span>
                     </button>
                   );
@@ -216,13 +238,13 @@ export const MessagesScreen: React.FC = () => {
             </section>
           )}
 
-          <section className="my-2 space-y-1" aria-label="Sohbet listesi">
+          <section className="my-2 space-y-1" aria-label={t('msgsListAriaLabel')}>
             {latestOfficialMessage && !searchQuery && (
               <button type="button" onClick={() => navigate('/messages/ryvo')} className={`flex w-full items-center gap-3 rounded-2xl px-2.5 py-3 text-start transition-colors active:bg-surface-elevated ${officialUnread ? 'bg-pink-500/[0.065]' : 'bg-transparent'}`}>
                 <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white"><AppLogo variant="icon" size="md" /></span>
                 <span className="min-w-0 flex-1">
                   <span className="mb-0.5 flex items-baseline justify-between gap-3">
-                    <span className="flex min-w-0 items-center gap-1.5"><span className="truncate text-body font-black text-app">Ryvo</span><BadgeCheck className="h-4 w-4 shrink-0 fill-pink-500 text-white" /><span className="rounded-full bg-app-secondary px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-app-muted">Resmi</span></span>
+                    <span className="flex min-w-0 items-center gap-1.5"><span className="truncate text-body font-black text-app">{t('appTitle')}</span><BadgeCheck className="h-4 w-4 shrink-0 fill-pink-500 text-white" /><span className="rounded-full bg-app-secondary px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-app-muted">{t('msgsOfficialBadgeLabel')}</span></span>
                     <time className={`shrink-0 text-micro normal-case ${officialUnread ? 'font-bold text-pink-500' : 'text-app-muted'}`}>{formatMessageTime(officialMessageTimestamp(latestOfficialMessage))}</time>
                   </span>
                   <span className="flex items-center gap-2"><span className={`min-w-0 flex-1 truncate text-caption normal-case ${officialUnread ? 'font-semibold text-app' : 'text-app-muted'}`}>{latestOfficialMessage.body}</span>{officialUnread > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-pink-500 px-1.5 text-micro font-black text-white">{officialUnread > 99 ? '99+' : officialUnread}</span>}</span>
@@ -233,7 +255,7 @@ export const MessagesScreen: React.FC = () => {
             {isLoading ? (
               Array.from({ length: 4 }).map((_, index) => <div key={index} className="flex items-center gap-3 rounded-2xl px-2.5 py-3"><Skeleton variant="avatar" /><div className="flex-1 space-y-2"><Skeleton variant="text" className="w-1/3" /><Skeleton variant="text" className="h-3 w-2/3" /></div></div>)
             ) : filteredMatches.length === 0 ? (
-              <div className="px-2 py-8"><EmptyState className="py-8" icon={<MessageCircle className="h-8 w-8" />} title={searchQuery ? 'Sonuç Bulunamadı' : 'Henüz Sohbet Yok'} subtitle={searchQuery ? 'Farklı bir isim veya kelime ile tekrar dene.' : 'Yeni bir eşleşme olduğunda sohbetlerin burada düzenli şekilde görünür.'} actionLabel={searchQuery ? undefined : "Keşfet'e Git"} onAction={searchQuery ? undefined : () => navigate('/discover')} /></div>
+              <div className="px-2 py-8"><EmptyState className="py-8" icon={<MessageCircle className="h-8 w-8" />} title={searchQuery ? t('msgsNoResultsTitle') : t('msgsNoChatsTitle')} subtitle={searchQuery ? t('msgsNoResultsSubtitle') : t('msgsNoChatsSubtitle')} actionLabel={searchQuery ? undefined : t('msgsGoToDiscoverAction')} onAction={searchQuery ? undefined : () => navigate('/discover')} /></div>
             ) : (
               filteredMatches.map((match: any) => {
                 const user = match.user || match;
@@ -243,7 +265,7 @@ export const MessagesScreen: React.FC = () => {
           </section>
 
           {!searchQuery && filteredMatches.some((match: any) => Number(match.unreadCount || 0) > 0) && (
-            <p className="mt-3 text-center text-micro normal-case text-app-muted">Okunmamış bir sohbeti sola kaydırarak okundu işaretleyebilirsin.</p>
+            <p className="mt-3 text-center text-micro normal-case text-app-muted">{t('msgsSwipeToMarkReadHint')}</p>
           )}
         </section>
       )}

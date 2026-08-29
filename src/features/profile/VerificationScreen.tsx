@@ -10,6 +10,7 @@ import { nativeHaptics } from '../../native/haptics';
 import { AppButton } from '../../components/ui/AppButton';
 import { IconButton } from '../../components/ui/IconButton';
 import { AppLogo } from '../../components/ui/AppLogo';
+import { useAppTranslation, translateSync, type AppMessageKey } from '../../i18n/appLocale';
 
 // Codes match the server-issued temporal sequence. FINAL is captured last and becomes the
 // retained face-match reference; every earlier frame is a required liveness transition.
@@ -20,24 +21,24 @@ type CaptureStepId = ChallengeCode | 'FINAL';
 // a still photo can't capture the *act* of blinking, only a closed-eye state, so the instruction
 // asks for that directly (close your eyes, hold, then shoot) rather than "blink" mid-shutter,
 // which was confusing users into wondering what a still photo of a blink is even supposed to be.
-const STEP_TITLE: Record<CaptureStepId, string> = {
-  CENTER: 'Yüzünü Ortala',
-  CENTER_RETURN: 'Tekrar Ortaya Bak',
-  FINAL: 'Son Çekim',
-  BLINK: 'Gözlerini Kapat',
-  TURN_LEFT: 'Başını Sola Çevir',
-  TURN_RIGHT: 'Başını Sağa Çevir',
-  SMILE: 'Gülümse',
+const STEP_TITLE_KEY: Record<CaptureStepId, AppMessageKey> = {
+  CENTER: 'verificationStepTitleCenter',
+  CENTER_RETURN: 'verificationStepTitleCenterReturn',
+  FINAL: 'verificationStepTitleFinal',
+  BLINK: 'verificationStepTitleBlink',
+  TURN_LEFT: 'verificationStepTitleTurnLeft',
+  TURN_RIGHT: 'verificationStepTitleTurnRight',
+  SMILE: 'verificationStepTitleSmile',
 };
 
-const STEP_HINT: Record<CaptureStepId, string> = {
-  CENTER: 'Yüzünü çerçevenin içine yerleştir ve doğrudan kameraya bak.',
-  CENTER_RETURN: 'Başını tekrar ortaya getir ve doğrudan kameraya bak.',
-  FINAL: 'Doğrudan kameraya bak. Bu son görüntü doğrulama referansın olacak.',
-  BLINK: 'Gözlerini kapat, o şekilde sabit dur ve çek.',
-  TURN_LEFT: 'Başını sola çevir, o pozisyonda dur ve çek.',
-  TURN_RIGHT: 'Başını sağa çevir, o pozisyonda dur ve çek.',
-  SMILE: 'Kameraya bakarak gülümse ve çek.',
+const STEP_HINT_KEY: Record<CaptureStepId, AppMessageKey> = {
+  CENTER: 'verificationStepHintCenter',
+  CENTER_RETURN: 'verificationStepHintCenterReturn',
+  FINAL: 'verificationStepHintFinal',
+  BLINK: 'verificationStepHintBlink',
+  TURN_LEFT: 'verificationStepHintTurnLeft',
+  TURN_RIGHT: 'verificationStepHintTurnRight',
+  SMILE: 'verificationStepHintSmile',
 };
 
 const STEP_ICON: Record<CaptureStepId, React.ReactNode> = {
@@ -63,7 +64,7 @@ const CAMERA_READY_TIMEOUT_MS = 15000;
 async function submitVerification(sessionId: string, allFrames: CapturedFrame[]) {
   const finalFrame = allFrames.find((frame) => frame.step === 'FINAL');
   const challengeFrames = allFrames.filter((frame) => frame.step !== 'FINAL');
-  if (!finalFrame || challengeFrames.length === 0) throw new Error('Doğrulama çekimleri eksik.');
+  if (!finalFrame || challengeFrames.length === 0) throw new Error(translateSync('verificationFramesMissingError'));
 
   // Verification captures are private media. Upload them in parallel so the liveness
   // session does not expire while a slow connection serially sends every frame.
@@ -78,7 +79,7 @@ async function submitVerification(sessionId: string, allFrames: CapturedFrame[])
   }));
 
   if (!selfieUrl || frames.some((frame) => !frame.imageUrl)) {
-    throw new Error('Doğrulama görselleri yüklenemedi.');
+    throw new Error(translateSync('verificationImagesUploadFailedError'));
   }
 
   return await apiClient.post(
@@ -90,6 +91,25 @@ async function submitVerification(sessionId: string, allFrames: CapturedFrame[])
 
 export const VerificationScreen: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useAppTranslation();
+  const authUser = useAuthStore((s) => s.user);
+
+  // Route-level guard: a VERIFIED user must never re-enter this flow (stale link, browser
+  // back, or a direct /verification navigation bypassing the disabled CTA on Profile/Settings),
+  // and a PENDING user must not be able to start a second review session -- both are already
+  // known client-side from the cached auth store, so this redirects before the intro screen
+  // (and its "Start" button, which would otherwise POST a fresh /api/verification/session) ever
+  // renders. REJECTED/REVERIFICATION_REQUIRED are intentionally left alone -- retry stays allowed.
+  const alreadyVerified = authUser?.verified === true || authUser?.verificationState === 'APPROVED';
+  const alreadyPending = authUser?.verificationState === 'PENDING';
+  const blockEntry = alreadyVerified || alreadyPending;
+
+  useEffect(() => {
+    if (!blockEntry) return;
+    toast.show(t(alreadyVerified ? 'verificationAlreadyVerifiedToast' : 'verificationPendingReviewToast'));
+    navigate('/profile', { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockEntry]);
 
   const [phase, setPhase] = useState<Phase>('intro');
   const [errorMsg, setErrorMsg] = useState('');
@@ -120,7 +140,7 @@ export const VerificationScreen: React.FC = () => {
 
     const readyTimer = window.setTimeout(() => {
       cameraTimedOut = true;
-      if (!cancelled) setErrorMsg('Kamera zamanında açılamadı. Kamerayı kullanan başka bir uygulamayı kapatıp tekrar dene.');
+      if (!cancelled) setErrorMsg(t('verificationCameraTimeoutError'));
     }, CAMERA_READY_TIMEOUT_MS);
 
     // Deliberately no width/height "ideal" constraints: on several Android camera HALs,
@@ -149,7 +169,7 @@ export const VerificationScreen: React.FC = () => {
       })
       .catch(() => {
         window.clearTimeout(readyTimer);
-        if (!cancelled) setErrorMsg('Kameraya erişilemedi. Kamera izni verildiğinden emin ol.');
+        if (!cancelled) setErrorMsg(t('verificationCameraAccessError'));
       });
 
     return () => {
@@ -168,19 +188,19 @@ export const VerificationScreen: React.FC = () => {
       const data = res?.data || {};
       if (data.verified === true) {
         await useAuthStore.getState().fetchMe();
-        toast.show(res?.message || 'Profilin zaten doğrulandı.');
+        toast.show(res?.message || t('verificationAlreadyVerifiedToast'));
         navigate('/profile', { replace: true });
         return;
       }
       if (data.pending === true) {
         await useAuthStore.getState().fetchMe();
-        toast.show(res?.message || 'Doğrulaman inceleniyor.');
+        toast.show(res?.message || t('verificationPendingReviewToast'));
         navigate('/profile', { replace: true });
         return;
       }
       const challenges: ChallengeCode[] = Array.isArray(data.challenges) ? data.challenges : [];
       if (!data.sessionId || challenges.length === 0) {
-        throw new Error('Doğrulama oturumu geçersiz. Lütfen tekrar dene.');
+        throw new Error(t('verificationSessionInvalidError'));
       }
       setSessionId(data.sessionId);
       setSteps([...challenges, 'FINAL']);
@@ -188,7 +208,7 @@ export const VerificationScreen: React.FC = () => {
       framesRef.current = [];
       setPhase('camera');
     } catch (err: any) {
-      setErrorMsg(err.message || 'Doğrulama oturumu başlatılamadı.');
+      setErrorMsg(err.message || t('verificationSessionStartFailedError'));
     } finally {
       setIsBusy(false);
     }
@@ -228,7 +248,7 @@ export const VerificationScreen: React.FC = () => {
 
     if (!blob) {
       setIsCapturing(false);
-      setErrorMsg('Fotoğraf yakalanamadı. Tekrar dene.');
+      setErrorMsg(t('verificationPhotoCaptureFailedError'));
       return;
     }
 
@@ -242,23 +262,23 @@ export const VerificationScreen: React.FC = () => {
       setPhase('submitting');
       setIsBusy(true);
       try {
-        if (!sessionId) throw new Error('Doğrulama oturumu bulunamadı.');
+        if (!sessionId) throw new Error(t('verificationSessionNotFoundError'));
         const response = await submitVerification(sessionId, nextFrames);
         await useAuthStore.getState().fetchMe();
         if (response?.verified === true) {
-          toast.success(response?.message || 'Doğrulandın! 🎉');
+          toast.success(response?.message || t('verificationSuccessToast'));
           navigate('/profile', { replace: true });
           return;
         }
         if (response?.status === 'pending') {
-          toast.show(response?.message || 'Doğrulaman incelemeye alındı.');
+          toast.show(response?.message || t('verificationSubmittedPendingToast'));
           navigate('/profile', { replace: true });
           return;
         }
-        setErrorMsg(response?.message || 'Doğrulama tamamlanamadı. Lütfen tekrar dene.');
+        setErrorMsg(response?.message || t('verificationCompleteFailedError'));
         setPhase('intro');
       } catch (err: any) {
-        setErrorMsg(err.message || 'Doğrulama gönderilemedi. Lütfen tekrar dene.');
+        setErrorMsg(err.message || t('verificationSubmitFailedError'));
         setPhase('intro');
       } finally {
         setIsBusy(false);
@@ -277,15 +297,20 @@ export const VerificationScreen: React.FC = () => {
     setPhase('intro');
   };
 
+  // Render nothing while the redirect effect above is in flight -- otherwise the intro screen
+  // (and its clickable "Start" button, which would POST a fresh verification session) would
+  // flash for one frame before navigate() actually leaves this route.
+  if (blockEntry) return null;
+
   return (
     <div className="flex flex-col h-full w-full bg-app text-app select-none">
       {phase !== 'camera' && (
         <header className="pt-safe px-4 h-16 flex items-center gap-3 border-b border-app bg-surface-80 backdrop-blur-md z-sticky">
-          <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate(-1)}>
+          <IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate(-1)}>
             <ArrowLeft className="w-5 h-5" />
           </IconButton>
           <AppLogo variant="icon" size="sm" />
-          <h2 className="text-heading text-app">Kimlik Doğrulama</h2>
+          <h2 className="text-heading text-app">{t('verificationScreenTitle')}</h2>
         </header>
       )}
 
@@ -301,15 +326,13 @@ export const VerificationScreen: React.FC = () => {
               <ShieldCheck className="w-9 h-9 text-white" />
             </div>
             <div>
-              <h3 className="text-title text-app mb-2">Profilini Doğrula</h3>
+              <h3 className="text-title text-app mb-2">{t('verificationIntroTitle')}</h3>
               <p className="text-body text-app-muted">
-                Kamera açılacak ve seni birkaç kısa hareket yaparken çekecek. Bu, hesabının
-                gerçek ve canlı bir kişiye ait olduğunu kanıtlar. Çekimlerden sonra sonucu
-                güvenli şekilde işleyip profil durumuna yansıtacağız.
+                {t('verificationIntroDescription')}
               </p>
             </div>
             <AppButton variant="primary" size="lg" fullWidth loading={isBusy} onClick={startVerification}>
-              Başla
+              {t('verificationStartButtonLabel')}
             </AppButton>
           </div>
         </div>
@@ -322,8 +345,8 @@ export const VerificationScreen: React.FC = () => {
               <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-white/35 border-t-white" />
             </div>
             <div>
-              <h3 className="mb-2 text-title text-app">Doğrulama İşleniyor</h3>
-              <p className="text-body text-app-muted">Görsellerin güvenli şekilde yükleniyor ve yüz eşleşmesi kontrol ediliyor. Bu ekranı açık tut.</p>
+              <h3 className="mb-2 text-title text-app">{t('verificationProcessingTitle')}</h3>
+              <p className="text-body text-app-muted">{t('verificationProcessingDescription')}</p>
             </div>
           </div>
         </div>
@@ -365,7 +388,7 @@ export const VerificationScreen: React.FC = () => {
           {/* Top: exit + step progress */}
           <div className="absolute top-0 inset-x-0 pt-safe px-4 z-10">
             <div className="h-14 flex items-center justify-between">
-              <IconButton aria-label="Vazgeç" variant="overlay" size="md" onClick={handleExitCamera}>
+              <IconButton aria-label={t('discardAriaLabel')} variant="overlay" size="md" onClick={handleExitCamera}>
                 <ArrowLeft className="w-5 h-5" />
               </IconButton>
               <span className="text-caption font-bold text-white/90">
@@ -415,8 +438,8 @@ export const VerificationScreen: React.FC = () => {
                 <div className="w-12 h-12 rounded-full bg-white/15 backdrop-blur-md mx-auto mb-2 flex items-center justify-center text-white">
                   {STEP_ICON[currentStep]}
                 </div>
-                <h3 className="text-heading text-white mb-1">{STEP_TITLE[currentStep]}</h3>
-                <p className="text-caption text-white/70 max-w-xs mx-auto">{STEP_HINT[currentStep]}</p>
+                <h3 className="text-heading text-white mb-1">{t(STEP_TITLE_KEY[currentStep])}</h3>
+                <p className="text-caption text-white/70 max-w-xs mx-auto">{t(STEP_HINT_KEY[currentStep])}</p>
               </motion.div>
             </AnimatePresence>
 
@@ -428,7 +451,7 @@ export const VerificationScreen: React.FC = () => {
               onClick={performCapture}
               className="mb-6"
             >
-              Çek
+              {t('verificationCaptureButtonLabel')}
             </AppButton>
           </div>
         </div>

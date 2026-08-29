@@ -31,19 +31,20 @@ import { LegalModal } from '../../components/LegalModal';
 import { SafetyReportModal } from '../../components/SafetyReportModal';
 import { SPRING } from '../../motion/tokens';
 import { toast } from '../../stores/useToastStore';
-import { CHAT_TRANSLATION_LANGUAGES, chatLanguageLabel } from '../../lib/chatTranslationLanguages';
+import { CHAT_TRANSLATION_LANGUAGES, getLocalizedChatLanguageLabel } from '../../lib/chatTranslationLanguages';
 import { PRIVACY_POLICY, TERMS_OF_SERVICE, type LegalDocument } from '../../lib/legalContent';
 import {
   APP_LOCALE_LABELS,
   SUPPORTED_APP_LOCALES,
   useAppLocaleStore,
   useAppTranslation,
+  type AppMessageKey,
 } from '../../i18n/appLocale';
 
-const THEME_OPTIONS: { value: ThemeMode; label: string; icon: React.ReactNode }[] = [
-  { value: 'light', label: 'Aydınlık', icon: <Sun className="w-4 h-4" /> },
-  { value: 'dark', label: 'Karanlık', icon: <Moon className="w-4 h-4" /> },
-  { value: 'system', label: 'Sistem', icon: <Smartphone className="w-4 h-4" /> },
+const THEME_OPTION_KEYS: { value: ThemeMode; labelKey: AppMessageKey; icon: React.ReactNode }[] = [
+  { value: 'light', labelKey: 'settingsThemeLight', icon: <Sun className="w-4 h-4" /> },
+  { value: 'dark', labelKey: 'settingsThemeDark', icon: <Moon className="w-4 h-4" /> },
+  { value: 'system', labelKey: 'settingsThemeSystem', icon: <Smartphone className="w-4 h-4" /> },
 ];
 
 const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -129,7 +130,7 @@ export const SettingsScreen: React.FC = () => {
   const handleToggleMapVisible = (next: boolean) => {
     if (!next) {
       updateProfileMutation.mutate({ mapVisible: false }, {
-        onError: () => toast.error('Harita görünürlüğü güncellenemedi.'),
+        onError: () => toast.error(t('settingsMapVisibilityFailedError')),
       });
       return;
     }
@@ -143,12 +144,12 @@ export const SettingsScreen: React.FC = () => {
   const verificationComplete = user?.verified === true || user?.verificationState === 'APPROVED';
   const verificationPending = user?.verificationState === 'PENDING';
   const verificationValue = verificationComplete
-    ? 'Doğrulandı'
+    ? t('settingsVerifiedLabel')
     : verificationPending
-      ? 'İnceleniyor'
+      ? t('settingsVerificationPendingLabel')
       : user?.verificationState === 'REJECTED' || user?.verificationState === 'REVERIFICATION_REQUIRED'
-        ? 'Tekrar dene'
-        : 'Doğrulanmadı';
+        ? t('settingsVerificationRetryLabel')
+        : t('settingsNotVerifiedLabel');
   // Tier 2 of the chat-translation-language resolution chain (per-conversation override wins
   // when set; this is the fallback used across every conversation that hasn't overridden it).
   const chatLanguage = user?.chatLanguage || user?.languageCode || 'tr';
@@ -162,7 +163,7 @@ export const SettingsScreen: React.FC = () => {
       await apiClient.put('/api/chat/language', { chatLanguage: code });
     } catch {
       setUser({ ...user, chatLanguage: previous });
-      toast.error('Sohbet dili güncellenemedi.');
+      toast.error(t('settingsChatLanguageFailedError'));
     }
   };
 
@@ -179,14 +180,14 @@ export const SettingsScreen: React.FC = () => {
       await notificationsMutation.mutateAsync(next);
     } catch {
       setUser({ ...user, pushNotificationsEnabled: previous });
-      toast.error('Bildirim tercihi güncellenemedi.');
+      toast.error(t('settingsNotificationPrefFailedError'));
     }
   };
 
   return (
     <div className="flex flex-col h-full w-full bg-app text-app select-none overflow-hidden">
       <header className="pt-safe px-4 h-16 flex items-center gap-3 border-b border-app bg-surface-80 backdrop-blur-md z-sticky shrink-0">
-        <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate(-1)}>
+        <IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
         <AppLogo variant="icon" size="sm" />
@@ -196,12 +197,12 @@ export const SettingsScreen: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-4 space-y-6 no-scrollbar">
         {/* Account */}
         <div>
-          <SectionLabel>Hesap</SectionLabel>
+          <SectionLabel>{t('settingsAccountSectionLabel')}</SectionLabel>
           <div className="space-y-2.5">
-            <ListRow icon={<Mail className="w-5 h-5" />} label="E-posta" value={user?.email} />
+            <ListRow icon={<Mail className="w-5 h-5" />} label={t('settingsEmailLabel')} value={user?.email} />
             <ListRow
               icon={<ShieldCheck className="w-5 h-5" />}
-              label="Kimlik Doğrulama"
+              label={t('verificationScreenTitle')}
               value={verificationValue}
               onClick={verificationComplete || verificationPending ? undefined : () => navigate('/verification')}
             />
@@ -229,7 +230,7 @@ export const SettingsScreen: React.FC = () => {
             <ListRow
               icon={<Languages className="w-5 h-5" />}
               label={t('chatLanguage')}
-              value={chatLanguageLabel(chatLanguage)}
+              value={getLocalizedChatLanguageLabel(chatLanguage, locale)}
               onClick={() => setIsChatLanguageOpen(true)}
             />
           </div>
@@ -237,9 +238,9 @@ export const SettingsScreen: React.FC = () => {
 
         {/* Appearance */}
         <div>
-          <SectionLabel>Görünüm</SectionLabel>
+          <SectionLabel>{t('settingsAppearanceSectionLabel')}</SectionLabel>
           <div className="p-1.5 rounded-2xl bg-surface border border-app flex items-center shadow-soft">
-            {THEME_OPTIONS.map((opt) => {
+            {THEME_OPTION_KEYS.map((opt) => {
               const isActive = mode === opt.value;
               return (
                 <button
@@ -256,7 +257,7 @@ export const SettingsScreen: React.FC = () => {
                   )}
                   <span className={`relative z-10 flex items-center gap-1.5 text-caption font-bold ${isActive ? 'text-white' : 'text-app-muted'}`}>
                     {opt.icon}
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </span>
                 </button>
               );
@@ -266,29 +267,29 @@ export const SettingsScreen: React.FC = () => {
 
         {/* Privacy & Safety */}
         <div>
-          <SectionLabel>Gizlilik ve Güvenlik</SectionLabel>
+          <SectionLabel>{t('settingsPrivacySafetySectionLabel')}</SectionLabel>
           <div className="space-y-2.5">
             <ListRow
               icon={<UserX className="w-5 h-5" />}
-              label="Engellenen Kullanıcılar"
+              label={t('blockedUsersTitle')}
               onClick={() => navigate('/settings/blocked')}
             />
             <ToggleRow
               icon={<MapPin className="w-5 h-5" />}
-              label="Haritada Görün"
+              label={t('settingsShowOnMapLabel')}
               checked={mapVisible}
               disabled={updateProfileMutation.isPending}
               onChange={handleToggleMapVisible}
             />
             <ListRow
               icon={<Shield className="w-5 h-5" />}
-              label="Gizlilik Politikası"
+              label={t('privacyPolicyLabel')}
               value="appryvo.online"
               onClick={() => setLegalDoc(PRIVACY_POLICY)}
             />
             <ListRow
               icon={<FileText className="w-5 h-5" />}
-              label="Kullanım Koşulları"
+              label={t('termsOfServiceLabel')}
               value="appryvo.online"
               onClick={() => setLegalDoc(TERMS_OF_SERVICE)}
             />
@@ -299,7 +300,7 @@ export const SettingsScreen: React.FC = () => {
             state (only ACTIVE/BANNED/SUSPENDED), so a freeze toggle here would be a dead
             button — add the status value + discovery-visibility wiring first if this ships. */}
         <div>
-          <SectionLabel>Hesap İşlemleri</SectionLabel>
+          <SectionLabel>{t('settingsAccountActionsSectionLabel')}</SectionLabel>
           <div className="space-y-2.5">
             <ListRow icon={<LogOut className="w-5 h-5" />} label={t('logout')} onClick={handleLogout} />
             <ListRow
@@ -350,9 +351,9 @@ export const SettingsScreen: React.FC = () => {
 
       <Modal isOpen={isChatLanguageOpen} onClose={() => setIsChatLanguageOpen(false)}>
         <div className="space-y-4">
-          <h3 className="text-heading text-app">Sohbet Dili</h3>
+          <h3 className="text-heading text-app">{t('chatLanguage')}</h3>
           <p className="text-micro text-app-muted normal-case">
-            Konuşmalarda gelen mesajlar, bir sohbete özel dil seçmediğin sürece bu dile çevrilir.
+            {t('settingsChatLanguageDescription')}
           </p>
           <div className="grid grid-cols-2 gap-2">
             {CHAT_TRANSLATION_LANGUAGES.map((lang) => {
@@ -365,7 +366,7 @@ export const SettingsScreen: React.FC = () => {
                     selected ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app'
                   }`}
                 >
-                  <span className="truncate">{lang.label}</span>
+                  <span className="truncate">{getLocalizedChatLanguageLabel(lang.code, locale)}</span>
                   {selected && <Check className="w-4 h-4 shrink-0" />}
                 </button>
               );

@@ -1,0 +1,28 @@
+/* MapLibre GL JS + the Ryvo vector style (ryvoMapStyle.ts) already render a quiet, desaturated
+   basemap directly via style paint properties -- unlike the old Leaflet raster setup, no CSS
+   filter hack is needed here to mute a busy default basemap. This file only adjusts MapLibre's
+   own default chrome to fit the app shell. */
+
+/* Required attribution (© OpenMapTiles © OpenStreetMap contributors) stays visible, just
+   restyled to sit quietly above the bottom-nav safe area instead of MapLibre's default
+   bottom-right placement, which the floating controls/sheets in this screen would otherwise
+   cover. */
+.ryvo-map-root .maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 10px;
+}
+:root:not([data-theme='light']) .ryvo-map-root.ryvo-map-dark .maplibregl-ctrl-attrib,
+[data-theme='dark'] .ryvo-map-root.ryvo-map-dark .maplibregl-ctrl-attrib {
+  background: rgba(20, 20, 26, 0.7);
+  color: #d8d8de;
+}
+.ryvo-map-root .maplibregl-ctrl-bottom-right {
+  bottom: calc(var(--safe-bottom) + 4.75rem);
+}
+/* Default zoom/compass buttons are replaced by this screen's own recenter control. */
+.ryvo-map-root .maplibregl-ctrl-top-right,
+.ryvo-map-root .maplibregl-ctrl-top-left {
+  display: none;
+}

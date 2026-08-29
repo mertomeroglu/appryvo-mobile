@@ -7,6 +7,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { IconButton } from '../../components/ui/IconButton';
 import { formatMessageTime } from '../../lib/formatMessageTime';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 interface InAppNotification {
   id: string;
@@ -31,6 +32,7 @@ function iconForEvent(eventType: string) {
 }
 
 export const NotificationsScreen: React.FC = () => {
+  const { t } = useAppTranslation();
   const navigate = useNavigate();
   const { data, isLoading } = useInAppNotificationsQuery();
   const markRead = useMarkNotificationReadMutation();
@@ -56,13 +58,13 @@ export const NotificationsScreen: React.FC = () => {
   return (
     <div className="flex flex-col h-full w-full bg-app text-app overflow-hidden select-none">
       <header className="pt-safe px-4 h-16 flex items-center gap-3 z-sticky bg-app-80 backdrop-blur-md border-b border-app">
-        <IconButton aria-label="Geri" variant="surface" size="md" onClick={() => navigate(-1)}>
+        <IconButton aria-label={t('backButtonLabel')} variant="surface" size="md" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
-        <h2 className="text-title text-app">Bildirimler</h2>
+        <h2 className="text-title text-app">{t('notifications')}</h2>
         {!isLoading && data?.unreadCount > 0 && (
           <span className="ms-auto px-2.5 py-1 rounded-full bg-brand-gradient text-white text-micro font-extrabold">
-            {data.unreadCount} yeni
+            {t('notifCountBadgeTemplate').replace('{count}', String(data.unreadCount))}
           </span>
         )}
       </header>
@@ -78,7 +80,7 @@ export const NotificationsScreen: React.FC = () => {
 
         {!isLoading && notifications.length === 0 && (
           <div className="my-auto py-16">
-            <EmptyState icon="🔔" title="Bildirim Yok" subtitle="Yeni etkileşimler burada görünecek." />
+            <EmptyState icon="🔔" title={t('notifEmptyTitle')} subtitle={t('notifEmptySubtitle')} />
           </div>
         )}
 

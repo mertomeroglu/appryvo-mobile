@@ -4,6 +4,7 @@ import { ApiException, apiClient } from '../services/api/apiClient';
 import { useAuthStore } from '../stores/useAuthStore';
 import { Modal } from './ui/Modal';
 import { AppButton } from './ui/AppButton';
+import { useAppTranslation, type AppMessageKey } from '../i18n/appLocale';
 
 interface SafetyReportModalProps {
   isOpen: boolean;
@@ -15,23 +16,25 @@ interface SafetyReportModalProps {
   onSuccess?: () => void;
 }
 
-const REPORT_REASONS = [
-  { value: 'SPAM', label: 'Spam / Sahte Profil' },
-  { value: 'IMPERSONATION', label: 'Bu kişi bana ait fotoğraf kullanıyor' },
-  { value: 'HARASSMENT', label: 'Taciz / Uygunsuz Davranış' },
-  { value: 'INAPPROPRIATE_CONTENT', label: 'Uygunsuz Fotoğraf / İçerik' },
-  { value: 'UNDERAGE', label: 'Yaş Sınırı İhlali' },
-  { value: 'OTHER', label: 'Diğer' },
+const REPORT_REASON_KEYS: { value: string; labelKey: AppMessageKey }[] = [
+  { value: 'SPAM', labelKey: 'safetyReasonSpam' },
+  { value: 'IMPERSONATION', labelKey: 'safetyReasonImpersonation' },
+  { value: 'HARASSMENT', labelKey: 'safetyReasonHarassment' },
+  { value: 'INAPPROPRIATE_CONTENT', labelKey: 'safetyReasonInappropriateContent' },
+  { value: 'UNDERAGE', labelKey: 'safetyReasonUnderage' },
+  { value: 'OTHER', labelKey: 'reportReasonOther' },
 ];
 
 export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
   isOpen,
   onClose,
   targetUserId,
-  targetUserName = 'Kullanıcı',
+  targetUserName,
   type = 'report',
   onSuccess,
 }) => {
+  const { t } = useAppTranslation();
+  const resolvedTargetUserName = targetUserName || t('genericUserLabel');
   const [reason, setReason] = useState('SPAM');
   const [details, setDetails] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
@@ -69,7 +72,7 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
         });
       } else if (type === 'delete_account') {
         if (!hasPassword) {
-          setErrorMsg('Bu hesap sosyal giriş kullanıyor. Hesabını silmeden önce giriş sağlayıcınla yeniden doğrulama yapmalısın.');
+          setErrorMsg(t('safetyDeleteSocialLoginError'));
           setIsLoading(false);
           return;
         }
@@ -84,16 +87,16 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
     } catch (err: any) {
       if (type === 'delete_account') {
         if (err instanceof ApiException && err.statusCode === 429) {
-          setErrorMsg('Çok fazla hatalı deneme yaptın. Lütfen daha sonra tekrar dene.');
+          setErrorMsg(t('safetyTooManyAttemptsError'));
         } else if (err instanceof ApiException && (err.code === 'ACCOUNT_DELETE_REAUTH_FAILED' || err.statusCode === 401)) {
-          setErrorMsg('Şifre yanlış. Hesabında hiçbir değişiklik yapılmadı.');
+          setErrorMsg(t('safetyWrongPasswordError'));
         } else if (err instanceof ApiException && err.code === 'PASSWORD_REQUIRED') {
-          setErrorMsg('Devam etmek için şifreni gir.');
+          setErrorMsg(t('safetyPasswordRequiredError'));
         } else {
-          setErrorMsg('Hesap şu anda silinemedi. Lütfen daha sonra tekrar dene.');
+          setErrorMsg(t('safetyDeleteAccountFailedError'));
         }
       } else {
-        setErrorMsg(err.message || 'İşlem gerçekleştirilemedi.');
+        setErrorMsg(err.message || t('safetyActionFailedError'));
       }
     } finally {
       setIsLoading(false);
@@ -105,7 +108,7 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
       <div className="flex items-center gap-2 text-app font-bold text-heading border-b border-app pb-3 mb-4">
         <ShieldAlert className="w-5 h-5 text-[#FF4B55]" />
         <span>
-          {type === 'report' ? 'Kullanıcıyı Bildir' : type === 'block' ? 'Kullanıcıyı Engelle' : 'Hesabı Sil'}
+          {type === 'report' ? t('reportUser') : type === 'block' ? t('blockUser') : t('deleteAccount')}
         </span>
       </div>
 
@@ -114,11 +117,11 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
           <div className="w-12 h-12 rounded-full bg-[#32D583]/15 text-[#32D583] flex items-center justify-center">
             <Check className="w-6 h-6" />
           </div>
-          <h4 className="text-body font-bold text-app">İşlem Başarıyla Alındı</h4>
+          <h4 className="text-body font-bold text-app">{t('safetySuccessTitle')}</h4>
           <p className="text-caption text-app-muted normal-case">
             {type === 'delete_account'
-              ? 'Hesabın kalıcı olarak silinecek.'
-              : 'Bildiriminiz güvenlik ekibimizce incelenecektir.'}
+              ? t('safetyDeleteSuccessMessage')
+              : t('safetyReportSuccessMessage')}
           </p>
         </div>
       ) : (
@@ -126,8 +129,7 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
           {type === 'report' && (
             <>
               <p className="text-caption text-app-muted normal-case">
-                <span className="font-bold text-app">{targetUserName}</span> adlı kullanıcıyı bildirme sebebinizi
-                seçin:
+                {t('safetyReportReasonPromptTemplate').replace('{name}', resolvedTargetUserName)}
               </p>
 
               <select
@@ -135,16 +137,16 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
                 onChange={(e) => setReason(e.target.value)}
                 className="w-full bg-input-app border border-app rounded-xl p-3 text-body text-app focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
               >
-                {REPORT_REASONS.map((r) => (
+                {REPORT_REASON_KEYS.map((r) => (
                   <option key={r.value} value={r.value}>
-                    {r.label}
+                    {t(r.labelKey)}
                   </option>
                 ))}
               </select>
 
               <textarea
                 rows={3}
-                placeholder="Ek açıklama (isteğe bağlı)..."
+                placeholder={t('safetyOptionalDetailsPlaceholder')}
                 value={details}
                 onChange={(e) => setDetails(e.target.value)}
                 className="w-full bg-input-app border border-app rounded-xl p-3 text-caption text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
@@ -155,12 +157,11 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
           {type === 'block' && (
             <>
               <p className="text-caption text-app-muted normal-case">
-                <span className="font-bold text-app">{targetUserName}</span> adlı kullanıcıyı engellemek
-                istediğinize emin misiniz? Birbirinizi tekrar göremez ve mesajlaşamazsınız.
+                {t('safetyBlockConfirmTemplate').replace('{name}', resolvedTargetUserName)}
               </p>
               <textarea
                 rows={2}
-                placeholder="Sebep (isteğe bağlı)..."
+                placeholder={t('safetyOptionalReasonPlaceholder')}
                 value={details}
                 onChange={(e) => setDetails(e.target.value)}
                 className="w-full bg-input-app border border-app rounded-xl p-3 text-caption text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
@@ -171,12 +172,11 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
           {type === 'delete_account' && (
             <div className="space-y-3">
               <p className="text-caption text-[#FF4B55] normal-case">
-                Dikkat: Hesabınızı sildiğinizde tüm eşleşmeleriniz, mesajlarınız ve profil verileriniz kalıcı olarak
-                silinecektir. Bu işlem geri alınamaz.
+                {t('safetyDeleteAccountWarning')}
               </p>
               {hasPassword ? (
                 <label className="block space-y-1.5">
-                  <span className="text-caption font-bold normal-case text-app">Şifreni doğrula</span>
+                  <span className="text-caption font-bold normal-case text-app">{t('safetyVerifyPasswordLabel')}</span>
                   <span className="relative block">
                     <LockKeyhole className="absolute start-3.5 top-3.5 h-4 w-4 text-app-muted" />
                     <input
@@ -186,7 +186,7 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
                       enterKeyHint="done"
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
-                      placeholder="Şifreni gir"
+                      placeholder={t('passwordHint')}
                       className="w-full rounded-xl border border-app bg-input-app py-3 ps-10 pe-3 text-body text-app placeholder:text-app-muted focus:border-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
                     />
                   </span>
@@ -194,8 +194,8 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
               ) : (
                 <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-caption normal-case text-amber-600">
                   {socialProviders.length > 0
-                    ? `${socialProviders.join(' / ')} ile yeniden doğrulama gerekiyor.`
-                    : 'Sosyal giriş sağlayıcınla yeniden doğrulama gerekiyor.'}
+                    ? t('safetySocialReauthTemplate').replace('{providers}', socialProviders.join(' / '))
+                    : t('safetySocialReauthFallback')}
                 </p>
               )}
             </div>
@@ -209,7 +209,7 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
 
           <div className="flex gap-2 pt-2">
             <AppButton type="button" variant="secondary" size="md" className="flex-1" onClick={onClose}>
-              İptal
+              {t('cancel')}
             </AppButton>
             <AppButton
               type="submit"
@@ -219,7 +219,7 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
               loading={isLoading}
               disabled={type === 'delete_account' && (!hasPassword || password.length === 0)}
             >
-              {type === 'delete_account' ? 'Hesabımı Kalıcı Olarak Sil' : 'Onayla'}
+              {type === 'delete_account' ? t('safetyDeleteAccountConfirmButton') : t('safetyConfirmButton')}
             </AppButton>
           </div>
         </form>

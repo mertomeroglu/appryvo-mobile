@@ -4,7 +4,8 @@ import { Crown, Heart, MapPin, Star, X } from 'lucide-react';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { VerifiedBadge } from '../../components/ui/Badge';
 import { DURATION, SPRING } from '../../motion/tokens';
-import { getRelationshipGoalLabels, getZodiacLabel } from '../../lib/profileLabels';
+import { getRelationshipGoalLabels, getZodiacLabel, formatDisplayAge } from '../../lib/profileLabels';
+import { getLocalizedInterestLabel } from '../../lib/interestLabels';
 import { ZodiacIcon } from '../../components/ui/ZodiacIcon';
 import { getPhotoUrl } from '../../services/media/mediaService';
 import { useAppTranslation } from '../../i18n/appLocale';
@@ -60,7 +61,7 @@ const SwipeCardComponent = React.forwardRef<SwipeCardHandle, SwipeCardProps>(fun
   { profile, isTop, isExiting = false, onSwiped, onExitComplete, canSuperLike = true, onSuperLikeUnavailable, onInfoClick },
   ref
 ) {
-  const { locale } = useAppTranslation();
+  const { locale, t } = useAppTranslation();
   const reduceMotion = useReducedMotion();
   // Direct-manipulation drag tracking stays 1:1 with the finger regardless of this setting —
   // only the non-essential bounce/overshoot on settle and stack entrance is dampened.
@@ -228,12 +229,12 @@ const SwipeCardComponent = React.forwardRef<SwipeCardHandle, SwipeCardProps>(fun
       {isTop && photos.length > 1 && (
         <div className="absolute inset-x-0 top-0 h-[78%] flex z-10">
           <motion.button
-            aria-label="Önceki fotoğraf"
+            aria-label={t('fullProfilePrevPhotoAriaLabel')}
             className="w-1/2 h-full"
             onTap={() => goPhoto(-1)}
           />
           <motion.button
-            aria-label="Sonraki fotoğraf"
+            aria-label={t('fullProfileNextPhotoAriaLabel')}
             className="w-1/2 h-full"
             onTap={() => goPhoto(1)}
           />
@@ -267,13 +268,13 @@ const SwipeCardComponent = React.forwardRef<SwipeCardHandle, SwipeCardProps>(fun
       >
         <div className="flex items-baseline gap-2 mb-1">
           <h2 className="text-3xl font-black">{profile.name}</h2>
-          {profile.age && <span className="text-2xl font-bold text-gray-300">{profile.age}</span>}
+          {formatDisplayAge(profile.age) !== undefined && <span className="text-2xl font-bold text-gray-300">{formatDisplayAge(profile.age)}</span>}
           {profile.verified && <VerifiedBadge size={22} />}
           {profile.isPremium && <Crown className="w-5 h-5 text-[#F5B942] fill-current" />}
           {profile.activeNow && (
             <span className="flex items-center gap-1.5 text-xs font-bold text-[#32D583]">
               <span className="w-2 h-2 rounded-full bg-[#32D583]" />
-              Şimdi Aktif
+              {t('swipeActiveNowLabel')}
             </span>
           )}
         </div>
@@ -283,7 +284,7 @@ const SwipeCardComponent = React.forwardRef<SwipeCardHandle, SwipeCardProps>(fun
             <span className="flex items-center gap-1.5">
               <MapPin className="w-4 h-4 text-pink-500" />
               <span>{profile.city}</span>
-              {typeof profile.distanceKm === 'number' && <span>• {profile.distanceKm} km uzakta</span>}
+              {typeof profile.distanceKm === 'number' && <span>• {t('fullProfileDistanceAwayTemplate').replace('{distance}', String(profile.distanceKm))}</span>}
             </span>
           </div>
         )}
@@ -291,7 +292,7 @@ const SwipeCardComponent = React.forwardRef<SwipeCardHandle, SwipeCardProps>(fun
         {profile.isNewMember && (
           <div className="mb-1.5">
             <span className="text-[11px] font-black tracking-wide bg-[#FF4D8D] px-3 py-1 rounded-full text-white shadow-md shadow-pink-500/30">
-              ✨ YENİ ÜYE
+              {t('swipeNewMemberBadge')}
             </span>
           </div>
         )}
@@ -314,7 +315,7 @@ const SwipeCardComponent = React.forwardRef<SwipeCardHandle, SwipeCardProps>(fun
                 key={i}
                 className="text-[11px] font-semibold bg-black/35 px-3 py-1 rounded-full text-white border border-white/10"
               >
-                {interest}
+                {getLocalizedInterestLabel(interest, locale)}
               </span>
             ))}
         </div>

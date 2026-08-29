@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { AdMob, AdmobConsentStatus, type AdMobRewardItem } from '@capacitor-community/admob';
+import { translateSync } from '../i18n/appLocale';
 
 // Google's own published TEST ad unit IDs (https://developers.google.com/admob/android/test-ads
 // / .../ios/test-ads) -- safe to ship in debug/dev builds. See AndroidManifest.xml's
@@ -51,7 +52,7 @@ export const nativeAdMob = {
    */
   async showRewardedAd(userId: string, ssvCustomData: string): Promise<AdMobRewardItem> {
     if (!Capacitor.isNativePlatform()) {
-      throw new Error('Ödüllü reklamlar yalnızca iOS veya Android uygulamasında kullanılabilir.');
+      throw new Error(translateSync('admobRewardedAdNativeOnlyError'));
     }
     await this.initialize();
     await AdMob.prepareRewardVideoAd({

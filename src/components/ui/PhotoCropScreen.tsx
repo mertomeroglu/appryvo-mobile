@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Check, RotateCcw, X } from 'lucide-react';
 import { IconButton } from './IconButton';
 import { AppButton } from './AppButton';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 interface PhotoCropScreenProps {
   imageSrc: string;
@@ -37,6 +38,7 @@ export const PhotoCropScreen: React.FC<PhotoCropScreenProps> = ({
   onUseOriginal,
   onCancel,
 }) => {
+  const { t } = useAppTranslation();
   const frameRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const naturalSize = useRef({ w: 0, h: 0 });
@@ -167,11 +169,11 @@ export const PhotoCropScreen: React.FC<PhotoCropScreenProps> = ({
   return (
     <div className="fixed inset-0 z-modal bg-black flex flex-col select-none">
       <header className="pt-safe px-5 h-16 flex items-center justify-between z-sticky">
-        <IconButton aria-label="Vazgeç" variant="surface" size="md" onClick={onCancel}>
+        <IconButton aria-label={t('discardAriaLabel')} variant="surface" size="md" onClick={onCancel}>
           <X className="w-5 h-5" />
         </IconButton>
-        <span className="text-caption font-bold text-white normal-case">Fotoğrafı Ayarla</span>
-        <IconButton aria-label="Sıfırla" variant="surface" size="md" onClick={handleReset}>
+        <span className="text-caption font-bold text-white normal-case">{t('cropAdjustPhotoTitle')}</span>
+        <IconButton aria-label={t('filterResetButton')} variant="surface" size="md" onClick={handleReset}>
           <RotateCcw className="w-4 h-4" />
         </IconButton>
       </header>
@@ -189,7 +191,7 @@ export const PhotoCropScreen: React.FC<PhotoCropScreenProps> = ({
           <img
             ref={imgRef}
             src={imageSrc}
-            alt="Kırpılacak fotoğraf"
+            alt={t('cropPhotoAlt')}
             onLoad={handleImageLoad}
             draggable={false}
             className="absolute left-1/2 top-1/2 max-w-none pointer-events-none"
@@ -205,7 +207,7 @@ export const PhotoCropScreen: React.FC<PhotoCropScreenProps> = ({
 
       <div className="px-6 pb-2 space-y-3 text-center">
         <p className="text-caption font-semibold text-white/60 normal-case">
-          Yakınlaştırmak için sıkıştır, konumlandırmak için sürükle
+          {t('cropPinchDragHint')}
         </p>
         <input
           type="range"
@@ -213,7 +215,7 @@ export const PhotoCropScreen: React.FC<PhotoCropScreenProps> = ({
           max={MAX_ZOOM}
           step={0.05}
           value={zoom}
-          aria-label="Fotoğraf yakınlaştırma"
+          aria-label={t('cropZoomAriaLabel')}
           onChange={(event) => {
             const nextZoom = Number(event.target.value);
             setZoom(nextZoom);
@@ -226,7 +228,7 @@ export const PhotoCropScreen: React.FC<PhotoCropScreenProps> = ({
       <div className="px-6 pb-safe pt-2 grid grid-cols-2 gap-3">
         {onUseOriginal && (
           <AppButton variant="secondary" size="lg" onClick={onUseOriginal} className="min-w-0 px-3">
-            Orijinali Kullan
+            {t('cropUseOriginalAction')}
           </AppButton>
         )}
         <motion.div className={onUseOriginal ? '' : 'col-span-2'} whileTap={{ scale: 0.97 }}>
@@ -239,7 +241,7 @@ export const PhotoCropScreen: React.FC<PhotoCropScreenProps> = ({
             leftIcon={<Check className="w-5 h-5" />}
             onClick={handleConfirm}
           >
-            Kırpmayı Uygula
+            {t('cropApplyAction')}
           </AppButton>
         </motion.div>
       </div>

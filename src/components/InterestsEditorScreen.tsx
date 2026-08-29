@@ -6,6 +6,7 @@ import { AppButton } from './ui/AppButton';
 import { FilterChip } from './ui/Chip';
 import { toast } from '../stores/useToastStore';
 import { ALL_INTERESTS, INTEREST_CATEGORIES, INTEREST_MAX, INTEREST_MIN } from '../lib/interests';
+import { getLocalizedCategoryTitle, getLocalizedInterestLabel } from '../lib/interestLabels';
 import { useAppTranslation } from '../i18n/appLocale';
 
 interface InterestsEditorScreenProps {
@@ -25,7 +26,7 @@ export const InterestsEditorScreen: React.FC<InterestsEditorScreenProps> = ({
   onCancel,
   onSave,
 }) => {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const [interests, setInterests] = useState<string[]>(initialSelected);
 
   // Re-seed the draft if the editor is reopened after a Cancel with a stale prior draft.
@@ -81,7 +82,9 @@ export const InterestsEditorScreen: React.FC<InterestsEditorScreenProps> = ({
         )}
         {INTEREST_CATEGORIES.map((category) => (
           <div key={category.id} className="space-y-1.5">
-            <p className="text-caption font-bold normal-case text-app-muted">{category.title}</p>
+            <p className="text-caption font-bold normal-case text-app-muted">
+              {getLocalizedCategoryTitle(category.id, locale)}
+            </p>
             <div className="flex flex-wrap gap-2">
               {category.interests.map((item) => {
                 const selected = interests.includes(item);
@@ -93,7 +96,7 @@ export const InterestsEditorScreen: React.FC<InterestsEditorScreenProps> = ({
                     disabled={!selected && interests.length >= INTEREST_MAX}
                     onClick={() => toggleInterest(item)}
                   >
-                    {item}
+                    {getLocalizedInterestLabel(item, locale)}
                   </FilterChip>
                 );
               })}

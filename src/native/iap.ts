@@ -7,6 +7,7 @@ import { NativePurchases, PURCHASE_TYPE, type Product, type Transaction } from '
 import { getStoreProductId, SUBSCRIPTION_PRODUCTS } from '../features/premium/subscriptionProducts';
 import { apiClient } from '../services/api/apiClient';
 import type { CoinPack } from '../features/gifts/types';
+import { translateSync } from '../i18n/appLocale';
 
 export const BOOST_PRODUCT_ID = 'ryvo_boost_single';
 
@@ -45,7 +46,7 @@ function matchesStoreId(product: Product, storeId: string) {
 
 async function verifyTransaction(transaction: Transaction, expectedProductId = transaction.productIdentifier) {
   const purchaseToken = verificationToken(transaction);
-  if (!purchaseToken) throw new Error('Mağaza doğrulama jetonu alınamadı.');
+  if (!purchaseToken) throw new Error(translateSync('iapVerificationTokenMissingError'));
   return apiClient.post('/api/subscriptions/verify', {
     platform: platform(),
     purchaseToken,
@@ -56,7 +57,7 @@ async function verifyTransaction(transaction: Transaction, expectedProductId = t
 
 async function verifyCoinTransaction(transaction: Transaction, expectedProductId: string) {
   const purchaseToken = verificationToken(transaction);
-  if (!purchaseToken) throw new Error('Mağaza doğrulama jetonu alınamadı.');
+  if (!purchaseToken) throw new Error(translateSync('iapVerificationTokenMissingError'));
   return apiClient.post('/api/coins/purchases/verify', {
     platform: platform(),
     purchaseToken,
@@ -79,9 +80,9 @@ export const nativeIap = {
   },
 
   async purchaseCoinPack(pack: CoinPack) {
-    if (!Capacitor.isNativePlatform()) throw new Error('Coin satın alma yalnızca iOS veya Android uygulamasında kullanılabilir.');
+    if (!Capacitor.isNativePlatform()) throw new Error(translateSync('giftCoinPurchaseNativeOnlyMessage'));
     const support = await NativePurchases.isBillingSupported();
-    if (!support.isBillingSupported) throw new Error('Bu cihazda mağaza satın alımları kullanılamıyor.');
+    if (!support.isBillingSupported) throw new Error(translateSync('iapBillingUnavailableError'));
     const productId = platform() === 'ios' ? pack.iosProductId : pack.androidProductId;
     const transaction = await NativePurchases.purchaseProduct({
       productIdentifier: productId,
@@ -143,9 +144,9 @@ export const nativeIap = {
   },
 
   async purchaseSubscription(productId: string, storeProductId: string, storeProduct?: Product) {
-    if (!Capacitor.isNativePlatform()) throw new Error('Satın alma yalnızca iOS veya Android uygulamasında kullanılabilir.');
+    if (!Capacitor.isNativePlatform()) throw new Error(translateSync('iapPurchaseNativeOnlyError'));
     const support = await NativePurchases.isBillingSupported();
-    if (!support.isBillingSupported) throw new Error('Bu cihazda mağaza satın alımları kullanılamıyor.');
+    if (!support.isBillingSupported) throw new Error(translateSync('iapBillingUnavailableError'));
 
     // Android Product.identifier is the base-plan ID; Product.planIdentifier is
     // the subscription product ID. StoreKit returns its product ID as identifier.
@@ -173,7 +174,7 @@ export const nativeIap = {
   },
 
   async purchaseBoost() {
-    if (!Capacitor.isNativePlatform()) throw new Error('Boost satın alma yalnızca iOS veya Android uygulamasında kullanılabilir.');
+    if (!Capacitor.isNativePlatform()) throw new Error(translateSync('iapBoostPurchaseNativeOnlyError'));
     const transaction = await NativePurchases.purchaseProduct({
       productIdentifier: BOOST_PRODUCT_ID,
       productType: PURCHASE_TYPE.INAPP,
@@ -195,9 +196,9 @@ export const nativeIap = {
   },
 
   async purchaseFrame(productId: string) {
-    if (!Capacitor.isNativePlatform()) throw new Error('Çerçeve satın alma yalnızca iOS veya Android uygulamasında kullanılabilir.');
+    if (!Capacitor.isNativePlatform()) throw new Error(translateSync('iapFramePurchaseNativeOnlyError'));
     const support = await NativePurchases.isBillingSupported();
-    if (!support.isBillingSupported) throw new Error('Bu cihazda mağaza satın alımları kullanılamıyor.');
+    if (!support.isBillingSupported) throw new Error(translateSync('iapBillingUnavailableError'));
     const transaction = await NativePurchases.purchaseProduct({
       productIdentifier: productId,
       productType: PURCHASE_TYPE.INAPP,
@@ -205,7 +206,7 @@ export const nativeIap = {
       isConsumable: false,
     });
     const purchaseToken = verificationToken(transaction);
-    if (!purchaseToken) throw new Error('Mağaza doğrulama jetonu alınamadı.');
+    if (!purchaseToken) throw new Error(translateSync('iapVerificationTokenMissingError'));
     return apiClient.post('/api/profile/frames/purchase/verify', {
       platform: platform(),
       purchaseToken,

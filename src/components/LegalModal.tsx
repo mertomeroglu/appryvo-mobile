@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { BottomSheet } from './ui/BottomSheet';
 import { IconButton } from './ui/IconButton';
 import type { LegalDocument } from '../lib/legalContent';
+import { useAppTranslation } from '../i18n/appLocale';
 
 interface LegalModalProps {
   document: LegalDocument | null;
@@ -10,8 +11,12 @@ interface LegalModalProps {
 }
 
 /** Nearly full-height scrollable legal document viewer. See lib/legalContent.ts for why this
- * renders bundled content instead of an iframe over the live pages. */
+ * renders bundled content instead of an iframe over the live pages. The document content itself
+ * (title/sections/body) comes from legalContent.ts, which is not locale-aware -- translating the
+ * full Terms of Service / Privacy Policy text into 9 languages is a legal/content task, not a
+ * UI-string localization one, and is out of scope here. */
 export const LegalModal: React.FC<LegalModalProps> = ({ document, onClose }) => {
+  const { t } = useAppTranslation();
   return (
     <BottomSheet isOpen={!!document} onClose={onClose} className="h-[92vh] flex flex-col">
       {document && (
@@ -21,7 +26,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({ document, onClose }) => 
               <h2 className="text-heading text-app">{document.title}</h2>
               <p className="text-micro text-app-muted normal-case mt-0.5">{document.updatedLabel}</p>
             </div>
-            <IconButton aria-label="Kapat" variant="surface" size="md" onClick={onClose}>
+            <IconButton aria-label={t('closeAriaLabel')} variant="surface" size="md" onClick={onClose}>
               <X className="w-5 h-5" />
             </IconButton>
           </div>

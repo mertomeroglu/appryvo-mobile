@@ -16,6 +16,7 @@ import { nativeHaptics } from '../../native/haptics';
 import { DURATION } from '../../motion/tokens';
 import { nativeIap } from '../../native/iap';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 function formatRemaining(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -39,6 +40,7 @@ const RadarRing: React.FC<{ delay: number; reduceMotion: boolean }> = ({ delay, 
 };
 
 export const BoostScreen: React.FC = () => {
+  const { t } = useAppTranslation();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const reduceMotion = useReducedMotion();
@@ -88,12 +90,12 @@ export const BoostScreen: React.FC = () => {
   const remainingMs = isActive ? expiresAt! - now : 0;
   const progress = Math.max(0, Math.min(100, (remainingMs / (30 * 60 * 1000)) * 100));
   const boostStateLabel = isActive
-    ? 'Aktif'
+    ? t('ownProfilePremiumActiveLabel')
     : subscriptionTier === 'GOLD'
       ? 'Ryvo Gold'
       : subscriptionTier === 'PLUS'
         ? 'Ryvo Plus'
-        : 'Ücretsiz';
+        : t('boostFreeTierLabel');
 
   const handleActivateBoost = async () => {
     setErrorMsg('');
@@ -107,7 +109,7 @@ export const BoostScreen: React.FC = () => {
       setExpiresAt(expires ? new Date(expires).getTime() : Date.now() + 30 * 60 * 1000);
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.entitlements });
     } catch (err: any) {
-      setErrorMsg(err.message || 'Boost etkinleştirilemedi.');
+      setErrorMsg(err.message || t('boostActivateFailedError'));
     } finally {
       setIsLoading(false);
     }
@@ -120,7 +122,7 @@ export const BoostScreen: React.FC = () => {
       await nativeIap.purchaseBoost();
       await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.entitlements });
     } catch (err: any) {
-      setErrorMsg(err.message || 'Boost satın alma tamamlanamadı.');
+      setErrorMsg(err.message || t('boostPurchaseFailedError'));
     } finally {
       setIsPurchasing(false);
     }
@@ -131,7 +133,7 @@ export const BoostScreen: React.FC = () => {
   return (
     <div className="h-full w-full overflow-y-auto bg-app px-4 pb-8 text-app no-scrollbar select-none">
       <header className="pt-safe my-2 flex items-center justify-between">
-        <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate(-1)}>
+        <IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
         <div className="flex items-center gap-1.5">
@@ -156,8 +158,8 @@ export const BoostScreen: React.FC = () => {
           </div>
           <div className="relative min-w-0 text-left">
             <span className="mb-2 inline-flex items-center gap-1 rounded-full bg-pink-500/10 px-2.5 py-1 text-micro font-black text-pink-500"><Sparkles className="h-3 w-3" /> {boostStateLabel}</span>
-            <h1 className="text-heading font-black text-app">Profilini Öne Çıkar</h1>
-            <p className="mt-2 text-caption normal-case leading-relaxed text-app-muted">Profilini 30 dakika boyunca Keşfet'te daha görünür yap.</p>
+            <h1 className="text-heading font-black text-app">{t('boostHeroTitle')}</h1>
+            <p className="mt-2 text-caption normal-case leading-relaxed text-app-muted">{t('boostHeroDescription')}</p>
           </div>
         </div>
       </motion.section>
@@ -169,50 +171,50 @@ export const BoostScreen: React.FC = () => {
       )}
 
       {isLoadingEntitlements ? (
-        <section className="mx-auto mt-4 w-full max-w-sm space-y-4 rounded-3xl border border-app bg-surface p-5 shadow-soft" aria-label="Boost bilgileri yükleniyor">
+        <section className="mx-auto mt-4 w-full max-w-sm space-y-4 rounded-3xl border border-app bg-surface p-5 shadow-soft" aria-label={t('boostLoadingAriaLabel')}>
           <Skeleton className="h-5 w-40 rounded-full" />
           <Skeleton className="h-4 w-28 rounded-full" />
           <Skeleton className="h-14 w-full rounded-[20px]" />
         </section>
       ) : isEntitlementsError ? (
         <section className="mx-auto mt-4 w-full max-w-sm rounded-3xl border border-app bg-surface p-5 text-center shadow-soft">
-          <p className="text-body font-extrabold text-app">Boost hakların alınamadı</p>
-          <p className="mt-1 text-caption normal-case text-app-muted">Satın alma veya kullanım yapmadan önce tekrar deneyebilirsin.</p>
+          <p className="text-body font-extrabold text-app">{t('boostEntitlementsLoadFailedTitle')}</p>
+          <p className="mt-1 text-caption normal-case text-app-muted">{t('boostEntitlementsLoadFailedSubtitle')}</p>
           <AppButton className="mt-4" variant="secondary" size="md" fullWidth onClick={() => void refetchEntitlements()}>
-            Tekrar Dene
+            {t('retryButton')}
           </AppButton>
         </section>
       ) : isActive ? (
         <section className="mx-auto mt-4 w-full max-w-sm rounded-3xl border border-pink-500 bg-surface p-5 shadow-elevated">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 font-extrabold text-pink-500"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-pink-500" /><span>Boost aktif</span></div>
+            <div className="flex items-center gap-2 font-extrabold text-pink-500"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-pink-500" /><span>{t('boostActiveLabel')}</span></div>
             <Clock3 className="h-5 w-5 text-app-muted" />
           </div>
-          <p className="mt-3 text-title tabular-nums text-app">Boost aktif · {formatRemaining(remainingMs)}</p>
+          <p className="mt-3 text-title tabular-nums text-app">{t('boostActiveWithTimeTemplate').replace('{time}', formatRemaining(remainingMs))}</p>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-app-secondary"><div className="h-full rounded-full bg-brand-gradient transition-[width] duration-500" style={{ width: `${progress}%` }} /></div>
-          <p className="mt-3 text-caption normal-case text-app-muted">Profilin keşfette daha görünür.</p>
+          <p className="mt-3 text-caption normal-case text-app-muted">{t('boostActiveDescription')}</p>
         </section>
       ) : (
         <section className="mx-auto mt-4 w-full max-w-sm rounded-3xl border border-app bg-surface p-5 shadow-soft">
           <div className="mb-5">
-            <p className="text-body font-extrabold text-app">{subscriptionTier === 'GOLD' ? 'Ryvo Gold · Ayda 2 Boost' : subscriptionTier === 'PLUS' ? 'Ryvo Plus · Ayda 1 Boost' : 'Kullanılabilir Boost hakkın yok'}</p>
-            <p className="mt-1 text-caption normal-case text-app-muted">Kalan hakkın: {boostsRemaining}</p>
+            <p className="text-body font-extrabold text-app">{subscriptionTier === 'GOLD' ? t('boostGoldTierLabel') : subscriptionTier === 'PLUS' ? t('boostPlusTierLabel') : t('boostNoCreditsLabel')}</p>
+            <p className="mt-1 text-caption normal-case text-app-muted">{t('boostRemainingCreditsTemplate').replace('{count}', String(boostsRemaining))}</p>
           </div>
 
           {canActivate ? (
             <AppButton variant="primary" size="lg" fullWidth loading={isLoading} onClick={handleActivateBoost}>
-              Boost’u Başlat
+              {t('boostStartAction')}
             </AppButton>
           ) : isStoreLoading ? (
             <div className="space-y-3"><Skeleton className="h-14 w-full rounded-[20px]" /><Skeleton className="mx-auto h-5 w-32" /></div>
           ) : boostProduct ? (
             <div className="space-y-3">
-              <AppButton variant="primary" size="lg" fullWidth loading={isPurchasing} onClick={handlePurchaseBoost}>Boost Satın Al · {boostProduct.priceString}</AppButton>
-              <AppButton variant="secondary" size="md" fullWidth onClick={() => navigate('/premium')}>Paketleri İncele</AppButton>
+              <AppButton variant="primary" size="lg" fullWidth loading={isPurchasing} onClick={handlePurchaseBoost}>{t('boostBuyWithPriceTemplate').replace('{price}', boostProduct.priceString)}</AppButton>
+              <AppButton variant="secondary" size="md" fullWidth onClick={() => navigate('/premium')}>{t('boostReviewPlansAction')}</AppButton>
             </div>
           ) : (
             <AppButton variant="primary" size="lg" fullWidth onClick={() => navigate('/premium')}>
-              Ryvo Plus ve Gold’u İncele
+              {t('boostExplorePlusGoldAction')}
             </AppButton>
           )}
         </section>

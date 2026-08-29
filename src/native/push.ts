@@ -1,5 +1,22 @@
-import { PushNotifications, Token, ActionPerformed, PushNotificationSchema } from '@capacitor/push-notifications';
+import {
+  FirebaseMessaging,
+  type NotificationActionPerformedEvent,
+  type NotificationReceivedEvent,
+  type Notification as FirebaseMessagingNotification,
+} from '@capacitor-firebase/messaging';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
+
+// RYVO PATCH V2 03 -- @capacitor/push-notifications alone only ever gets a raw APNs device token
+// on iOS (confirmed: its podspec has zero Firebase dependency, and this app's AppDelegate never
+// bridged the APNs token to Firebase's Messaging SDK either). The backend sends every platform
+// through Firebase Admin SDK's FCM API, which rejects a raw APNs token outright -- a completely
+// different token namespace/format -- so every iOS push failed unconditionally while Android
+// (whose native registration already IS an FCM token) worked fine. @capacitor-firebase/messaging
+// wraps the same native UNUserNotificationCenter/FCM machinery but actually performs the
+// APNs-token -> FCM-token exchange on iOS via Firebase's native SDK, and returns a real,
+// send-able FCM token on both platforms through one consistent API.
+export type NotificationTapEvent = NotificationActionPerformedEvent;
+export type NotificationReceivedPayload = FirebaseMessagingNotification;
 
 let listenerHandles: PluginListenerHandle[] = [];
 
@@ -12,46 +29,50 @@ async function removeManagedListeners() {
 export const nativePush = {
   async register(
     onToken: (token: string) => void | Promise<void>,
-    onNotificationTap?: (action: ActionPerformed) => void,
-    onNotificationReceived?: (notification: PushNotificationSchema) => void,
+    onNotificationTap?: (action: NotificationTapEvent) => void,
+    onNotificationReceived?: (notification: NotificationReceivedPayload) => void,
     onRegistrationError?: (error: unknown) => void
   ) {
     if (!Capacitor.isNativePlatform()) return;
 
     await removeManagedListeners();
 
-    let perm = await PushNotifications.checkPermissions();
-    if (perm.receive !== 'granted') {
-      perm = await PushNotifications.requestPermissions();
-    }
-
-    if (perm.receive === 'granted') {
-      // Listeners MUST be attached before register() is called, not after -- confirmed on
-      // device that the native side can fire 'registration' as soon as register() runs, and a
-      // listener added even a few milliseconds later than that call already missed it (no
-      // buffering/replay observed for this event on this plugin version). Registering listeners
-      // first, then calling register(), was the only ordering that actually delivered a token.
-      listenerHandles.push(await PushNotifications.addListener('registration', (token: Token) => {
-        void onToken(token.value);
-      }));
-
-      listenerHandles.push(await PushNotifications.addListener('registrationError', (error) => {
-        onRegistrationError?.(error);
+    try {
+      // Listeners are attached before requesting permission/fetching the token, matching the
+      // ordering already proven necessary for the previous plugin: the native side can start
+      // emitting events (e.g. a token refresh) as soon as it's first touched, and a listener
+      // added even slightly later has been observed to miss it.
+      listenerHandles.push(await FirebaseMessaging.addListener('tokenReceived', (event) => {
+        void onToken(event.token);
       }));
 
       if (onNotificationTap) {
-        listenerHandles.push(await PushNotifications.addListener('pushNotificationActionPerformed', onNotificationTap));
+        listenerHandles.push(await FirebaseMessaging.addListener('notificationActionPerformed', onNotificationTap));
       }
 
-      // Fires when a push arrives while the app is in the foreground -- without this listener
-      // the OS/plugin still receives the message, but nothing in the JS app ever finds out, so
-      // a push sent while the user has the app open silently does nothing (confirmed missing;
-      // this was the only push listener not wired up at all).
+      // Fires when a push arrives while the app is in the foreground. On iOS specifically, per
+      // this plugin's own contract, it also fires in the background but ONLY for silent
+      // (content-available) pushes -- a standard alert push while backgrounded is handled by the
+      // OS directly and only reaches the app via a subsequent notificationActionPerformed tap.
       if (onNotificationReceived) {
-        listenerHandles.push(await PushNotifications.addListener('pushNotificationReceived', onNotificationReceived));
+        listenerHandles.push(await FirebaseMessaging.addListener('notificationReceived', (event: NotificationReceivedEvent) => {
+          onNotificationReceived(event.notification);
+        }));
       }
 
-      await PushNotifications.register();
+      let perm = await FirebaseMessaging.checkPermissions();
+      if (perm.receive !== 'granted') {
+        perm = await FirebaseMessaging.requestPermissions();
+      }
+      if (perm.receive !== 'granted') return;
+
+      // getToken() is awaitable and directly returns the real FCM-compatible token (internally
+      // performing the APNs exchange on iOS) -- no need to wait on a fire-and-forget native
+      // 'registration' event just for the initial token the way the old plugin required.
+      const { token } = await FirebaseMessaging.getToken();
+      if (token) void onToken(token);
+    } catch (error) {
+      onRegistrationError?.(error);
     }
   },
 

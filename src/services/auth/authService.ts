@@ -1,6 +1,7 @@
 import { apiClient } from '../api/apiClient';
 import { secureStorage } from '../../native/secureStorage';
 import { pushRegistrationService } from '../push/pushRegistrationService';
+import { translateSync } from '../../i18n/appLocale';
 
 export interface RegisterPayload {
   email: string;
@@ -18,6 +19,9 @@ export interface RegisterPayload {
   latitude?: number;
   longitude?: number;
   photoUploadTokens: string[];
+  /** The app locale already selected at the pre-auth language gate (see appLocale.ts), so the
+   * new account's notification/UI language starts correct instead of defaulting server-side. */
+  targetLang?: string;
 }
 
 export interface LoginPayload {
@@ -60,7 +64,7 @@ export const authService = {
     const accountStatus = res?.data?.status?.toUpperCase();
     if (accountStatus === 'SUSPENDED' || accountStatus === 'BANNED') {
       await secureStorage.clearAll();
-      throw new Error(accountStatus === 'SUSPENDED' ? 'Hesabın askıya alındı.' : 'Hesabın devre dışı bırakıldı.');
+      throw new Error(accountStatus === 'SUSPENDED' ? translateSync('realtimeAccountSuspendedError') : translateSync('realtimeAccountDisabledError'));
     }
     if (res?.status === 'success' && res?.data) {
       await secureStorage.setUserData(res.data);

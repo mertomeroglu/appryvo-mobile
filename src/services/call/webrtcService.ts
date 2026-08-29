@@ -31,6 +31,17 @@ class WebRTCService {
   private currentCallId: string | null = null;
   private mediaRequestId = 0;
   private facingMode: 'user' | 'environment' = 'user';
+  // Trickle ICE candidates from the peer routinely arrive before this side has a remote
+  // description to add them against -- guaranteed on the callee's side, since the caller starts
+  // gathering/sending candidates the instant they call createOffer(), which is well before the
+  // callee's peer connection even exists (that's only created once the user taps Accept, after
+  // the full ringing delay). addIceCandidate() used to just attempt pc.addIceCandidate()
+  // immediately and silently drop anything that failed, which discarded essentially every
+  // candidate sent during ringing -- SDP offer/answer still completed fine (so the call
+  // "connected" from a signaling point of view) but ICE never had a viable candidate pair to
+  // actually carry media, so audio/video never flowed. Queue instead, and flush once the remote
+  // description is actually set.
+  private pendingRemoteIceCandidates: RTCIceCandidateInit[] = [];
 
   public onLocalStream?: (stream: MediaStream) => void;
   public onRemoteStream?: (stream: MediaStream | null) => void;
@@ -39,6 +50,15 @@ class WebRTCService {
   private async getIceServers(): Promise<RTCIceServer[]> {
     try {
       const res: any = await nativeCalls.getIceConfig();
+      // hasTurn:false means this call is STUN-only -- it will still connect between two peers on
+      // permissive networks, but silently degrades (no relay fallback) on symmetric NAT/restrictive
+      // firewalls with no visibility into why. Previously this flag was fetched and then completely
+      // ignored; logging it is a real, if minimal, diagnostic instead of a guessed-at "call quality
+      // was bad" report with nothing to check server-side (calls_controller.js now also logs the
+      // specific reason, e.g. TURN_SECRET_NOT_CONFIGURED, when this happens).
+      if (res?.data?.hasTurn === false) {
+        console.warn('[CALL] TURN unavailable, using STUN-only ICE servers', res.data.reason);
+      }
       const servers = res?.data?.iceServers;
       return Array.isArray(servers) && servers.length > 0 ? servers : FALLBACK_ICE_SERVERS;
     } catch {
@@ -48,6 +68,7 @@ class WebRTCService {
 
   private async ensurePeerConnection(callId: string): Promise<RTCPeerConnection> {
     this.currentCallId = callId;
+    this.pendingRemoteIceCandidates = [];
     const iceServers = await this.getIceServers();
     const pc = new RTCPeerConnection({ iceServers });
 
@@ -110,21 +131,43 @@ class WebRTCService {
     const stream = await this.acquireLocalStream(video);
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
     await pc.setRemoteDescription(offer);
+    await this.flushPendingIceCandidates();
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     return answer;
   }
 
   async setRemoteAnswer(answer: RTCSessionDescriptionInit) {
-    if (this.pc) await this.pc.setRemoteDescription(answer);
+    if (!this.pc) return;
+    await this.pc.setRemoteDescription(answer);
+    await this.flushPendingIceCandidates();
   }
 
   async addIceCandidate(candidate: RTCIceCandidateInit) {
-    if (!this.pc) return;
+    // Per the WebRTC spec, a candidate can only be added once a remote description exists.
+    // Queue anything that arrives earlier (the normal case while the callee is still ringing)
+    // instead of attempting and discarding it.
+    if (!this.pc || !this.pc.remoteDescription) {
+      this.pendingRemoteIceCandidates.push(candidate);
+      return;
+    }
     try {
       await this.pc.addIceCandidate(candidate);
     } catch (err) {
       console.warn('[WEBRTC] Failed to add ICE candidate', err);
+    }
+  }
+
+  private async flushPendingIceCandidates() {
+    if (!this.pc || this.pendingRemoteIceCandidates.length === 0) return;
+    const queued = this.pendingRemoteIceCandidates;
+    this.pendingRemoteIceCandidates = [];
+    for (const candidate of queued) {
+      try {
+        await this.pc.addIceCandidate(candidate);
+      } catch (err) {
+        console.warn('[WEBRTC] Failed to add queued ICE candidate', err);
+      }
     }
   }
 
@@ -216,6 +259,7 @@ class WebRTCService {
       this.onLocalStream?.(this.localStream);
     }
     await this.pc.setRemoteDescription(offer);
+    await this.flushPendingIceCandidates();
     const answer = await this.pc.createAnswer();
     await this.pc.setLocalDescription(answer);
     return answer;
@@ -223,7 +267,9 @@ class WebRTCService {
 
   /** Mid-call voice->video upgrade: the requester applying the peer's answer. */
   async confirmVideoUpgrade(answer: RTCSessionDescriptionInit) {
-    if (this.pc) await this.pc.setRemoteDescription(answer);
+    if (!this.pc) return;
+    await this.pc.setRemoteDescription(answer);
+    await this.flushPendingIceCandidates();
   }
 
   getResourceSnapshot() {
@@ -234,6 +280,7 @@ class WebRTCService {
       peerConnectionState: this.pc?.connectionState || 'closed',
       signalingState: this.pc?.signalingState || 'closed',
       currentCallId: this.currentCallId,
+      pendingIceCandidateCount: this.pendingRemoteIceCandidates.length,
     };
   }
 
@@ -247,6 +294,7 @@ class WebRTCService {
     this.localStream = null;
     this.currentCallId = null;
     this.facingMode = 'user';
+    this.pendingRemoteIceCandidates = [];
     this.onRemoteStream?.(null);
   }
 }

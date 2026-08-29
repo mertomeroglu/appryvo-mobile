@@ -14,7 +14,7 @@ import { coinService, type GiftSendResult } from '../../services/coins/coinServi
 import { CoinIcon } from './CoinIcon';
 import { GiftAsset } from './GiftAsset';
 import type { CoinCatalogResponse, CoinLedgerEntry, CoinPack, GiftCatalogItem } from './types';
-import { useAppLocaleStore } from '../../i18n/appLocale';
+import { useAppLocaleStore, useAppTranslation, translateSync } from '../../i18n/appLocale';
 
 function requestId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -35,10 +35,10 @@ function findStoreProduct(products: Product[], pack: CoinPack) {
 
 function historyLabel(entry: CoinLedgerEntry) {
   const locale = useAppLocaleStore.getState().locale;
-  if (entry.type === 'PURCHASE') return `${entry.amount > 0 ? '+' : ''}${entry.amount.toLocaleString(locale)} Coin · Mağaza satın alımı`;
-  if (entry.type === 'GIFT_SENT') return `${entry.amount.toLocaleString(locale)} Coin · ${entry.metadata.giftName || 'Hediye'} gönderildi`;
-  if (entry.type === 'REFUND_REVERSAL') return `${entry.amount.toLocaleString(locale)} Coin · İade düzeltmesi`;
-  return `${entry.amount > 0 ? '+' : ''}${entry.amount.toLocaleString(locale)} Coin · Bakiye düzenlemesi`;
+  if (entry.type === 'PURCHASE') return `${entry.amount > 0 ? '+' : ''}${entry.amount.toLocaleString(locale)} Coin · ${translateSync('giftHistoryPurchaseLabel')}`;
+  if (entry.type === 'GIFT_SENT') return `${entry.amount.toLocaleString(locale)} Coin · ${translateSync('giftHistorySentTemplate').replace('{giftName}', entry.metadata.giftName || translateSync('giftFallbackLabel'))}`;
+  if (entry.type === 'REFUND_REVERSAL') return `${entry.amount.toLocaleString(locale)} Coin · ${translateSync('giftHistoryRefundLabel')}`;
+  return `${entry.amount > 0 ? '+' : ''}${entry.amount.toLocaleString(locale)} Coin · ${translateSync('giftHistoryAdjustmentLabel')}`;
 }
 
 const CoinShop: React.FC<{
@@ -47,6 +47,7 @@ const CoinShop: React.FC<{
   catalog: CoinCatalogResponse | null;
   onBalance: (balance: number) => void;
 }> = ({ isOpen, onClose, catalog, onBalance }) => {
+  const { t } = useAppTranslation();
   const locale = useAppLocaleStore((state) => state.locale);
   const [products, setProducts] = useState<Product[]>([]);
   const [history, setHistory] = useState<CoinLedgerEntry[]>([]);
@@ -77,7 +78,7 @@ const CoinShop: React.FC<{
 
   const buy = async (pack: CoinPack) => {
     if (!findStoreProduct(products, pack)) {
-      toast.error('Fiyat bilgisi yüklenemedi. Tekrar dene.');
+      toast.error(t('giftPriceLoadFailedToast'));
       return;
     }
     setBuyingPack(pack.id);
@@ -87,9 +88,9 @@ const CoinShop: React.FC<{
       setBalance(nextBalance);
       onBalance(nextBalance);
       await load();
-      toast.success(`${pack.coinAmount.toLocaleString(locale)} Coin bakiyene eklendi.`);
+      toast.success(t('giftCoinsAddedToastTemplate').replace('{amount}', pack.coinAmount.toLocaleString(locale)));
     } catch (error: any) {
-      toast.error(error?.message || 'Coin satın alma tamamlanamadı.');
+      toast.error(error?.message || t('giftCoinPurchaseFailedError'));
     } finally {
       setBuyingPack(null);
     }
@@ -101,22 +102,22 @@ const CoinShop: React.FC<{
         <div className="flex items-center justify-between px-5 pb-3 pt-2">
           <div>
             <p className="text-heading text-app">Ryvo Coins</p>
-            <p className="text-micro normal-case text-app-muted">Dijital hediyeler için güvenli bakiye</p>
+            <p className="text-micro normal-case text-app-muted">{t('giftCoinShopSubtitle')}</p>
           </div>
-          <IconButton aria-label="Coin mağazasını kapat" variant="ghost" size="sm" onClick={onClose}><X className="h-5 w-5" /></IconButton>
+          <IconButton aria-label={t('giftCloseCoinShopAriaLabel')} variant="ghost" size="sm" onClick={onClose}><X className="h-5 w-5" /></IconButton>
         </div>
 
         <div className="no-scrollbar flex-1 overflow-y-auto px-5 pb-6">
           <section className="relative overflow-hidden rounded-[26px] border border-[#F5B942]/45 bg-gradient-to-br from-[#FFF2B6]/70 via-surface to-pink-500/10 p-5 shadow-premium dark:from-[#F5B942]/15">
-            <div className="flex items-center gap-2 text-caption font-extrabold text-[#9A6508]"><CoinIcon className="h-6 w-6" /> Ryvo Coin Bakiyesi</div>
+            <div className="flex items-center gap-2 text-caption font-extrabold text-[#9A6508]"><CoinIcon className="h-6 w-6" /> {t('giftCoinBalanceLabel')}</div>
             <p className="mt-2 text-display tabular-nums text-app">{balance.toLocaleString(locale)}</p>
-            <p className="mt-1 text-micro normal-case text-app-muted">Coinlerin zaman aşımına uğramaz.</p>
+            <p className="mt-1 text-micro normal-case text-app-muted">{t('giftCoinsNoExpiryNote')}</p>
           </section>
-          {catalog?.wallet.restricted && <p className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-caption normal-case text-amber-700">Mağaza iadesi incelemesi nedeniyle hediye harcamaları geçici olarak kısıtlandı.</p>}
+          {catalog?.wallet.restricted && <p className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-caption normal-case text-amber-700">{t('giftWalletRestrictedMessage')}</p>}
 
           <div className="mt-5 flex items-center justify-between">
-            <h3 className="text-heading text-app">Coin Paketleri</h3>
-            <button type="button" onClick={() => void load()} className="flex items-center gap-1 text-caption font-bold text-pink-500"><RefreshCw className="h-3.5 w-3.5" /> Yenile</button>
+            <h3 className="text-heading text-app">{t('giftCoinPacksTitle')}</h3>
+            <button type="button" onClick={() => void load()} className="flex items-center gap-1 text-caption font-bold text-pink-500"><RefreshCw className="h-3.5 w-3.5" /> {t('giftRefreshAction')}</button>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-3">
             {(catalog?.packs || []).map((pack) => {
@@ -132,28 +133,28 @@ const CoinShop: React.FC<{
                 >
                   <div className="flex items-center gap-2"><CoinIcon className="h-7 w-7" /><span className="text-heading font-black text-app">{pack.coinAmount.toLocaleString(locale)}</span></div>
                   <div className="mt-3 min-h-5">
-                    {loadingStore ? <Skeleton className="h-5 w-20" /> : priceReady ? <span className="text-caption font-extrabold text-pink-500">{product!.priceString}</span> : <span className="text-micro normal-case text-app-muted">Fiyat yüklenemedi</span>}
+                    {loadingStore ? <Skeleton className="h-5 w-20" /> : priceReady ? <span className="text-caption font-extrabold text-pink-500">{product!.priceString}</span> : <span className="text-micro normal-case text-app-muted">{t('giftPriceUnavailableLabel')}</span>}
                   </div>
-                  {buyingPack === pack.id && <span className="mt-2 block text-micro normal-case text-app-muted">Mağaza açılıyor...</span>}
+                  {buyingPack === pack.id && <span className="mt-2 block text-micro normal-case text-app-muted">{t('giftStoreOpeningLabel')}</span>}
                 </button>
               );
             })}
           </div>
-          {!Capacitor.isNativePlatform() && <p className="mt-3 rounded-2xl bg-app-secondary p-3 text-caption normal-case text-app-muted">Coin satın alma yalnızca Ryvo iOS veya Android uygulamasında kullanılabilir.</p>}
+          {!Capacitor.isNativePlatform() && <p className="mt-3 rounded-2xl bg-app-secondary p-3 text-caption normal-case text-app-muted">{t('giftCoinPurchaseNativeOnlyMessage')}</p>}
 
-          <div className="mt-6 flex items-center gap-2"><Clock3 className="h-4 w-4 text-app-muted" /><h3 className="text-heading text-app">Son İşlemler</h3></div>
+          <div className="mt-6 flex items-center gap-2"><Clock3 className="h-4 w-4 text-app-muted" /><h3 className="text-heading text-app">{t('giftRecentTransactionsTitle')}</h3></div>
           <div className="mt-3 overflow-hidden rounded-3xl border border-app bg-surface">
-            {history.length === 0 ? <p className="p-4 text-caption normal-case text-app-muted">Henüz Coin işlemin bulunmuyor.</p> : history.slice(0, 12).map((entry) => (
+            {history.length === 0 ? <p className="p-4 text-caption normal-case text-app-muted">{t('giftNoTransactionsMessage')}</p> : history.slice(0, 12).map((entry) => (
               <div key={entry.id} className="flex items-center gap-3 border-b border-app px-4 py-3 last:border-b-0">
                 <span className={`grid h-9 w-9 place-items-center rounded-full ${entry.amount > 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-pink-500/10 text-pink-500'}`}>
                   {entry.amount > 0 ? <ArrowDownLeft className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
                 </span>
-                <div className="min-w-0 flex-1"><p className="truncate text-caption font-bold text-app">{historyLabel(entry)}</p><p className="text-micro normal-case text-app-muted">{new Date(entry.createdAt).toLocaleDateString('tr-TR')}</p></div>
+                <div className="min-w-0 flex-1"><p className="truncate text-caption font-bold text-app">{historyLabel(entry)}</p><p className="text-micro normal-case text-app-muted">{new Date(entry.createdAt).toLocaleDateString(locale)}</p></div>
               </div>
             ))}
           </div>
 
-          <p className="mt-5 text-center text-micro normal-case leading-5 text-app-muted">Ryvo Coins yalnızca Ryvo içindeki dijital öğelerde kullanılır; nakde çevrilemez, devredilemez ve çekilemez.</p>
+          <p className="mt-5 text-center text-micro normal-case leading-5 text-app-muted">{t('giftCoinsUsageDisclaimer')}</p>
         </div>
       </div>
     </BottomSheet>
@@ -167,6 +168,7 @@ export const GiftShopSheet: React.FC<{
   recipientName?: string;
   onGiftSent: (result: GiftSendResult) => void;
 }> = ({ isOpen, onClose, matchId, recipientName, onGiftSent }) => {
+  const { t } = useAppTranslation();
   const locale = useAppLocaleStore((state) => state.locale);
   const [catalog, setCatalog] = useState<CoinCatalogResponse | null>(null);
   const [selected, setSelected] = useState<GiftCatalogItem | null>(null);
@@ -183,7 +185,7 @@ export const GiftShopSheet: React.FC<{
       setCatalog(next);
       setSelected((current) => next.gifts.find((gift) => gift.id === current?.id) || next.gifts[0] || null);
     } catch {
-      toast.error('Hediye kataloğu yüklenemedi.');
+      toast.error(t('giftCatalogLoadFailedToast'));
     } finally {
       setLoading(false);
     }
@@ -215,7 +217,7 @@ export const GiftShopSheet: React.FC<{
       updateBalance(result.balance);
       setConfirmOpen(false);
       onGiftSent(result);
-      toast.success(`${selected.name} gönderildi.`);
+      toast.success(t('giftSentToastTemplate').replace('{name}', selected.name));
       onClose();
     } catch (error) {
       if (error instanceof ApiException && error.code === 'INSUFFICIENT_COINS') {
@@ -224,7 +226,7 @@ export const GiftShopSheet: React.FC<{
         setConfirmOpen(false);
         setCoinShopOpen(true);
       } else {
-        toast.error(error instanceof Error ? error.message : 'Hediye gönderilemedi. Tekrar deneyebilirsin.');
+        toast.error(error instanceof Error ? error.message : t('giftSendFailedError'));
       }
     } finally {
       setSending(false);
@@ -245,10 +247,10 @@ export const GiftShopSheet: React.FC<{
       <BottomSheet isOpen={isOpen} onClose={onClose} className="max-h-[86dvh] overflow-hidden">
         <div className="flex max-h-[82dvh] flex-col">
           <div className="flex items-center justify-between px-5 pb-3 pt-2">
-            <div className="flex items-center gap-2"><Gift className="h-5 w-5 text-pink-500" /><h2 className="text-heading text-app">Hediyeler</h2></div>
+            <div className="flex items-center gap-2"><Gift className="h-5 w-5 text-pink-500" /><h2 className="text-heading text-app">{t('giftsTitle')}</h2></div>
             <div className="flex items-center gap-2">
               <button type="button" onClick={() => setCoinShopOpen(true)} className="flex items-center gap-1.5 rounded-full border border-[#F5B942]/40 bg-[#F5B942]/10 px-3 py-1.5 text-caption font-black text-[#A86E08]"><CoinIcon className="h-4 w-4" />{(catalog?.wallet.balance || 0).toLocaleString(locale)}</button>
-              <IconButton aria-label="Hediyeleri kapat" variant="ghost" size="sm" onClick={onClose}><X className="h-5 w-5" /></IconButton>
+              <IconButton aria-label={t('giftsCloseAriaLabel')} variant="ghost" size="sm" onClick={onClose}><X className="h-5 w-5" /></IconButton>
             </div>
           </div>
 
@@ -274,14 +276,14 @@ export const GiftShopSheet: React.FC<{
 
           <div className="border-t border-app bg-surface px-4 pb-[calc(var(--safe-bottom)+12px)] pt-3">
             <AppButton variant="primary" size="lg" fullWidth loading={sending} disabled={!selected || loading || walletRestricted} onClick={requestSend} className={insufficient ? 'bg-gradient-to-r from-[#F5B942] to-[#E79B21] text-[#4D3308]' : ''}>
-              {walletRestricted ? 'Cüzdan İnceleniyor' : insufficient ? <><ShoppingBag className="h-5 w-5" /> Coin Satın Al</> : <>Gönder · {selected?.coinCost || 0} Coin</>}
+              {walletRestricted ? t('giftWalletUnderReviewLabel') : insufficient ? <><ShoppingBag className="h-5 w-5" /> {t('giftBuyCoinsAction')}</> : <>{t('giftSendWithCostTemplate').replace('{cost}', String(selected?.coinCost || 0))}</>}
             </AppButton>
           </div>
         </div>
       </BottomSheet>
 
       <Modal isOpen={confirmOpen} onClose={() => !sending && setConfirmOpen(false)} showCloseButton={false}>
-        {selected && <div className="text-center"><GiftAsset gift={selected} eager className="mx-auto h-28 w-28" /><h3 className="mt-2 text-heading text-app">Hediyeyi onayla</h3><p className="mt-2 text-body normal-case text-app-muted">{recipientName || 'Bu kişiye'} {selected.name} hediyesini <strong className="text-app">{selected.coinCost} Coin</strong> karşılığında göndermek istiyor musun?</p><div className="mt-5 grid grid-cols-2 gap-2"><AppButton variant="secondary" onClick={() => setConfirmOpen(false)} disabled={sending}>İptal</AppButton><AppButton variant="primary" onClick={() => void sendSelected()} loading={sending}>Gönder</AppButton></div></div>}
+        {selected && <div className="text-center"><GiftAsset gift={selected} eager className="mx-auto h-28 w-28" /><h3 className="mt-2 text-heading text-app">{t('giftConfirmTitle')}</h3><p className="mt-2 text-body normal-case text-app-muted">{t('giftConfirmPromptPrefixTemplate').replace('{recipient}', recipientName || t('giftRecipientFallback')).replace('{giftName}', selected.name)} <strong className="text-app">{selected.coinCost} Coin</strong> {t('giftConfirmPromptSuffix')}</p><div className="mt-5 grid grid-cols-2 gap-2"><AppButton variant="secondary" onClick={() => setConfirmOpen(false)} disabled={sending}>{t('cancel')}</AppButton><AppButton variant="primary" onClick={() => void sendSelected()} loading={sending}>{t('sendAriaLabel')}</AppButton></div></div>}
       </Modal>
 
       <CoinShop isOpen={coinShopOpen} onClose={() => setCoinShopOpen(false)} catalog={catalog} onBalance={updateBalance} />

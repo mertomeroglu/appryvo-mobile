@@ -1,28 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { apiClient, ApiException } from '../services/api/apiClient';
-import { useAppLocaleStore } from '../i18n/appLocale';
+import { useAppTranslation } from '../i18n/appLocale';
 import { VPN_BLOCKED_EVENT, VpnBlockedDetail } from '../services/security/vpnAccess';
 
-const COPY = {
-  tr: {
-    title: 'VPN veya proxy bağlantısı algılandı',
-    body: "Ryvo'yu kullanmaya devam etmek için VPN/proxy bağlantını kapatıp tekrar dene.",
-    retry: 'Tekrar Dene',
-    checking: 'Kontrol ediliyor…',
-  },
-  en: {
-    title: 'VPN or proxy connection detected',
-    body: 'Turn off your VPN/proxy and try again to continue using Ryvo.',
-    retry: 'Try Again',
-    checking: 'Checking…',
-  },
-} as const;
-
 export const VpnAccessGuard: React.FC = () => {
-  const locale = useAppLocaleStore((state) => state.locale);
+  const { locale, t } = useAppTranslation();
+  // VpnBlockedDetail (server-sent) only ever carries tr/en variants -- fall back to English for
+  // every other app locale rather than leaving the detail message blank.
   const language = locale === 'tr' ? 'tr' : 'en';
-  const copy = COPY[language];
   const [blocked, setBlocked] = useState(false);
   const [detail, setDetail] = useState<VpnBlockedDetail>();
   const [checking, setChecking] = useState(false);
@@ -61,15 +47,15 @@ export const VpnAccessGuard: React.FC = () => {
         <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-amber-400/10 text-amber-300">
           <ShieldAlert size={32} aria-hidden="true" />
         </div>
-        <h2 id="vpn-block-title" className="mb-3 text-xl font-extrabold text-white">{copy.title}</h2>
-        <p className="mb-6 text-sm leading-6 text-slate-300">{detail?.[language] || copy.body}</p>
+        <h2 id="vpn-block-title" className="mb-3 text-xl font-extrabold text-white">{t('vpnDetectedTitle')}</h2>
+        <p className="mb-6 text-sm leading-6 text-slate-300">{detail?.[language] || t('vpnDetectedBody')}</p>
         <button
           type="button"
           onClick={retry}
           disabled={checking}
           className="min-h-12 w-full rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-500 px-5 font-bold text-slate-950 disabled:cursor-wait disabled:opacity-70"
         >
-          {checking ? copy.checking : copy.retry}
+          {checking ? t('vpnCheckingLabel') : t('retryButton')}
         </button>
       </div>
     </div>

@@ -7,6 +7,7 @@ import { BottomSheet } from './ui/BottomSheet';
 import { AppButton } from './ui/AppButton';
 import { IconButton } from './ui/IconButton';
 import { DualRangeSlider } from './ui/DualRangeSlider';
+import { useAppTranslation } from '../i18n/appLocale';
 
 interface FilterBottomSheetProps {
   isOpen: boolean;
@@ -31,12 +32,14 @@ const ToggleChip: React.FC<{
   active: boolean;
   onClick: () => void;
   locked?: boolean;
-}> = ({ icon, label, active, onClick, locked = false }) => (
+}> = ({ icon, label, active, onClick, locked = false }) => {
+  const { t } = useAppTranslation();
+  return (
   <button
     type="button"
     onClick={onClick}
     aria-pressed={locked ? undefined : active}
-    aria-label={locked ? `${label}, Ryvo Plus veya Gold gerekli` : label}
+    aria-label={locked ? t('filterLockedAriaLabelTemplate').replace('{label}', label) : label}
     className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-caption font-bold transition-colors ${
       locked
         ? 'border-gold/35 bg-gold/5 text-app-muted'
@@ -47,10 +50,12 @@ const ToggleChip: React.FC<{
     <span>{label}</span>
     {locked ? <LockKeyhole className="ms-auto h-3.5 w-3.5 shrink-0 text-gold" /> : active && <Check className="w-3.5 h-3.5 ms-auto shrink-0" />}
   </button>
-);
+  );
+};
 
 export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, onClose, onApplied }) => {
   const navigate = useNavigate();
+  const { t } = useAppTranslation();
   const { data: me } = useMeQuery();
   const { data: entitlements } = useEntitlementsQuery();
   const updateProfile = useUpdateProfileMutation();
@@ -101,7 +106,7 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
       onApplied();
       onClose();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Filtreler kaydedilemedi.');
+      setErrorMsg(err.message || t('filterSaveFailedError'));
     }
   };
 
@@ -121,17 +126,20 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
         <div className="flex items-center justify-between border-b border-app pb-3">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="w-5 h-5 text-app-muted" />
-            <h3 className="text-heading text-app">Arama Filtreleri</h3>
+            <h3 className="text-heading text-app">{t('filterSearchFiltersTitle')}</h3>
           </div>
-          <IconButton aria-label="Kapat" variant="ghost" size="sm" onClick={onClose}>
+          <IconButton aria-label={t('closeAriaLabel')} variant="ghost" size="sm" onClick={onClose}>
             <X className="w-5 h-5" />
           </IconButton>
         </div>
 
-        {/* Distance */}
+        {/* Distance -- this is the user's own preferred ceiling, capped at 150km (never higher):
+            it sets the server-side tier-1 radius directly (discovery_engine.js), which only ever
+            widens to a 150-300km fallback annulus on the server when tier 1 has nothing left to
+            show, never automatically beyond 300km. See the RYVO PATCH V2 04 report. */}
         <div className="space-y-2">
           <div className="flex justify-between text-caption font-semibold">
-            <span className="text-app-muted">Maksimum Mesafe</span>
+            <span className="text-app-muted">{t('maxDistanceLabel')}</span>
             <span className="text-pink-500 font-bold">{maxDistance} km</span>
           </div>
           <input
@@ -144,7 +152,7 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
           />
           <div className="flex items-center gap-1.5 text-micro font-semibold normal-case text-app-muted">
             <MapPin className="h-3.5 w-3.5 shrink-0" />
-            <span>Mesafe, Keşfet'teki doğrulanmış güncel cihaz konumuna göre uygulanır.</span>
+            <span>{t('maxDistanceHint')}</span>
           </div>
         </div>
 
@@ -154,31 +162,31 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
         {/* Paid, server-enforced discovery filters. Base age/distance remain free. */}
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-caption font-semibold text-app-muted">Gelişmiş Filtreler</span>
+            <span className="text-caption font-semibold text-app-muted">{t('filterAdvancedFiltersLabel')}</span>
             {!hasAdvancedFilters && (
               <button type="button" onClick={openPremiumUpsell} className="inline-flex items-center gap-1 rounded-full bg-gold/15 px-2.5 py-1 text-micro font-extrabold text-gold">
-                <Crown className="h-3.5 w-3.5" /> Ryvo Plus &amp; Gold
+                <Crown className="h-3.5 w-3.5" /> {t('premium')}
               </button>
             )}
           </div>
           <div className="grid grid-cols-1 gap-2">
             <ToggleChip
               icon={<ShieldCheck className="w-4 h-4" />}
-              label="Sadece doğrulanmış profiller"
+              label={t('filterVerifiedOnlyLabel')}
               active={verifiedOnly}
               locked={!hasAdvancedFilters}
               onClick={hasAdvancedFilters ? () => setVerifiedOnly((v) => !v) : openPremiumUpsell}
             />
             <ToggleChip
               icon={<Zap className="w-4 h-4" />}
-              label="Şu an aktif olanlar"
+              label={t('filterRecentlyActiveLabel')}
               active={recentlyActive}
               locked={!hasAdvancedFilters}
               onClick={hasAdvancedFilters ? () => setRecentlyActive((v) => !v) : openPremiumUpsell}
             />
             <ToggleChip
               icon={<Sparkles className="w-4 h-4" />}
-              label="Yeni üyeler"
+              label={t('filterNewMembersLabel')}
               active={newMembers}
               locked={!hasAdvancedFilters}
               onClick={hasAdvancedFilters ? () => setNewMembers((v) => !v) : openPremiumUpsell}
@@ -189,7 +197,7 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
         {/* Relationship goal */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-caption font-semibold text-app-muted">İlişki Hedefi</span>
+            <span className="text-caption font-semibold text-app-muted">{t('filterRelationshipGoalLabel')}</span>
             {!hasAdvancedFilters && <LockKeyhole className="h-3.5 w-3.5 text-gold" />}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -200,7 +208,7 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
                 !hasAdvancedFilters ? 'border-gold/35 bg-gold/5 text-app-muted' : relationshipGoal === null ? 'border-pink-500 bg-pink-500/10 text-pink-500' : 'border-app bg-surface text-app-muted'
               }`}
             >
-              Fark etmez {!hasAdvancedFilters && <LockKeyhole className="ms-1 inline h-3 w-3 text-gold" />}
+              {t('filterAnyGoalLabel')} {!hasAdvancedFilters && <LockKeyhole className="ms-1 inline h-3 w-3 text-gold" />}
             </button>
             {Object.entries(RELATIONSHIP_GOAL_LABELS).map(([key, label]) => (
               <button
@@ -225,7 +233,7 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
 
         <div className="flex gap-3 pt-2 sticky bottom-0 bg-surface pb-1">
           <AppButton variant="secondary" size="md" className="flex-1" onClick={handleReset}>
-            Sıfırla
+            {t('filterResetButton')}
           </AppButton>
           <AppButton
             variant="primary"
@@ -235,7 +243,7 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
             leftIcon={<Check className="w-4 h-4" />}
             onClick={handleApply}
           >
-            Uygula
+            {t('filterApplyButton')}
           </AppButton>
         </div>
       </div>

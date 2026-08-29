@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { formatDisplayAge } from '../../lib/profileLabels';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -8,6 +9,7 @@ import {
   Heart,
   Languages,
   MapPin,
+  MessageCircle,
   Ruler,
   Share2,
   Star,
@@ -16,7 +18,7 @@ import {
   Wine,
   X,
 } from 'lucide-react';
-import { useDiscoveryUserQuery, useEntitlementsQuery, useLikeMutation, usePassMutation, useFollowStatusQuery } from '../../hooks/useQueries';
+import { useDiscoveryUserQuery, useEntitlementsQuery, useLikeMutation, useMatchesQuery, usePassMutation, useFollowStatusQuery } from '../../hooks/useQueries';
 import { FollowButton } from '../../components/FollowButton';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { VerifiedBadge } from '../../components/ui/Badge';
@@ -25,6 +27,7 @@ import { nativeShare } from '../../native/share';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { IconButton } from '../../components/ui/IconButton';
+import { AppButton } from '../../components/ui/AppButton';
 import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
 import { ZodiacIcon } from '../../components/ui/ZodiacIcon';
 import { SafetyReportModal } from '../../components/SafetyReportModal';
@@ -38,6 +41,7 @@ import {
   getZodiacLabel,
 } from '../../lib/profileLabels';
 import { formatLanguageName } from '../../lib/languages';
+import { getLocalizedInterestLabel } from '../../lib/interestLabels';
 import { useAppTranslation } from '../../i18n/appLocale';
 
 function normalizePhotos(user: any): string[] {
@@ -51,11 +55,23 @@ export const FullProfileScreen: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
   const { data: user, isLoading, isError, refetch } = useDiscoveryUserQuery(userId);
-  const { locale } = useAppTranslation();
+  const { locale, t } = useAppTranslation();
   const { data: entitlements } = useEntitlementsQuery();
   const { data: followStatus } = useFollowStatusQuery(userId);
+  const { data: matches } = useMatchesQuery();
   const likeMutation = useLikeMutation();
   const passMutation = usePassMutation();
+
+  // This profile route is shared by Discover/Likes (someone not yet matched) and by
+  // already-matched contexts -- the chat header's "view profile" and the map/stories/
+  // connections list all link here too, for a person who may already be a match. Like/Pass/
+  // Super Like on an existing match is meaningless (and re-liking just no-ops the reciprocal
+  // match server-side), so the action bar must branch on match state instead of always
+  // offering to (re)swipe.
+  const existingMatch = useMemo(
+    () => (Array.isArray(matches) ? matches.find((match: any) => match.user?.id === userId) : undefined),
+    [matches, userId]
+  );
 
   const [photoIndex, setPhotoIndex] = useState(0);
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -69,11 +85,11 @@ export const FullProfileScreen: React.FC = () => {
       <div className="relative h-full w-full bg-app overflow-hidden">
         <Skeleton variant="media" className="absolute inset-0 rounded-none aspect-auto" />
         <IconButton
-          aria-label="Geri"
+          aria-label={t('backButtonLabel')}
           variant="surface"
           size="md"
           onClick={() => navigate(-1)}
-          className="absolute top-safe start-4 mt-2 z-10"
+          className="absolute top-safe-offset start-4 z-10"
         >
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
@@ -85,7 +101,7 @@ export const FullProfileScreen: React.FC = () => {
     );
   }
   if (isError || !user) {
-    return <ErrorState message="Bu profil yüklenemedi." onRetry={() => refetch()} />;
+    return <ErrorState message={t('fullProfileLoadFailedError')} onRetry={() => refetch()} />;
   }
 
   const photos = normalizePhotos(user);
@@ -159,12 +175,12 @@ export const FullProfileScreen: React.FC = () => {
             </div>
             <div className="absolute inset-x-0 top-0 h-[85%] flex z-10">
               <button
-                aria-label="Önceki fotoğraf"
+                aria-label={t('fullProfilePrevPhotoAriaLabel')}
                 className="w-1/2 h-full"
                 onClick={() => setPhotoIndex((i) => Math.max(i - 1, 0))}
               />
               <button
-                aria-label="Sonraki fotoğraf"
+                aria-label={t('fullProfileNextPhotoAriaLabel')}
                 className="w-1/2 h-full"
                 onClick={() => setPhotoIndex((i) => Math.min(i + 1, photos.length - 1))}
               />
@@ -172,24 +188,30 @@ export const FullProfileScreen: React.FC = () => {
           </>
         )}
 
-        <div className="absolute top-4 start-4 z-20">
-          <IconButton aria-label="Geri" variant="overlay" size="md" onClick={() => navigate(-1)}>
+        {/* RYVO PATCH V2 01 issue 2: was `top-4`, a flat 16px from the top of this full-bleed hero
+            image (no header in normal flow above it to reserve space) that ignored
+            env(safe-area-inset-top) entirely. On notched/Dynamic-Island iPhones part of the
+            button's hit area sat under the physically-obstructed sensor housing, making it hard
+            or impossible to press -- while non-notched iPhones (SE, etc.) were unaffected,
+            matching the "some iPhones" bug report. Same fix idiom as SocialMapScreen.tsx. */}
+        <div className="absolute top-safe-offset start-4 z-20">
+          <IconButton aria-label={t('backButtonLabel')} variant="overlay" size="md" onClick={() => navigate(-1)}>
             <ArrowLeft className="w-5 h-5" />
           </IconButton>
         </div>
 
         <div className="absolute top-4 end-4 z-20">
           <IconButton
-            aria-label="Profili paylaş"
+            aria-label={t('fullProfileShareAriaLabel')}
             variant="overlay"
             size="md"
             onClick={() => {
               if (!userId) return;
               void nativeShare.share({
                 title: user.name,
-                text: `${user.name} — Ryvo'da profilime göz at`,
+                text: t('ownProfileShareTextTemplate').replace('{name}', user.name),
                 url: `https://appryvo.online/discover/${userId}`,
-                dialogTitle: 'Profili Paylaş',
+                dialogTitle: t('ownProfileShareDialogTitle'),
               }).catch(() => {});
             }}
           >
@@ -212,7 +234,7 @@ export const FullProfileScreen: React.FC = () => {
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2 flex-wrap">
                 <h1 className="text-3xl font-black">{user.name}</h1>
-                {user.age && <span className="text-2xl font-bold text-gray-300">{user.age}</span>}
+                {formatDisplayAge(user.age) !== undefined && <span className="text-2xl font-bold text-gray-300">{formatDisplayAge(user.age)}</span>}
                 {user.verified && <VerifiedBadge size={24} />}
                 {user.isPremium && <Crown className="w-6 h-6 text-[#F5B942] fill-current" />}
               </div>
@@ -220,7 +242,7 @@ export const FullProfileScreen: React.FC = () => {
                 <div className="flex items-center gap-1.5 text-xs text-gray-300 mt-1">
                   <MapPin className="w-4 h-4 text-pink-500" />
                   {user.city && <span>{user.city}</span>}
-                  {typeof user.distanceKm === 'number' && <span>• {user.distanceKm} km uzakta</span>}
+                  {typeof user.distanceKm === 'number' && <span>• {t('fullProfileDistanceAwayTemplate').replace('{distance}', String(user.distanceKm))}</span>}
                 </div>
               )}
             </div>
@@ -237,10 +259,10 @@ export const FullProfileScreen: React.FC = () => {
             className="min-w-0 text-start"
           >
             <span className="block text-caption font-bold text-app normal-case">
-              {followStatus ? `${followStatus.followersCount} takipçi · ${followStatus.followingCount} takip` : 'Bağlantılar'}
+              {followStatus ? t('ownProfileFollowStatsTemplate').replace('{followers}', String(followStatus.followersCount)).replace('{following}', String(followStatus.followingCount)) : t('connectionsTitle')}
             </span>
             {followStatus?.isFollowedBy && (
-              <span className="block text-micro text-app-muted normal-case mt-0.5">Seni takip ediyor</span>
+              <span className="block text-micro text-app-muted normal-case mt-0.5">{t('fullProfileFollowsYouLabel')}</span>
             )}
           </button>
           {userId && <FollowButton userId={userId} size="sm" />}
@@ -248,14 +270,14 @@ export const FullProfileScreen: React.FC = () => {
 
         {user.bio && (
           <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
-            <h4 className="text-micro text-app-muted uppercase tracking-wider">Hakkımda</h4>
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('bioSectionLabel')}</h4>
             <p className="text-body text-app leading-relaxed">{user.bio}</p>
           </div>
         )}
 
         {getRelationshipGoalLabels(user.relationshipGoals || user.relationshipGoal).length > 0 && (
           <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
-            <h4 className="text-micro text-app-muted uppercase tracking-wider">Aradığı</h4>
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('fullProfileLookingForLabel')}</h4>
             <div className="flex flex-wrap gap-2 pt-1">
               {getRelationshipGoalLabels(user.relationshipGoals || user.relationshipGoal).map((label) => (
                 <span key={label} className="text-caption px-3 py-1.5 rounded-full bg-app-secondary border border-app text-app font-semibold">
@@ -269,7 +291,7 @@ export const FullProfileScreen: React.FC = () => {
         {(user.zodiac || user.heightCm || (getSmokingLabel(user.smokingStatus, locale) || getDrinkingLabel(user.drinkingStatus, locale)) ||
           getChildrenStatusLabel(user.childrenStatus, locale) || getFamilyPlansLabel(user.familyPlans, locale)) && (
           <div className="space-y-2">
-            <h4 className="text-micro text-app-muted uppercase tracking-wider">Yaşam Tarzı</h4>
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('lifestyleSectionLabel')}</h4>
             <div className="flex flex-wrap gap-2">
               {user.zodiac && getZodiacLabel(user.zodiac, locale) && (
                 <span className="flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
@@ -311,7 +333,7 @@ export const FullProfileScreen: React.FC = () => {
 
         {Array.isArray(user.languages) && user.languages.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-micro text-app-muted uppercase tracking-wider">Konuştuğu Diller</h4>
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('fullProfileSpokenLanguagesLabel')}</h4>
             <div className="flex flex-wrap gap-2">
               {user.languages.map((lang: string, idx: number) => (
                 <span
@@ -332,7 +354,7 @@ export const FullProfileScreen: React.FC = () => {
               <div className="p-3 rounded-full bg-pink-500 text-white">
                 <Volume2 className="w-5 h-5" />
               </div>
-              <h4 className="text-caption font-bold text-app">Sesli Tanıtım</h4>
+              <h4 className="text-caption font-bold text-app">{t('fullProfileVoiceIntroLabel')}</h4>
             </div>
             <audio src={normalizeMediaUrl(voicePromptUrl)} controls className="w-full h-9" />
           </div>
@@ -340,14 +362,14 @@ export const FullProfileScreen: React.FC = () => {
 
         {Array.isArray(user.interests) && user.interests.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-micro text-app-muted uppercase tracking-wider">İlgi Alanları</h4>
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('interestsSectionLabel')}</h4>
             <div className="flex flex-wrap gap-2">
               {user.interests.map((interest: string, idx: number) => (
                 <span
                   key={idx}
                   className="text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium"
                 >
-                  {interest}
+                  {getLocalizedInterestLabel(interest, locale)}
                 </span>
               ))}
             </div>
@@ -356,7 +378,7 @@ export const FullProfileScreen: React.FC = () => {
 
         {prompts.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-micro text-app-muted uppercase tracking-wider">Sorular</h4>
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('fullProfilePromptsLabel')}</h4>
             {prompts.map((prompt: any, idx: number) => {
               const question = prompt?.question || prompt?.prompt;
               const answer = prompt?.answer;
@@ -378,9 +400,9 @@ export const FullProfileScreen: React.FC = () => {
         >
           <Flag className="w-5 h-5 text-[#FF4B55] shrink-0" />
           <span className="min-w-0">
-            <span className="block text-body font-bold text-[#FF4B55]">Raporla</span>
+            <span className="block text-body font-bold text-[#FF4B55]">{t('fullProfileReportAction')}</span>
             <span className="block text-micro text-app-muted normal-case break-words">
-              Sahte profil, taciz veya sana ait fotoğrafların kullanılması gibi bir sorunu bildir.
+              {t('fullProfileReportDescription')}
             </span>
           </span>
         </button>
@@ -392,9 +414,9 @@ export const FullProfileScreen: React.FC = () => {
         >
           <UserMinus className="w-5 h-5 text-[#FF4B55] shrink-0" />
           <span className="min-w-0">
-            <span className="block text-body font-bold text-[#FF4B55]">Engelle</span>
+            <span className="block text-body font-bold text-[#FF4B55]">{t('fullProfileBlockAction')}</span>
             <span className="block text-micro text-app-muted normal-case break-words">
-              Bu kullanıcı seni bir daha göremez, mesajlaşamaz ve haritada karşılaşmazsınız.
+              {t('fullProfileBlockDescription')}
             </span>
           </span>
         </button>
@@ -405,26 +427,40 @@ export const FullProfileScreen: React.FC = () => {
         className="fixed bottom-0 inset-x-0 pb-safe pt-8"
         style={{ background: 'linear-gradient(to top, var(--color-bg) 55%, transparent)' }}
       >
-        <div className="flex items-center justify-center gap-5 pb-6">
-          <button
-            onClick={handlePass}
-            className="w-14 h-14 rounded-full bg-surface border border-app text-[#FF4B55] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
-          >
-            <X className="w-7 h-7 stroke-[2.5]" />
-          </button>
-          <button
-            onClick={() => handleLike(true)}
-            className="w-12 h-12 rounded-full bg-surface border border-app text-[#25D9D0] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
-          >
-            <Star className="w-6 h-6 fill-current" />
-          </button>
-          <button
-            onClick={() => handleLike(false)}
-            className="w-16 h-16 rounded-full bg-brand-gradient text-white flex items-center justify-center shadow-xl shadow-pink-500/30 active:scale-90 transition-transform"
-          >
-            <Heart className="w-8 h-8 fill-current" />
-          </button>
-        </div>
+        {existingMatch ? (
+          <div className="px-6 pb-6">
+            <AppButton
+              variant="primary"
+              size="lg"
+              fullWidth
+              leftIcon={<MessageCircle className="w-5 h-5" />}
+              onClick={() => navigate(`/chat/${existingMatch.id}`)}
+            >
+              {t('sendMessageButtonLabel')}
+            </AppButton>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center gap-5 pb-6">
+            <button
+              onClick={handlePass}
+              className="w-14 h-14 rounded-full bg-surface border border-app text-[#FF4B55] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
+            >
+              <X className="w-7 h-7 stroke-[2.5]" />
+            </button>
+            <button
+              onClick={() => handleLike(true)}
+              className="w-12 h-12 rounded-full bg-surface border border-app text-[#25D9D0] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
+            >
+              <Star className="w-6 h-6 fill-current" />
+            </button>
+            <button
+              onClick={() => handleLike(false)}
+              className="w-16 h-16 rounded-full bg-brand-gradient text-white flex items-center justify-center shadow-xl shadow-pink-500/30 active:scale-90 transition-transform"
+            >
+              <Heart className="w-8 h-8 fill-current" />
+            </button>
+          </div>
+        )}
       </div>
 
       <SafetyReportModal

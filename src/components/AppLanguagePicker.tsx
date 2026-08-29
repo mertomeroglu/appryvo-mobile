@@ -24,6 +24,8 @@ export const AppLanguagePicker: React.FC<AppLanguagePickerProps> = ({ showTrigge
   }, [needsLanguageSelection]);
 
   const selectLocale = (nextLocale: AppLocale) => {
+    // Backend sync (users.language_code, for server-rendered notifications) now lives inside
+    // setLocale() itself -- see appLocale.ts -- so every call site gets it, not just this one.
     setLocale(nextLocale);
     setIsOpen(false);
   };
@@ -35,7 +37,7 @@ export const AppLanguagePicker: React.FC<AppLanguagePickerProps> = ({ showTrigge
           type="button"
           aria-label="Choose app language"
           onClick={() => setIsOpen(true)}
-          className="absolute end-5 top-[calc(var(--safe-top)+1rem)] z-20 flex h-10 items-center gap-2 rounded-full border border-app bg-surface-90 px-3 text-caption font-extrabold uppercase text-app shadow-soft backdrop-blur-md active:scale-95"
+          className="absolute end-5 top-safe-offset z-20 flex h-10 items-center gap-2 rounded-full border border-app bg-surface-90 px-3 text-caption font-extrabold uppercase text-app shadow-soft backdrop-blur-md active:scale-95"
         >
           <Globe2 className="h-4 w-4 text-pink-500" />
           <span>{locale}</span>

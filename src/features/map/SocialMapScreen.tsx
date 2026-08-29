@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import * as L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import 'leaflet.markercluster';
-import 'leaflet.markercluster/dist/MarkerCluster.css';
-import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
+import { Map as MapLibreMap, Marker as MapLibreMarker, AttributionControl } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import Supercluster, { type PointFeature } from 'supercluster';
+import './SocialMapScreen.css';
 import { Search, Compass, Heart, ShieldCheck, LocateFixed, X, Sparkles, Crown, MapPin, EyeOff } from 'lucide-react';
 import {
   useDiscoveryMapQuery,
@@ -21,6 +21,10 @@ import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { apiClient } from '../../services/api/apiClient';
 import { nativeLocation } from '../../native/location';
 import { nativeHaptics } from '../../native/haptics';
+import { socketService } from '../../services/socket/socketService';
+import { searchCities, type GeoCityResult } from '../../services/geo/cityService';
+import { buildRyvoMapStyle } from './ryvoMapStyle';
+import { OPENMAPTILES_SPRITE_URL, OPENMAPTILES_GLYPHS_URL, OPENMAPTILES_TILEJSON_URL, isRyvoMapConfigured } from './ryvoMapConfig';
 import { BottomSheet } from '../../components/ui/BottomSheet';
 import { IconButton } from '../../components/ui/IconButton';
 import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
@@ -32,8 +36,9 @@ import {
 } from '../../components/ui/profileFrameGeometry';
 import { MatchModal } from '../../components/MatchModal';
 import { AppLogo } from '../../components/ui/AppLogo';
-import { getRelationshipGoalLabels } from '../../lib/profileLabels';
+import { getRelationshipGoalLabels, formatDisplayAge } from '../../lib/profileLabels';
 import { SPRING } from '../../motion/tokens';
+import { useAppTranslation, translateSync } from '../../i18n/appLocale';
 
 export interface MapUser {
   id: string;
@@ -54,26 +59,27 @@ interface SelectedPin {
   users: MapUser[];
 }
 
-// CARTO's basemaps.cartocdn.com now requires a registered API key per origin -- unauthenticated
-// requests (including this app's capacitor://localhost origin) get served a tile watermarked
-// "API KEY REQUIRED" instead of a 4xx, so this silently degraded rather than erroring loudly.
-// Standard OSM raster tiles have no such key/origin gate. Only one style exists (no native dark
-// variant) so both themes share it for now -- swap back to a keyed CARTO/Mapbox style if visual
-// dark-mode parity is wanted later.
-const TILE_URLS = {
-  light: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  dark: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-};
-const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
-const DEFAULT_CENTER: [number, number] = [39.0, 35.2]; // Türkiye — shown until location resolves
+// Same neighborhood/city-scale cap the old Leaflet setup used (see git history) -- keeps the map
+// at a "who's near me" social/dating scale instead of full street-level detail, independent of
+// the style's own layer minzoom/maxzoom choices (ryvoMapStyle.ts).
+const MIN_ZOOM = 3;
+const MAX_ZOOM = 15;
+// [lng, lat] -- MapLibre's coordinate order, the opposite of Leaflet's [lat, lng]. Türkiye, shown
+// until the device's own location resolves.
+const DEFAULT_CENTER: [number, number] = [35.2, 39.0];
 const DEFAULT_ZOOM = 5.2;
 const LOCATE_ZOOM = 13;
 const MOVE_DEBOUNCE_MS = 350;
+// MapLibre's flyTo/easeTo `duration` is milliseconds, unlike Leaflet's flyTo which took seconds.
+const FLY_DURATION_MS = 1100;
+const CLUSTER_EXPANSION_DURATION_MS = 400;
+// Two points within this many pixels of each other cluster together -- mirrors the old
+// leaflet.markercluster maxClusterRadius range (34-58px, denser near the default zoom).
+const CLUSTER_RADIUS_PX = 56;
 
 function firstPhoto(u: MapUser): string | undefined {
   // Map markers are at most 48px. Always prefer the server-generated thumbnail and never
-  // decode a full profile image for a tiny Leaflet marker.
+  // decode a full profile image for a tiny map marker.
   return u.photoThumbnailUrl || u.photo;
 }
 
@@ -81,6 +87,16 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) =>
     c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#39;'
   );
+}
+
+function htmlToElement(html: string): HTMLElement {
+  const template = document.createElement('template');
+  template.innerHTML = html.trim();
+  const el = template.content.firstElementChild as HTMLElement | null;
+  // Should be unreachable (every caller below passes a single well-formed root element), but a
+  // marker constructor requires a real element, so fail loudly instead of handing MapLibre null.
+  if (!el) throw new Error('htmlToElement: no root element produced');
+  return el;
 }
 
 function useIsDarkMode(): boolean {
@@ -101,7 +117,7 @@ export function markerSizeForZoom(zoom: number, selected = false): number {
   return Math.min(58, base + (selected ? 10 : 0));
 }
 
-export function avatarMarkerIcon(user: MapUser, selected: boolean, frames: ProfileFrameRecord[], zoom: number): L.DivIcon {
+export function avatarMarkerHtml(user: MapUser, selected: boolean, frames: ProfileFrameRecord[], zoom: number): string {
   const size = markerSizeForZoom(zoom, selected);
   const avatarSize = size - 8;
   const photo = firstPhoto(user);
@@ -119,35 +135,30 @@ export function avatarMarkerIcon(user: MapUser, selected: boolean, frames: Profi
     ? `<img src="${escapeHtml(normalizeMediaUrl(frameAsset) || '')}" alt="" aria-hidden="true" loading="lazy" decoding="async" draggable="false" class="absolute z-20 max-w-none h-auto pointer-events-none" style="left:50%;top:50%;width:${placement.width};transform:${placement.transform};transform-origin:center" onerror="this.style.display='none'" />`
     : '';
 
-  return L.divIcon({
-    className: '',
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-    html: `
-      <div class="relative flex items-center justify-center" style="width:${size}px;height:${size}px">
-        ${
-          selected
-            ? `<div class="absolute inset-0 rounded-full animate-pulse" style="box-shadow:0 0 0 4px rgba(255,77,141,0.55),0 0 24px 6px rgba(255,77,141,0.4)"></div>`
-            : ''
-        }
-        <div class="relative overflow-visible" style="width:${avatarSize}px;height:${avatarSize}px">
-          <div class="absolute -inset-[3px] rounded-full bg-brand-gradient"></div>
-          <div class="absolute inset-0 z-10 rounded-full overflow-hidden shadow-[0_6px_18px_rgba(0,0,0,0.4)]" style="border:2.5px solid ${
-      selected ? '#FF4D8D' : 'rgba(255,255,255,0.92)'
-    }">
-            ${initialsTag}
-            ${photoTag}
-          </div>
-          ${frameTag}
+  return `
+    <div class="relative flex items-center justify-center" style="width:${size}px;height:${size}px;z-index:600;cursor:pointer">
+      ${
+        selected
+          ? `<div class="absolute inset-0 rounded-full animate-pulse" style="box-shadow:0 0 0 4px rgba(255,77,141,0.55),0 0 24px 6px rgba(255,77,141,0.4)"></div>`
+          : ''
+      }
+      <div class="relative overflow-visible" style="width:${avatarSize}px;height:${avatarSize}px">
+        <div class="absolute -inset-[3px] rounded-full bg-brand-gradient"></div>
+        <div class="absolute inset-0 z-10 rounded-full overflow-hidden shadow-[0_6px_18px_rgba(0,0,0,0.4)]" style="border:2.5px solid ${
+    selected ? '#FF4D8D' : 'rgba(255,255,255,0.92)'
+  }">
+          ${initialsTag}
+          ${photoTag}
         </div>
-        ${
-          user.verified
-            ? `<div class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-[#25D9D0] border-2 border-white"></div>`
-            : ''
-        }
+        ${frameTag}
       </div>
-    `,
-  });
+      ${
+        user.verified
+          ? `<div class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-[#25D9D0] border-2 border-white"></div>`
+          : ''
+      }
+    </div>
+  `;
 }
 
 export function buildSocialClusterHtml(users: MapUser[], count: number): string {
@@ -163,37 +174,19 @@ export function buildSocialClusterHtml(users: MapUser[], count: number): string 
     return `<span style="position:absolute;left:${index * 18}px;top:4px;width:30px;height:30px;overflow:hidden;border-radius:9999px;border:2px solid white;background:#454554;box-shadow:0 3px 9px rgba(0,0,0,.28);z-index:${3 - index}">${initialsTag}${photoTag}</span>`;
   }).join('');
 
-  return `<div aria-label="${count} kişi bu bölgede" style="position:relative;width:68px;height:44px">
+  return `<div aria-label="${translateSync('mapClusterCountTemplate').replace('{count}', String(count))}" style="position:relative;width:68px;height:44px;z-index:600;cursor:pointer">
     ${faces}
     <span style="position:absolute;right:0;bottom:0;display:flex;min-width:27px;height:22px;align-items:center;justify-content:center;border-radius:9999px;border:2px solid white;background:linear-gradient(135deg,#ff4d8d,#7957ff);padding:0 6px;color:white;font-size:11px;font-weight:900;box-shadow:0 4px 12px rgba(75,42,130,.35);z-index:5">${count}</span>
   </div>`;
 }
 
-function socialClusterIcon(cluster: L.MarkerCluster, usersByMarker: WeakMap<L.Marker, MapUser>): L.DivIcon {
-  const users = cluster.getAllChildMarkers()
-    .map((marker) => usersByMarker.get(marker))
-    .filter((user): user is MapUser => Boolean(user));
-  const count = cluster.getChildCount();
-  return L.divIcon({
-    className: '',
-    iconSize: [68, 44],
-    iconAnchor: [34, 22],
-    html: buildSocialClusterHtml(users, count),
-  });
-}
-
-function selfLocationIcon(): L.DivIcon {
-  return L.divIcon({
-    className: '',
-    iconSize: [30, 30],
-    iconAnchor: [15, 15],
-    html: `
-      <div class="relative flex items-center justify-center w-[30px] h-[30px]">
-        <div class="absolute w-[30px] h-[30px] rounded-full bg-[#536DFE]/25 animate-ping"></div>
-        <div class="relative w-[14px] h-[14px] rounded-full bg-[#536DFE]" style="box-shadow:0 0 0 3px rgba(83,109,254,0.35),0 2px 6px rgba(0,0,0,0.35);border:2px solid white"></div>
-      </div>
-    `,
-  });
+function selfLocationHtml(): string {
+  return `
+    <div class="relative flex items-center justify-center w-[30px] h-[30px]" style="z-index:500;pointer-events:none">
+      <div class="absolute w-[30px] h-[30px] rounded-full bg-[#536DFE]/25 animate-ping"></div>
+      <div class="relative w-[14px] h-[14px] rounded-full bg-[#536DFE]" style="box-shadow:0 0 0 3px rgba(83,109,254,0.35),0 2px 6px rgba(0,0,0,0.35);border:2px solid white"></div>
+    </div>
+  `;
 }
 
 // Subtle "alive" interest chip for the map profile-preview sheet only — one-time stagger-in
@@ -211,17 +204,24 @@ const InterestChip: React.FC<{ label: string; index: number }> = ({ label, index
 );
 
 export const SocialMapScreen: React.FC = () => {
+  const { t } = useAppTranslation();
   const navigate = useNavigate();
   const isDark = useIsDarkMode();
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const tileLayerRef = useRef<L.TileLayer | null>(null);
-  const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
-  const selfMarkerRef = useRef<L.Marker | null>(null);
-  const markersByIdRef = useRef<Map<string, L.Marker>>(new Map());
-  const markerUserRef = useRef<WeakMap<L.Marker, MapUser>>(new WeakMap());
+  const mapRef = useRef<MapLibreMap | null>(null);
+  const selfMarkerRef = useRef<MapLibreMarker | null>(null);
+  const onScreenMarkersRef = useRef<Map<string, MapLibreMarker>>(new Map());
+  const clusterIndexRef = useRef<Supercluster<{ user: MapUser }> | null>(null);
   const moveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mapUsersSignatureRef = useRef<string>('');
+  const lastFrameCatalogRef = useRef<ProfileFrameRecord[] | null>(null);
+  // Imperative map event handlers (registered once at map init) close over stale React state --
+  // these refs give renderVisibleMarkers() the current selection/frame-catalog/zoom without
+  // needing to re-register listeners on every render.
+  const selectedUserIdRef = useRef<string | null>(null);
+  const frameCatalogRef = useRef<ProfileFrameRecord[]>([]);
+  const openPinRef = useRef<(users: MapUser[]) => void>(() => {});
 
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationStatus, setLocationStatus] = useState<'idle' | 'pending' | 'granted' | 'denied' | 'error'>('idle');
@@ -232,7 +232,9 @@ export const SocialMapScreen: React.FC = () => {
   const [checkingIn, setCheckingIn] = useState(false);
   const [bbox, setBbox] = useState<MapBbox | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [cityResults, setCityResults] = useState<any[]>([]);
+  const [cityResults, setCityResults] = useState<GeoCityResult[]>([]);
+  const [isSearchingCities, setIsSearchingCities] = useState(false);
+  const [citySearchError, setCitySearchError] = useState(false);
   const [selectedPin, setSelectedPin] = useState<SelectedPin | null>(null);
   const [selectedUser, setSelectedUser] = useState<MapUser | null>(null);
   const [zoomLevel, setZoomLevel] = useState(DEFAULT_ZOOM);
@@ -240,7 +242,8 @@ export const SocialMapScreen: React.FC = () => {
     isOpen: false,
   });
 
-  const { data: mapUsers, isFetching } = useDiscoveryMapQuery(bbox, 150);
+  const queryClient = useQueryClient();
+  const { data: mapUsers, isLoading: isMapUsersLoading } = useDiscoveryMapQuery(bbox, 150);
   const { data: selectedUserDetail, isFetching: isDetailFetching } = useDiscoveryUserQuery(selectedUser?.id);
   const { data: framesData } = useFramesQuery();
   const { data: me } = useMeQuery();
@@ -252,6 +255,13 @@ export const SocialMapScreen: React.FC = () => {
   const passMutation = usePassMutation();
   const updateProfileMutation = useUpdateProfileMutation();
 
+  useEffect(() => {
+    selectedUserIdRef.current = selectedUser?.id ?? null;
+  }, [selectedUser]);
+  useEffect(() => {
+    frameCatalogRef.current = frameCatalog;
+  }, [frameCatalog]);
+
   // Learn the viewer's current map-visibility state from their profile exactly once per screen
   // visit (not on every refetch) -- once we've set a local value, an explicit check-in/hide
   // action here is what should own it, not a background me-query refresh racing the tap.
@@ -261,11 +271,32 @@ export const SocialMapScreen: React.FC = () => {
     }
   }, [me, checkedIn]);
 
+  // Realtime primary path for other viewers' "Görün"/"Gizlen" toggles (see socket_server.js's
+  // emitMapVisibilityChanged) -- the 15s refetchInterval on useDiscoveryMapQuery remains as the
+  // fallback if this is ever missed. The event carries no lat/lng by design, so on either
+  // visible:true or visible:false we only ever invalidate and let GET /api/discovery/map (which
+  // re-checks map_visible + blocks + everything else) be the actual source of truth -- this
+  // never grants or reveals anything the next poll wouldn't already have shown.
+  useEffect(() => {
+    socketService.emit('map:subscribe');
+    const off = socketService.on('map:visibility-changed', (payload: { userId?: string; visible?: boolean }) => {
+      if (!payload?.userId) return;
+      queryClient.invalidateQueries({ queryKey: ['discovery', 'map'] });
+    });
+    return () => {
+      off();
+      socketService.emit('map:unsubscribe');
+    };
+  }, [queryClient]);
+
   const openPin = useCallback((users: MapUser[]) => {
     nativeHaptics.impact();
     setSelectedPin({ users });
     setSelectedUser(users.length === 1 ? users[0] : null);
   }, []);
+  useEffect(() => {
+    openPinRef.current = openPin;
+  }, [openPin]);
 
   const closeSheet = () => {
     setSelectedPin(null);
@@ -300,101 +331,161 @@ export const SocialMapScreen: React.FC = () => {
     }
   };
 
+  // Re-derives on-screen markers (individual avatars + clusters) from the supercluster index for
+  // whatever the map's current viewport/zoom is. Deliberately clears and rebuilds every on-screen
+  // marker each call rather than diffing marker-by-marker -- same granularity the old
+  // leaflet.markercluster setup used (its own cluster.clearLayers() + re-add), bounded by "however
+  // many users are visible in one mobile viewport," and callers below already gate *when* this
+  // runs (data-signature change, debounced moveend/zoomend, selection/frame-catalog change) so it
+  // never fires on every render or every background poll tick.
+  const renderVisibleMarkers = useCallback(() => {
+    const map = mapRef.current;
+    const index = clusterIndexRef.current;
+    if (!map || !index) return;
+
+    onScreenMarkersRef.current.forEach((marker) => marker.remove());
+    onScreenMarkersRef.current.clear();
+
+    const zoom = Math.round(map.getZoom());
+    const b = map.getBounds();
+    const bboxArr: [number, number, number, number] = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+    const clusters = index.getClusters(bboxArr, zoom);
+
+    clusters.forEach((feature) => {
+      const [lng, lat] = feature.geometry.coordinates;
+      const props = feature.properties as any;
+
+      if (props.cluster) {
+        const clusterId = props.cluster_id as number;
+        const leaves = index.getLeaves(clusterId, Infinity) as PointFeature<{ user: MapUser }>[];
+        const users = leaves.map((leaf) => leaf.properties.user);
+        const el = htmlToElement(buildSocialClusterHtml(users, props.point_count));
+        el.addEventListener('click', () => {
+          const map2 = mapRef.current;
+          if (!map2) return;
+          // Clusters behave spatially first: zoom/split while there is map detail left. Only a
+          // still-dense max-zoom cluster becomes a people list.
+          if (map2.getZoom() < MAX_ZOOM) {
+            const expansionZoom = Math.min(index.getClusterExpansionZoom(clusterId), MAX_ZOOM);
+            map2.easeTo({ center: [lng, lat], zoom: expansionZoom, duration: CLUSTER_EXPANSION_DURATION_MS });
+          } else {
+            openPinRef.current(users);
+          }
+        });
+        const marker = new MapLibreMarker({ element: el }).setLngLat([lng, lat]).addTo(map);
+        onScreenMarkersRef.current.set(`c:${clusterId}`, marker);
+      } else {
+        const user = (props as { user: MapUser }).user;
+        const el = htmlToElement(avatarMarkerHtml(user, selectedUserIdRef.current === user.id, frameCatalogRef.current, zoom));
+        el.addEventListener('click', () => openPinRef.current([user]));
+        const marker = new MapLibreMarker({ element: el }).setLngLat([lng, lat]).addTo(map);
+        onScreenMarkersRef.current.set(`u:${user.id}`, marker);
+      }
+    });
+  }, []);
+
   // Initialize the map exactly once.
   useEffect(() => {
     const container = containerRef.current;
     if (!container || mapRef.current) return;
 
-    const map = L.map(container, {
+    if (!isRyvoMapConfigured()) {
+      // Production build with VITE_OPENMAPTILES_TILEJSON_URL never set -- fail loudly in the
+      // console rather than silently rendering a blank gray screen with no explanation. The
+      // "map unavailable" state in the JSX below covers the user-facing side of this.
+      console.error('[SocialMapScreen] OPENMAPTILES_TILEJSON_URL is not configured; map cannot initialize.');
+      return;
+    }
+
+    const map = new MapLibreMap({
+      container,
+      style: buildRyvoMapStyle(isDark ? 'dark' : 'light', {
+        tileJsonUrl: OPENMAPTILES_TILEJSON_URL,
+        spriteUrl: OPENMAPTILES_SPRITE_URL,
+        glyphsUrl: OPENMAPTILES_GLYPHS_URL,
+      }),
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
-      // Required on the map instance itself, not just the tile layer: markerClusterGroup
-      // calls map.getMaxZoom() as soon as it's added, before the tile layer effect (which
-      // only knows its own maxZoom) has run — omitting this throws "Map has no maxZoom
-      // specified" and crashes the screen on real devices.
-      minZoom: 3,
-      maxZoom: 20,
-      zoomControl: false,
-      attributionControl: true,
-      worldCopyJump: true,
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+      attributionControl: false,
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
+      // Bounds how many off-screen vector tiles MapLibre keeps decoded in memory -- the same
+      // Android memory-conservation intent the old Leaflet raster setup's `keepBuffer: 1` served,
+      // just MapLibre's own equivalent knob (there is no literal keepBuffer option here).
+      maxTileCacheSize: 50,
     });
+    map.addControl(
+      new AttributionControl({
+        compact: true,
+        // Exact format OpenFreeMap's operator requests (openfreemap.org) -- the tile source this
+        // build points at by default, see ryvoMapConfig.ts.
+        customAttribution: 'OpenFreeMap © OpenMapTiles Data from OpenStreetMap',
+      })
+    );
     mapRef.current = map;
-
-    const cluster = L.markerClusterGroup({
-      maxClusterRadius: (zoom) => Math.max(34, Math.min(58, 58 - Math.max(0, zoom - 8) * 3)),
-      spiderfyOnMaxZoom: true,
-      showCoverageOnHover: false,
-      iconCreateFunction: (c) => socialClusterIcon(c, markerUserRef.current),
-    });
-    cluster.on('clusterclick', (e: any) => {
-      // Clusters behave spatially first: zoom/split while there is map detail left. Only a
-      // still-dense max-zoom cluster becomes a people list.
-      if (map.getZoom() < map.getMaxZoom()) return;
-      const users = (e.layer.getAllChildMarkers() as L.Marker[])
-        .map((m) => markerUserRef.current.get(m))
-        .filter((u): u is MapUser => Boolean(u));
-      if (users.length) openPin(users);
-    });
-    cluster.addTo(map);
-    clusterGroupRef.current = cluster;
 
     const updateBbox = () => {
       const b = map.getBounds();
       setBbox({ north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() });
+      renderVisibleMarkers();
     };
     map.on('moveend', () => {
       if (moveTimerRef.current) clearTimeout(moveTimerRef.current);
       moveTimerRef.current = setTimeout(updateBbox, MOVE_DEBOUNCE_MS);
     });
     map.on('zoomend', () => setZoomLevel(map.getZoom()));
-    // Populate the initial viewport immediately rather than waiting on the first user pan.
-    updateBbox();
 
-    // Guards against Leaflet measuring a not-yet-laid-out container on route mount, which
-    // otherwise renders as blank/grey tiles until the next manual interaction.
-    const raf = requestAnimationFrame(() => map.invalidateSize());
+    // Guards against measuring a not-yet-laid-out container on route mount, which otherwise
+    // renders as a blank canvas until the next manual interaction.
+    const raf = requestAnimationFrame(() => map.resize());
 
-    const markersById = markersByIdRef.current;
+    map.once('load', () => {
+      // Populate the initial viewport once the style/source has actually resolved, rather than
+      // waiting on the first user pan.
+      updateBbox();
+    });
+
+    const markersOnScreen = onScreenMarkersRef.current;
     return () => {
       cancelAnimationFrame(raf);
       if (moveTimerRef.current) clearTimeout(moveTimerRef.current);
-      // Detach image sources before destroying Leaflet. Chromium otherwise keeps decoded tile
-      // surfaces alive until a later major GC; repeated map/tab cycles pushed Graphics PSS up by
-      // hundreds of MB on the Galaxy A50 even though the React route had already unmounted.
+      // Detach image sources before destroying the map/markers. Chromium otherwise keeps decoded
+      // image surfaces alive until a later major GC; repeated map/tab cycles pushed Graphics PSS
+      // up by hundreds of MB on the Galaxy A50 even though the React route had already unmounted
+      // (same issue previously seen with the Leaflet tile pane's own <img> elements).
       container?.querySelectorAll('img').forEach((image) => {
         image.removeAttribute('src');
         image.removeAttribute('srcset');
       });
-      cluster.clearLayers();
-      tileLayerRef.current?.remove();
-      map.off();
+      markersOnScreen.forEach((marker) => marker.remove());
+      markersOnScreen.clear();
+      selfMarkerRef.current?.remove();
       map.remove();
       container?.replaceChildren();
       mapRef.current = null;
-      clusterGroupRef.current = null;
-      tileLayerRef.current = null;
       selfMarkerRef.current = null;
-      markersById.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Swap the tile layer with the app theme — same product, different tokens.
+  // Swap the vector style with the app theme — same product, different tokens. MapLibre's
+  // setStyle preserves the current camera (center/zoom) by default; markers are DOM elements
+  // tracked outside the style/source, so they persist across the swap without needing to be
+  // re-added.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
-    const layer = L.tileLayer(isDark ? TILE_URLS.dark : TILE_URLS.light, {
-      attribution: TILE_ATTRIBUTION,
-      subdomains: 'abc',
-      maxZoom: 19,
-      keepBuffer: 1,
-      updateWhenIdle: true,
-      updateWhenZooming: false,
-    });
-    layer.addTo(map);
-    layer.bringToBack();
-    tileLayerRef.current = layer;
+    map.setStyle(
+      buildRyvoMapStyle(isDark ? 'dark' : 'light', {
+        tileJsonUrl: OPENMAPTILES_TILEJSON_URL,
+        spriteUrl: OPENMAPTILES_SPRITE_URL,
+        glyphsUrl: OPENMAPTILES_GLYPHS_URL,
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDark]);
 
   // Purely local: reads the device's own GPS fix to center the map and draw the "you are here"
@@ -410,7 +501,7 @@ export const SocialMapScreen: React.FC = () => {
         const { latitude, longitude, accuracy } = pos.coords;
         setCoords({ lat: latitude, lng: longitude });
         setLocationStatus('granted');
-        if (recenter) mapRef.current?.flyTo([latitude, longitude], LOCATE_ZOOM, { duration: 1.1 });
+        if (recenter) mapRef.current?.flyTo({ center: [longitude, latitude], zoom: LOCATE_ZOOM, duration: FLY_DURATION_MS });
         return { latitude, longitude, accuracy: Number.isFinite(accuracy) ? accuracy : undefined };
       })
       .catch((err: any) => {
@@ -457,48 +548,54 @@ export const SocialMapScreen: React.FC = () => {
     const map = mapRef.current;
     if (!map || !coords) return;
     if (selfMarkerRef.current) {
-      selfMarkerRef.current.setLatLng([coords.lat, coords.lng]);
+      selfMarkerRef.current.setLngLat([coords.lng, coords.lat]);
     } else {
-      selfMarkerRef.current = L.marker([coords.lat, coords.lng], {
-        icon: selfLocationIcon(),
-        zIndexOffset: 1000,
-        interactive: false,
-        keyboard: false,
-      }).addTo(map);
+      const el = htmlToElement(selfLocationHtml());
+      selfMarkerRef.current = new MapLibreMarker({ element: el }).setLngLat([coords.lng, coords.lat]).addTo(map);
     }
   }, [coords]);
 
-  // Discovery user markers, re-diffed whenever the viewport query resolves.
+  // Rebuild the spatial (supercluster) index whenever the discovery user set actually changes.
+  // The map polls every 15s (see useDiscoveryMapQuery), and most polls return a byte-identical
+  // user set with a new array reference -- rebuilding on every poll made the whole map visibly
+  // blink every 15s. Skip the rebuild (and the marker re-render it triggers) when the actual
+  // id/position content hasn't changed; a genuine viewport pan/zoom still re-renders markers via
+  // the moveend/zoomend handler in the init effect above, independent of this gate.
   useEffect(() => {
-    const cluster = clusterGroupRef.current;
-    if (!cluster) return;
-    cluster.clearLayers();
-    markersByIdRef.current.clear();
     if (!Array.isArray(mapUsers)) return;
 
-    mapUsers.forEach((u: MapUser) => {
-      if (typeof u.displayLat !== 'number' || typeof u.displayLng !== 'number') return;
-      const marker = L.marker([u.displayLat, u.displayLng], {
-        icon: avatarMarkerIcon(u, selectedUser?.id === u.id, frameCatalog, mapRef.current?.getZoom() ?? zoomLevel),
-      });
-      markerUserRef.current.set(marker, u);
-      marker.on('click', () => openPin([u]));
-      markersByIdRef.current.set(u.id, marker);
-      cluster.addLayer(marker);
-    });
-    // selectedUser intentionally excluded — handled by the highlight effect below so a
-    // selection change doesn't rebuild the whole marker set.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frameCatalog, mapUsers, openPin]);
+    const signature = mapUsers.map((u) => `${u.id}:${u.displayLat}:${u.displayLng}`).join('|');
+    if (signature === mapUsersSignatureRef.current && frameCatalog === lastFrameCatalogRef.current) {
+      return;
+    }
+    mapUsersSignatureRef.current = signature;
+    lastFrameCatalogRef.current = frameCatalog;
 
-  // Re-skin only the affected markers when the selection changes.
-  useEffect(() => {
-    markersByIdRef.current.forEach((marker, id) => {
-      const u = markerUserRef.current.get(marker);
-      if (!u) return;
-      marker.setIcon(avatarMarkerIcon(u, id === selectedUser?.id, frameCatalog, zoomLevel));
+    const points: PointFeature<{ user: MapUser }>[] = mapUsers
+      .filter((u) => typeof u.displayLat === 'number' && typeof u.displayLng === 'number')
+      .map((u) => ({
+        type: 'Feature',
+        properties: { user: u },
+        geometry: { type: 'Point', coordinates: [u.displayLng, u.displayLat] },
+      }));
+
+    const index = new Supercluster<{ user: MapUser }>({
+      radius: CLUSTER_RADIUS_PX,
+      maxZoom: MAX_ZOOM,
     });
-  }, [frameCatalog, selectedUser, zoomLevel]);
+    index.load(points);
+    clusterIndexRef.current = index;
+    renderVisibleMarkers();
+  }, [frameCatalog, mapUsers, renderVisibleMarkers]);
+
+  // Re-skin markers currently on screen when the selection or zoom-driven marker size changes.
+  // Cheaper than the full index rebuild above (bounded by "however many markers are visible right
+  // now"), but not as targeted as the old per-marker Leaflet re-skin -- see renderVisibleMarkers's
+  // own comment for why "clear + rebuild the visible set" was chosen here.
+  useEffect(() => {
+    if (!mapRef.current || !clusterIndexRef.current) return;
+    renderVisibleMarkers();
+  }, [selectedUser, frameCatalog, zoomLevel, renderVisibleMarkers]);
 
   const handleRecenter = () => {
     nativeHaptics.impact();
@@ -508,30 +605,47 @@ export const SocialMapScreen: React.FC = () => {
   const handleCitySearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
+    setIsSearchingCities(true);
+    setCitySearchError(false);
     try {
-      const res = await apiClient.get(`/api/geo/search-cities?query=${encodeURIComponent(searchQuery)}`);
-      setCityResults(res?.data || []);
+      const results = await searchCities(searchQuery);
+      setCityResults(results);
     } catch {
       setCityResults([]);
+      setCitySearchError(true);
+    } finally {
+      setIsSearchingCities(false);
     }
   };
 
-  const selectCity = (city: any) => {
-    setSearchQuery(city.city || city.name || '');
+  const selectCity = (city: GeoCityResult) => {
+    setSearchQuery(city.city || '');
     setCityResults([]);
+    setCitySearchError(false);
     if (typeof city.latitude === 'number' && typeof city.longitude === 'number') {
-      mapRef.current?.flyTo([city.latitude, city.longitude], LOCATE_ZOOM, { duration: 1.1 });
+      mapRef.current?.flyTo({ center: [city.longitude, city.latitude], zoom: LOCATE_ZOOM, duration: FLY_DURATION_MS });
     }
   };
 
+  // Gated on isLoading (true only until the first page of results for this bbox has ever
+  // arrived), not isFetching (true on every background refetchInterval tick too) -- with
+  // placeholderData: keepPreviousData, mapUsers never actually goes away during a background
+  // poll, so re-deriving this from isFetching made the "no one nearby" pill blink off and back
+  // on every 15s poll even though nothing had changed.
   const isEmptyViewport = useMemo(
-    () => !!bbox && !isFetching && Array.isArray(mapUsers) && mapUsers.length === 0,
-    [bbox, isFetching, mapUsers]
+    () => !!bbox && !isMapUsersLoading && Array.isArray(mapUsers) && mapUsers.length === 0,
+    [bbox, isMapUsersLoading, mapUsers]
   );
 
   return (
     <div className="relative h-full w-full bg-app text-app overflow-hidden select-none">
-      <div ref={containerRef} className="absolute inset-0 z-0" />
+      <div ref={containerRef} className={`ryvo-map-root absolute inset-0 z-0 ${isDark ? 'ryvo-map-dark' : 'ryvo-map-light'}`} />
+
+      {!isRyvoMapConfigured() && (
+        <div className="absolute inset-0 z-content flex items-center justify-center p-8 text-center bg-app">
+          <p className="text-body font-semibold text-app-muted">{t('mapUnavailableMessage')}</p>
+        </div>
+      )}
 
       {/* Floating search bar */}
       <div className="absolute top-0 inset-x-0 z-sticky pt-safe px-4 pointer-events-none">
@@ -543,7 +657,7 @@ export const SocialMapScreen: React.FC = () => {
             <Search className="absolute left-4 top-3.5 w-5 h-5 text-app-muted" />
             <input
               type="text"
-              placeholder="Şehir veya lokasyon ara..."
+              placeholder={t('mapSearchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-surface-90 backdrop-blur-xl border border-app rounded-full pl-12 pr-4 py-3 text-body font-semibold text-app placeholder:text-app-muted shadow-elevated focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
@@ -551,15 +665,25 @@ export const SocialMapScreen: React.FC = () => {
           </form>
         </div>
 
-        {cityResults.length > 0 && (
+        {isSearchingCities && (
+          <div className="pointer-events-auto mt-2 w-full max-w-md mx-auto bg-surface border border-app rounded-2xl px-4 py-3 shadow-floating text-caption font-semibold text-app-muted">
+            {t('mapSearchingLabel')}
+          </div>
+        )}
+        {!isSearchingCities && citySearchError && (
+          <div className="pointer-events-auto mt-2 w-full max-w-md mx-auto bg-surface border border-app rounded-2xl px-4 py-3 shadow-floating text-caption font-semibold text-app-muted">
+            {t('mapSearchErrorLabel')}
+          </div>
+        )}
+        {!isSearchingCities && !citySearchError && cityResults.length > 0 && (
           <div className="pointer-events-auto mt-2 w-full max-w-md mx-auto bg-surface border border-app rounded-2xl overflow-hidden shadow-floating">
-            {cityResults.map((city: any, idx: number) => (
+            {cityResults.map((city, idx) => (
               <button
                 key={idx}
                 onClick={() => selectCity(city)}
                 className="w-full px-4 py-3 text-left border-b border-app last:border-b-0 text-body font-medium text-app hover:bg-surface-elevated flex items-center gap-2"
               >
-                <span>{city.city || city.name}</span>
+                <span>{city.city}</span>
                 <span className="text-caption text-app-muted">{city.country}</span>
               </button>
             ))}
@@ -567,40 +691,45 @@ export const SocialMapScreen: React.FC = () => {
         )}
       </div>
 
-      {/* Status pills — never a full-screen blocker, the map stays interactive underneath */}
-      <div className="absolute inset-x-0 top-24 z-sticky flex justify-center pointer-events-none px-6">
+      {/* Status pills — never a full-screen blocker, the map stays interactive underneath.
+          Positioned relative to the search bar above (safe-top + its own ~56px height + a
+          breathing gap) rather than a bare fixed top-24: that fixed value ignored
+          env(safe-area-inset-top) entirely, so on a taller notch/dynamic-island inset the
+          search bar (itself correctly safe-area-aware via pt-safe) could sit low enough for
+          these two blocks to crowd or overlap. */}
+      <div className="absolute inset-x-0 top-[calc(var(--safe-top)+4.5rem)] z-sticky flex justify-center pointer-events-none px-6">
         {locationStatus === 'pending' && (
           <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
-            Konumun alınıyor...
+            {t('mapLocatingLabel')}
           </div>
         )}
         {locationStatus === 'denied' && (
           <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
-            <span>Konum izni reddedildi. Haritayı gezinmeye devam edebilirsin.</span>
+            <span>{t('mapLocationDeniedMessage')}</span>
             <button
               onClick={() => acquireLocalLocation(true).catch(() => {})}
               className="shrink-0 text-pink-500 font-bold"
             >
-              Tekrar Dene
+              {t('retryButton')}
             </button>
           </div>
         )}
         {locationStatus === 'error' && (
           <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
-            <span>Konum alınamadı.</span>
+            <span>{t('mapLocationErrorMessage')}</span>
             <button onClick={() => acquireLocalLocation(true).catch(() => {})} className="shrink-0 text-pink-500 font-bold">
-              Tekrar Dene
+              {t('retryButton')}
             </button>
           </div>
         )}
-        {isFetching && bbox && (
+        {isMapUsersLoading && bbox && (
           <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
-            Yakındaki kişiler yükleniyor...
+            {t('mapNearbyLoadingLabel')}
           </div>
         )}
         {isEmptyViewport && (
           <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
-            Bu bölgede henüz kimse yok
+            {t('mapNoOneNearbyLabel')}
           </div>
         )}
       </div>
@@ -614,15 +743,15 @@ export const SocialMapScreen: React.FC = () => {
               <MapPin className="w-4.5 h-4.5 text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-caption font-bold text-app">Haritada görünmüyorsun</p>
-              <p className="text-caption text-app-muted leading-tight">İstersen yakındakilere görün — istediğin an kapatabilirsin.</p>
+              <p className="text-caption font-bold text-app">{t('mapNotVisibleTitle')}</p>
+              <p className="text-caption text-app-muted leading-tight">{t('mapNotVisibleSubtitle')}</p>
             </div>
             <button
               onClick={checkInToMap}
               disabled={checkingIn}
               className="shrink-0 px-3.5 py-2 rounded-full bg-brand-gradient text-white text-caption font-extrabold shadow-soft active:scale-95 transition-transform disabled:opacity-60"
             >
-              {checkingIn ? '...' : 'Görün'}
+              {checkingIn ? '...' : t('mapCheckInButtonLabel')}
             </button>
           </div>
         </div>
@@ -634,15 +763,19 @@ export const SocialMapScreen: React.FC = () => {
             className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-surface-95 border border-app shadow-elevated backdrop-blur-md text-caption font-bold text-app active:scale-95 transition-transform"
           >
             <span className="w-2 h-2 rounded-full bg-[#25D9D0]" />
-            Haritada görünüyorsun
+            {t('mapVisibleLabel')}
             <EyeOff className="w-3.5 h-3.5 text-app-muted" />
           </button>
         </div>
       )}
 
-      {/* Floating controls — parked above the visibility banner/pill row so the two never collide */}
-      <div className="absolute bottom-44 right-4 z-sticky flex flex-col gap-2">
-        <IconButton aria-label="Konumuma Dön" variant="surface" size="lg" onClick={handleRecenter}>
+      {/* Floating controls — parked above the visibility banner/pill row. bottom-44 previously
+          left only a few px above the taller "Haritada görünmüyorsun" banner variant (icon +
+          two text lines + button, ~64px tall on top of its own bottom-28 offset reaches nearly
+          this button's own bottom edge) -- bumped to bottom-52 for real breathing room instead
+          of the two nearly touching. */}
+      <div className="absolute bottom-52 right-4 z-sticky flex flex-col gap-2">
+        <IconButton aria-label={t('mapRecenterAriaLabel')} variant="surface" size="lg" onClick={handleRecenter}>
           {locationStatus === 'granted' ? (
             <Compass className="w-6 h-6 text-[#25D9D0]" />
           ) : (
@@ -656,7 +789,7 @@ export const SocialMapScreen: React.FC = () => {
         <div className="px-5 pb-6">
           {!selectedUser && selectedPin && selectedPin.users.length > 1 ? (
             <>
-              <h4 className="text-heading text-app mb-3">{selectedPin.users.length} kişi bu bölgede</h4>
+              <h4 className="text-heading text-app mb-3">{t('mapClusterCountTemplate').replace('{count}', String(selectedPin.users.length))}</h4>
               <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
                 {selectedPin.users.map((u) => (
                   <button
@@ -695,8 +828,8 @@ export const SocialMapScreen: React.FC = () => {
                 <div className="flex-1 min-w-0 pt-1">
                   <div className="flex items-baseline gap-1.5 flex-wrap">
                     <h4 className="text-heading text-app truncate">{selectedUser.name}</h4>
-                    {selectedUserDetail?.age && (
-                      <span className="text-body font-bold text-app-muted">{selectedUserDetail.age}</span>
+                    {formatDisplayAge(selectedUserDetail?.age) !== undefined && (
+                      <span className="text-body font-bold text-app-muted">{formatDisplayAge(selectedUserDetail?.age)}</span>
                     )}
                     {selectedUser.verified && <ShieldCheck className="w-4.5 h-4.5 text-[#32D583] shrink-0" />}
                     {selectedUserDetail?.isPremium && (
@@ -707,7 +840,7 @@ export const SocialMapScreen: React.FC = () => {
                     )}
                   </div>
                   <p className="text-caption text-app-muted mt-0.5">
-                    {selectedUser.city || 'Yakınlarda'}
+                    {selectedUser.city || t('mapNearbyFallbackLabel')}
                     {selectedUser.distance?.label ? ` • ${selectedUser.distance.label}` : ''}
                   </p>
 
@@ -761,7 +894,7 @@ export const SocialMapScreen: React.FC = () => {
                 className="w-full flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-surface border border-app text-caption font-extrabold text-app active:scale-[0.98] transition-transform"
               >
                 <Sparkles className="w-4 h-4 text-purple-400" />
-                Profili Gör
+                {t('mapViewProfileAction')}
               </button>
             </div>
           ) : null}

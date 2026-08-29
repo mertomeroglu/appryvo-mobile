@@ -31,6 +31,7 @@ import { GiftShopSheet } from '../gifts/GiftShopSheet';
 import { GiftCelebrationOverlay } from '../gifts/GiftCelebrationOverlay';
 import type { GiftSnapshot } from '../gifts/types';
 import { formatMessageDay, formatMessageTime } from '../../lib/formatMessageTime';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 function isSameMessageGroup(first?: ChatMessage, second?: ChatMessage) {
   if (!first || !second || first.senderId !== second.senderId) return false;
@@ -43,12 +44,12 @@ export const ChatScreen: React.FC = () => {
   const { matchId } = useParams<{ matchId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { t } = useAppTranslation();
   const currentUserId = useAuthStore((s) => s.user?.id);
 
   const [text, setText] = useState('');
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
   const [isPartnerOnline, setIsPartnerOnline] = useState(false);
-  const [partnerReadAt, setPartnerReadAt] = useState<string | null>(null);
   const [replyTarget, setReplyTarget] = useState<ChatMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [reactionsMap, setReactionsMap] = useState<Record<string, { userId: string; reaction: string }[]>>({});
@@ -98,12 +99,12 @@ export const ChatScreen: React.FC = () => {
   const partnerId = partner?.id;
   const partnerLastSeen = partner?.lastActiveAt || partner?.last_active_at;
   const partnerStatusText = isPartnerTyping
-    ? 'yazıyor...'
+    ? t('chatTypingStatus')
     : isPartnerOnline
-      ? 'çevrimiçi'
+      ? t('chatOnlineStatus')
       : partnerLastSeen
-        ? `son görülme ${formatMessageTime(partnerLastSeen)}`
-        : 'çevrimdışı';
+        ? t('chatLastSeenTemplate').replace('{time}', formatMessageTime(partnerLastSeen))
+        : t('chatOfflineStatus');
 
   const allMessages = useMemo<ChatMessage[]>(() => {
     const base = Array.isArray(messagesData?.messages) ? messagesData.messages : [];
@@ -138,13 +139,6 @@ export const ChatScreen: React.FC = () => {
     allMessages.forEach((m) => map.set(m.id, m));
     return map;
   }, [allMessages]);
-
-  const lastMineMessageId = useMemo(() => {
-    for (let i = allMessages.length - 1; i >= 0; i -= 1) {
-      if (allMessages[i].senderId === currentUserId) return allMessages[i].id;
-    }
-    return null;
-  }, [allMessages, currentUserId]);
 
   const scrollToBottom = (behavior: 'auto' | 'smooth' = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior });
@@ -205,7 +199,37 @@ export const ChatScreen: React.FC = () => {
     });
 
     const unsubRead = socketService.on('message:read', (data) => {
-      if (data.matchId === matchId && data.readBy !== currentUserId) setPartnerReadAt(data.readAt);
+      if (data.matchId !== matchId || data.readBy === currentUserId) return;
+      // Real per-message state, not a last-message-only guess: mark every one of MY messages the
+      // partner has now read (server bulk-marks everything up to this point, mirrored here).
+      // deliveredAt is backfilled too since a read message was necessarily delivered first.
+      queryClient.setQueryData<any>(QUERY_KEYS.messages(matchId), (current: any) => {
+        if (!current || !Array.isArray(current.messages)) return current;
+        return {
+          ...current,
+          messages: current.messages.map((message: ChatMessage) => (
+            message.senderId === currentUserId && !message.isRead
+              ? { ...message, isRead: true, readAt: data.readAt, deliveredAt: message.deliveredAt || data.readAt }
+              : message
+          )),
+        };
+      });
+    });
+
+    const unsubDelivered = socketService.on('message:delivered', (data: { matchId?: string; messageIds?: string[] }) => {
+      if (data.matchId !== matchId || !Array.isArray(data.messageIds) || data.messageIds.length === 0) return;
+      const deliveredIds = new Set(data.messageIds);
+      queryClient.setQueryData<any>(QUERY_KEYS.messages(matchId), (current: any) => {
+        if (!current || !Array.isArray(current.messages)) return current;
+        return {
+          ...current,
+          messages: current.messages.map((message: ChatMessage) => (
+            deliveredIds.has(message.id) && !message.deliveredAt
+              ? { ...message, deliveredAt: new Date().toISOString() }
+              : message
+          )),
+        };
+      });
     });
 
     const unsubEdit = socketService.on('message:edit', (data) => {
@@ -238,7 +262,7 @@ export const ChatScreen: React.FC = () => {
           ...current,
           messages: current.messages.map((message: ChatMessage) => (
             message.id === data.messageId
-              ? { ...message, text: data.text || 'Bu mesaj silindi.', mediaUrl: null, isDeleted: true }
+              ? { ...message, text: data.text || t('chatMessageDeletedFallback'), mediaUrl: null, isDeleted: true }
               : message
           )),
         };
@@ -283,6 +307,7 @@ export const ChatScreen: React.FC = () => {
       unsubTypingStart();
       unsubTypingStop();
       unsubRead();
+      unsubDelivered();
       unsubEdit();
       unsubDelete();
       unsubReaction();
@@ -385,7 +410,7 @@ export const ChatScreen: React.FC = () => {
         { messageId: editingMessage.id, text: text.trim() },
         {
           onSuccess: () => refetch(),
-          onError: () => toast.error('Mesaj düzenlenemedi.'),
+          onError: () => toast.error(t('chatEditMessageFailedToast')),
         }
       );
       setEditingMessage(null);
@@ -411,7 +436,7 @@ export const ChatScreen: React.FC = () => {
           return;
         }
         setText(outgoingText);
-        toast.error(result?.message || 'Mesaj gönderilemedi.');
+        toast.error(result?.message || t('chatSendMessageFailedToast'));
       }
     );
     setText('');
@@ -454,7 +479,7 @@ export const ChatScreen: React.FC = () => {
       }
     } catch (err) {
       console.error('[CHAT MEDIA UPLOAD ERROR]', err);
-      toast.error('Medya yüklenemedi.');
+      toast.error(t('chatMediaUploadFailedToast'));
     }
   };
 
@@ -476,7 +501,7 @@ export const ChatScreen: React.FC = () => {
       setRecordSeconds(0);
       recordTimerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
     } catch {
-      toast.error('Mikrofon erişimi reddedildi.');
+      toast.error(t('chatMicPermissionDeniedToast'));
     }
   };
 
@@ -507,7 +532,7 @@ export const ChatScreen: React.FC = () => {
           window.setTimeout(() => scrollToBottom(), 100);
         }
       } catch {
-        toast.error('Sesli mesaj gönderilemedi.');
+        toast.error(t('chatVoiceMessageFailedToast'));
       }
     };
     recorder.stop();
@@ -555,10 +580,10 @@ export const ChatScreen: React.FC = () => {
           },
         }));
       } else {
-        toast.show('Çeviri şu anda kullanılamıyor.', 'neutral');
+        toast.show(t('chatTranslationUnavailableToast'), 'neutral');
       }
     } catch {
-      toast.show('Çeviri şu anda kullanılamıyor.', 'neutral');
+      toast.show(t('chatTranslationUnavailableToast'), 'neutral');
     } finally {
       setTranslatingIds((prev) => {
         const next = new Set(prev);
@@ -571,7 +596,7 @@ export const ChatScreen: React.FC = () => {
   const handleDelete = (message: ChatMessage) => {
     deleteMutation.mutate(message.id, {
       onSuccess: () => refetch(),
-      onError: () => toast.error('Mesaj silinemedi.'),
+      onError: () => toast.error(t('chatDeleteMessageFailedToast')),
     });
   };
 
@@ -588,27 +613,27 @@ export const ChatScreen: React.FC = () => {
       onSuccess: () => {
         socketService.leaveConversation(matchId);
         setIsUnmatchConfirmOpen(false);
-        toast.show('Eşleşme kaldırıldı.', 'neutral');
+        toast.show(t('chatUnmatchSuccessToast'), 'neutral');
         navigate('/messages', { replace: true });
       },
-      onError: (error: any) => toast.error(error?.message || 'Eşleşme kaldırılamadı.'),
+      onError: (error: any) => toast.error(error?.message || t('chatUnmatchFailedToast')),
     });
   };
 
   const conversationActions: ActionSheetAction[] = [
     {
-      label: 'Eşleşmeyi Kaldır',
+      label: t('chatUnmatchActionLabel'),
       icon: <Unlink className="h-5 w-5" />,
       destructive: true,
       onSelect: () => setIsUnmatchConfirmOpen(true),
     },
     {
-      label: 'Kullanıcıyı bildir',
+      label: t('reportUser'),
       icon: <Flag className="h-5 w-5" />,
       onSelect: () => setSafetyAction('report'),
     },
     {
-      label: 'Kullanıcıyı engelle',
+      label: t('blockUser'),
       icon: <UserMinus className="h-5 w-5" />,
       destructive: true,
       onSelect: () => setSafetyAction('block'),
@@ -621,13 +646,13 @@ export const ChatScreen: React.FC = () => {
       {/* Top Header */}
       <header className="z-sticky flex min-h-16 shrink-0 items-center justify-between border-b border-app bg-surface-95 px-3 pb-2 pt-[calc(var(--safe-top)+8px)] backdrop-blur-xl">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate('/messages')}>
+          <IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate('/messages')}>
             <ArrowLeft className="w-5 h-5" />
           </IconButton>
 
           <button
             type="button"
-            aria-label={`${partner?.name || 'Eşleşme'} profilini aç`}
+            aria-label={t('chatOpenProfileAriaLabelTemplate').replace('{name}', partner?.name || t('chatMatchFallbackLabel'))}
             onClick={() => partnerId && navigate(`/discover/${partnerId}`)}
             className="flex min-w-0 items-center gap-2.5 rounded-xl pe-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
@@ -637,9 +662,11 @@ export const ChatScreen: React.FC = () => {
               activeFrameId={partner?.activeFrameId}
               size="sm"
               online={isPartnerOnline}
+              countryCode={partner?.countryCode}
+              showCountryFlag
             />
             <div className="min-w-0">
-              <h3 className="text-caption font-black text-app truncate">{partner?.name || 'Sohbet'}</h3>
+              <h3 className="text-caption font-black text-app truncate">{partner?.name || t('chatFallbackTitle')}</h3>
               <p className="text-micro text-app-muted normal-case">
                 {partnerStatusText}
               </p>
@@ -649,20 +676,20 @@ export const ChatScreen: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <IconButton
-            aria-label="Çeviri Ayarları"
+            aria-label={t('chatTranslationSettingsAriaLabel')}
             variant="surface"
             size="sm"
             onClick={() => setIsTranslationSettingsOpen(true)}
           >
             <Languages className="w-4 h-4" />
           </IconButton>
-          <IconButton aria-label="Sesli Ara" variant="surface" size="sm" onClick={handleVoiceCall}>
+          <IconButton aria-label={t('chatVoiceCallAriaLabel')} variant="surface" size="sm" onClick={handleVoiceCall}>
             <Phone className="w-4 h-4" />
           </IconButton>
-          <IconButton aria-label="Görüntülü Ara" variant="surface" size="sm" onClick={handleVideoCall}>
+          <IconButton aria-label={t('chatVideoCallAriaLabel')} variant="surface" size="sm" onClick={handleVideoCall}>
             <Video className="w-4 h-4" />
           </IconButton>
-          <IconButton aria-label="Sohbet seçenekleri" variant="surface" size="sm" onClick={() => setIsConversationActionsOpen(true)}>
+          <IconButton aria-label={t('chatOptionsLabel')} variant="surface" size="sm" onClick={() => setIsConversationActionsOpen(true)}>
             <MoreVertical className="w-4 h-4" />
           </IconButton>
         </div>
@@ -673,19 +700,19 @@ export const ChatScreen: React.FC = () => {
         ref={scrollContainerRef}
         onScroll={handleScroll}
         role="log"
-        aria-label="Sohbet geçmişi"
+        aria-label={t('chatHistoryAriaLabel')}
         aria-live="polite"
         aria-relevant="additions"
         className="relative flex-1 overflow-y-auto bg-app px-3 py-3 no-scrollbar"
       >
         {isLoadingOlder && (
-          <div className="text-center text-micro text-app-muted normal-case py-2">Eski mesajlar yükleniyor...</div>
+          <div className="text-center text-micro text-app-muted normal-case py-2">{t('chatLoadingOlderMessages')}</div>
         )}
         {allMessages.length === 0 && (
           <div className="mx-auto flex max-w-[18rem] flex-col items-center px-4 py-12 text-center">
             <span className="grid h-14 w-14 place-items-center rounded-full bg-pink-500/10 text-pink-500"><Send className="h-6 w-6" /></span>
-            <p className="mt-4 text-caption font-black text-app">Yeni eşleşme</p>
-            <p className="mt-1 text-micro normal-case leading-relaxed text-app-muted">İlk mesajı gönder ve sohbeti başlat.</p>
+            <p className="mt-4 text-caption font-black text-app">{t('chatEmptyStateTitle')}</p>
+            <p className="mt-1 text-micro normal-case leading-relaxed text-app-muted">{t('chatEmptyStateSubtitle')}</p>
           </div>
         )}
         <div>
@@ -707,11 +734,6 @@ export const ChatScreen: React.FC = () => {
                 <MessageBubble
                   message={msg}
                   isMe={msg.senderId === currentUserId}
-                  isLastMineRead={
-                    msg.id === lastMineMessageId &&
-                    !!partnerReadAt &&
-                    new Date(msg.createdAt).getTime() <= new Date(partnerReadAt).getTime()
-                  }
                   replySource={msg.replyToMessageId ? messagesById.get(msg.replyToMessageId) : undefined}
                   viewOnceRevealed={revealedViewOnce.has(msg.id)}
                   isTranslating={translatingIds.has(msg.id)}
@@ -744,7 +766,7 @@ export const ChatScreen: React.FC = () => {
           className="absolute bottom-24 right-4 z-sticky flex items-center gap-1.5 rounded-full bg-pink-500 px-3 py-2 text-micro font-extrabold normal-case text-white shadow-elevated"
         >
           <ArrowDown className="h-4 w-4" />
-          {newMessagesBelow} yeni mesaj
+          {t('chatNewMessagesCountTemplate').replace('{count}', String(newMessagesBelow))}
         </button>
       )}
 
@@ -752,13 +774,13 @@ export const ChatScreen: React.FC = () => {
       {(replyTarget || editingMessage) && (
         <div className="px-4 py-2 border-t border-app bg-surface-elevated flex items-center justify-between">
           <div className="min-w-0">
-            <p className="text-micro font-bold text-pink-500">{editingMessage ? 'Mesajı düzenle' : 'Yanıtla'}</p>
+            <p className="text-micro font-bold text-pink-500">{editingMessage ? t('chatEditingLabel') : t('chatReplyingLabel')}</p>
             <p className="text-caption text-app-muted truncate normal-case">
-              {(editingMessage || replyTarget)?.text || 'Medya mesajı'}
+              {(editingMessage || replyTarget)?.text || t('chatMediaMessageFallback')}
             </p>
           </div>
           <IconButton
-            aria-label="İptal"
+            aria-label={t('cancel')}
             variant="ghost"
             size="sm"
             onClick={() => {
@@ -777,12 +799,12 @@ export const ChatScreen: React.FC = () => {
         <div className="px-4 pt-3 pb-[calc(var(--safe-bottom)+12px)] border-t border-app bg-surface flex items-center gap-3">
           <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--color-error)]" />
           <span className="flex-1 text-body font-semibold text-app tabular-nums">
-            Kaydediliyor... {recordSeconds}s
+            {t('chatRecordingTemplate').replace('{seconds}', String(recordSeconds))}
           </span>
-          <IconButton aria-label="İptal" variant="surface" size="md" onClick={() => stopRecording(false)}>
+          <IconButton aria-label={t('cancel')} variant="surface" size="md" onClick={() => stopRecording(false)}>
             <X className="w-5 h-5" />
           </IconButton>
-          <IconButton aria-label="Gönder" variant="gradient" size="md" onClick={() => stopRecording(true)}>
+          <IconButton aria-label={t('sendAriaLabel')} variant="gradient" size="md" onClick={() => stopRecording(true)}>
             <Send className="w-5 h-5" />
           </IconButton>
         </div>
@@ -796,15 +818,15 @@ export const ChatScreen: React.FC = () => {
             className="hidden"
             onChange={handleFileChange}
           />
-          <IconButton aria-label="Medya Ekle" variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()}>
+          <IconButton aria-label={t('chatAddMediaAriaLabel')} variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()}>
             <Camera className="w-6 h-6" />
           </IconButton>
 
           <textarea
             ref={composerRef}
             rows={1}
-            aria-label="Mesaj"
-            placeholder="Mesaj"
+            aria-label={t('chatMessagePlaceholder')}
+            placeholder={t('chatMessagePlaceholder')}
             value={text}
             onChange={(event) => handleTextChange(event.target.value)}
             onInput={(event) => {
@@ -823,16 +845,16 @@ export const ChatScreen: React.FC = () => {
             className="max-h-28 min-h-11 flex-1 resize-none overflow-y-auto rounded-3xl border border-app bg-input-app px-4 py-2.5 text-body font-semibold leading-6 text-app placeholder:text-app-muted focus:border-pink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500/40"
           />
 
-          <IconButton aria-label="Hediye Gönder" variant="ghost" size="sm" onClick={() => setIsGiftShopOpen(true)}>
+          <IconButton aria-label={t('chatSendGiftAriaLabel')} variant="ghost" size="sm" onClick={() => setIsGiftShopOpen(true)}>
             <GiftIcon className="h-5 w-5 text-pink-500" />
           </IconButton>
 
           {text.trim() ? (
-            <IconButton aria-label="Gönder" variant="gradient" size="md" onClick={handleSend}>
+            <IconButton aria-label={t('sendAriaLabel')} variant="gradient" size="md" onClick={handleSend}>
               <Send className="w-5 h-5 fill-current" />
             </IconButton>
           ) : (
-            <IconButton aria-label="Sesli Mesaj Kaydet" variant="gradient" size="md" onClick={startRecording}>
+            <IconButton aria-label={t('chatRecordVoiceAriaLabel')} variant="gradient" size="md" onClick={startRecording}>
               <Mic className="w-5 h-5" />
             </IconButton>
           )}
@@ -855,7 +877,7 @@ export const ChatScreen: React.FC = () => {
       <ActionSheet
         isOpen={isConversationActionsOpen}
         onClose={() => setIsConversationActionsOpen(false)}
-        title={partner?.name ? `${partner.name} · Sohbet seçenekleri` : 'Sohbet seçenekleri'}
+        title={partner?.name ? t('chatOptionsTitleTemplate').replace('{name}', partner.name) : t('chatOptionsLabel')}
         actions={conversationActions}
       />
 
@@ -866,19 +888,19 @@ export const ChatScreen: React.FC = () => {
               <Unlink className="h-5 w-5" />
             </span>
             <div>
-              <h3 className="text-heading text-app">Eşleşmeyi Kaldır</h3>
-              <p className="mt-1 text-caption normal-case text-app-muted">{partner?.name || 'Bu kişi'} ile sohbet erişimin sona erecek.</p>
+              <h3 className="text-heading text-app">{t('chatUnmatchActionLabel')}</h3>
+              <p className="mt-1 text-caption normal-case text-app-muted">{t('chatUnmatchWarningTemplate').replace('{name}', partner?.name || t('chatUnmatchFallbackName'))}</p>
             </div>
           </div>
           <p className="text-caption normal-case leading-relaxed text-app-muted">
-            Sohbet listenizden kaldırılır ve artık birbirinize mesaj gönderemezsiniz. Engelleme ayrı bir güvenlik işlemidir.
+            {t('chatUnmatchDescription')}
           </p>
           <div className="flex gap-2 pt-1">
             <AppButton type="button" variant="secondary" size="md" className="flex-1" disabled={unmatchMutation.isPending} onClick={() => setIsUnmatchConfirmOpen(false)}>
-              Vazgeç
+              {t('discardAriaLabel')}
             </AppButton>
             <AppButton type="button" variant="danger" size="md" className="flex-1" loading={unmatchMutation.isPending} onClick={handleUnmatch}>
-              Eşleşmeyi Kaldır
+              {t('chatUnmatchActionLabel')}
             </AppButton>
           </div>
         </div>

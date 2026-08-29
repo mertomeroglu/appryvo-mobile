@@ -9,7 +9,17 @@ import { PRODUCT_DEFAULT_LOCALE } from '../i18n/appLocale';
 // `locale` so a French-app-locale user never sees these specific fields fall back to Turkish
 // (the emoji prefixes are language-neutral and stay identical across locales).
 
-function localeLookup<T extends Record<string, string>>(
+// Mirrors the server's own bound (MIN_USER_AGE/MAX_USER_AGE in user_controller.js, 18-99) --
+// values written before that bound existed (e.g. the reported 570 case) can still be sitting in
+// the database pending an admin cleanup, so every place that renders a user's age treats an
+// out-of-range value the same as a missing one instead of displaying it.
+export function formatDisplayAge(age: unknown): number | undefined {
+  const n = typeof age === 'number' ? age : Number(age);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 18 || n > 99) return undefined;
+  return n;
+}
+
+export function localeLookup<T extends Record<string, string>>(
   byLocale: Record<AppLocale, T>,
   locale: AppLocale | undefined,
   key?: string | null

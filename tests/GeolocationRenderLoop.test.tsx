@@ -123,13 +123,13 @@ describe('iOS runaway geolocation / render loop fix', () => {
     // Both the avatar marker and the cluster face images must render an initials layer
     // underneath so a failed decode reveals a fallback instead of a broken-image glyph, and the
     // onerror handler only ever hides the element once (no retry loop).
-    const avatarIconStart = map.indexOf('export function avatarMarkerIcon');
+    const avatarIconStart = map.indexOf('export function avatarMarkerHtml');
     const avatarIconBody = map.slice(avatarIconStart, map.indexOf('export function buildSocialClusterHtml'));
     expect(avatarIconBody).toContain('initialsTag');
     expect((avatarIconBody.match(/onerror=/g) || []).length).toBeGreaterThanOrEqual(1);
 
     const clusterStart = map.indexOf('export function buildSocialClusterHtml');
-    const clusterBody = map.slice(clusterStart, map.indexOf('function socialClusterIcon'));
+    const clusterBody = map.slice(clusterStart, map.indexOf('function selfLocationHtml'));
     expect(clusterBody).toContain('initialsTag');
     expect(clusterBody).toContain("onerror=\"this.style.display='none'\"");
   });

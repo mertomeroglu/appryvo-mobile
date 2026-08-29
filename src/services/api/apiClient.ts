@@ -1,5 +1,6 @@
 import { secureStorage } from '../../native/secureStorage';
 import { notifyVpnBlocked } from '../security/vpnAccess';
+import { translateSync } from '../../i18n/appLocale';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api.appryvo.online';
 
@@ -35,21 +36,21 @@ async function handleResponse(response: Response): Promise<any> {
   const contentType = response.headers.get('content-type') || '';
 
   if (contentType.includes('text/html') || text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
-    throw new ApiException('Sunucu yanıtı geçersiz HTML formatında.', response.status, 'HTML_RESPONSE');
+    throw new ApiException(translateSync('apiHtmlResponseError'), response.status, 'HTML_RESPONSE');
   }
 
   let data: any;
   try {
     data = text ? JSON.parse(text) : {};
   } catch (err: any) {
-    throw new ApiException('Sunucu yanıtı ayrıştırılamadı.', response.status, 'INVALID_JSON', err.message);
+    throw new ApiException(translateSync('apiJsonParseError'), response.status, 'INVALID_JSON', err.message);
   }
 
   if (response.ok) {
     return data;
   }
 
-  const message = data?.message || data?.error || 'Bir sunucu hatası oluştu.';
+  const message = data?.message || data?.error || translateSync('apiGenericServerError');
   const code = data?.code || (response.status === 401 ? 'UNAUTHORIZED' : 'API_ERROR');
   if (code === 'VPN_NOT_ALLOWED') {
     notifyVpnBlocked(data?.localizedMessage);
@@ -161,12 +162,12 @@ export async function customFetch(path: string, options: RequestOptions = {}): P
     return await handleResponse(response);
   } catch (err: any) {
     if (err.name === 'AbortError') {
-      throw new ApiException('İstek zaman aşımına uğradı.', 408, 'TIMEOUT');
+      throw new ApiException(translateSync('apiRequestTimeoutError'), 408, 'TIMEOUT');
     }
     if (err instanceof ApiException) {
       throw err;
     }
-    throw new ApiException(err.message || 'Ağ bağlantı hatası.', 0, 'NETWORK_ERROR');
+    throw new ApiException(err.message || translateSync('apiNetworkConnectionError'), 0, 'NETWORK_ERROR');
   } finally {
     clearTimeout(timeoutId);
   }
@@ -194,15 +195,15 @@ export async function fetchAuthenticatedBlob(path: string, timeoutMs = 30000): P
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      throw new ApiException(data?.message || 'Medya alınamadı.', response.status, data?.code || 'MEDIA_FETCH_FAILED');
+      throw new ApiException(data?.message || translateSync('apiMediaFetchFailedError'), response.status, data?.code || 'MEDIA_FETCH_FAILED');
     }
     return await response.blob();
   } catch (err: any) {
     if (err?.name === 'AbortError') {
-      throw new ApiException('Medya isteği zaman aşımına uğradı.', 408, 'TIMEOUT');
+      throw new ApiException(translateSync('apiMediaRequestTimeoutError'), 408, 'TIMEOUT');
     }
     if (err instanceof ApiException) throw err;
-    throw new ApiException(err?.message || 'Medya alınamadı.', 0, 'NETWORK_ERROR');
+    throw new ApiException(err?.message || translateSync('apiMediaFetchFailedError'), 0, 'NETWORK_ERROR');
   } finally {
     clearTimeout(timeoutId);
   }

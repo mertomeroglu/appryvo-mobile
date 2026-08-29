@@ -73,7 +73,7 @@ describe('P0 Discover recovery contract', () => {
     expect(card.indexOf('onSwiped(direction, profile)')).toBeLessThan(card.indexOf("animate(x, targetX"));
     expect(screen).toContain('key={profile.id}');
     expect(screen).toContain('isExiting={isExiting}');
-    expect(screen).toContain('consumedProfileIdsRef.current.has(p.id)');
+    expect(screen).toContain('consumedProfileIds.has(p.id)');
   });
 
   it('uses the same central trigger for buttons and blocks unavailable super likes', () => {

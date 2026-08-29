@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, Mail, Lock, Send } from 'lucide-react';
 import { useAuthStore } from '../../stores/useAuthStore';
@@ -59,7 +59,13 @@ export const AuthScreen: React.FC = () => {
   const login = useAuthStore((s) => s.login);
   const isLoading = useAuthStore((s) => s.isLoading);
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useAppTranslation();
+
+  // SessionGate stashes the route an unauthenticated user was actually trying to reach (e.g. a
+  // shared-profile or match deep link) as router state before bouncing here -- resume it after
+  // a successful login/registration instead of always dropping the user on /discover.
+  const resumeDestination = (location.state as { from?: string } | null)?.from || '/discover';
 
   const goTo = (next: Mode) => {
     void nativeKeyboard.hide();
@@ -74,7 +80,7 @@ export const AuthScreen: React.FC = () => {
     try {
       await login({ identifier, password });
       await nativeKeyboard.hide();
-      navigate('/discover');
+      navigate(resumeDestination, { replace: true });
     } catch (err: any) {
       setErrorMsg(err.message || t('loginFailedMessage'));
     }
@@ -99,7 +105,7 @@ export const AuthScreen: React.FC = () => {
   // no account exists until its final step, so it doesn't share this screen's error banner or
   // page-transition stack with the shorter welcome/login/forgot flows below.
   if (mode === 'register') {
-    return <RegistrationWizard onExit={() => goTo('welcome')} onComplete={() => navigate('/discover')} />;
+    return <RegistrationWizard onExit={() => goTo('welcome')} onComplete={() => navigate(resumeDestination, { replace: true })} />;
   }
 
   return (

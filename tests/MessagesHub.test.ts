@@ -30,8 +30,8 @@ describe('Messages communication hub', () => {
     const ownProfile = source('features/profile/OwnProfileScreen.tsx');
     const routes = source('routes/index.tsx');
     const queries = source('hooks/useQueries.ts');
-    expect(messages).toContain('Sohbetler');
-    expect(messages).toContain('İtiraflar');
+    expect(messages).toContain("t('msgsChatsTabLabel')");
+    expect(messages).toContain("t('confessionsTitle')");
     expect(messages).toContain('role="tablist"');
     expect(messages).toContain('aria-selected');
     // Confessions copy is fully localized (t('key')) rather than hardcoded Turkish -- assert the
@@ -41,7 +41,7 @@ describe('Messages communication hub', () => {
     expect(confessions).toContain('fetchNextPage');
     expect(confessions).toContain('maxLength={1000}');
     expect(confessions).not.toContain('item.user?.name');
-    expect(comments).toContain("comment.anonymousBadge || 'Anonim Üye'");
+    expect(comments).toContain("comment.anonymousBadge || t('commentAnonymousMemberLabel')");
     expect(comments).not.toContain('comment.user');
     expect(settings).not.toContain('İtiraf');
     expect(ownProfile).not.toContain('İtiraflar & Sosyal Akış');
@@ -72,19 +72,19 @@ describe('Messages communication hub', () => {
     const bubble = source('features/chat/MessageBubble.tsx');
     const official = source('features/chat/OfficialRyvoThread.tsx');
     expect(messages).toContain('MessageCircle');
-    expect(messages).toContain('Henüz Sohbet Yok');
-    expect(messages).toContain('Yeni bir eşleşme olduğunda sohbetlerin burada düzenli şekilde görünür.');
-    expect(messages).toContain("Keşfet'e Git");
-    expect(messages).toContain('aria-label="Sohbet listesi"');
-    expect(messages).toContain('Resmi');
+    expect(messages).toContain("t('msgsNoChatsTitle')");
+    expect(messages).toContain("t('msgsNoChatsSubtitle')");
+    expect(messages).toContain("t('msgsGoToDiscoverAction')");
+    expect(messages).toContain("aria-label={t('msgsListAriaLabel')}");
+    expect(messages).toContain("t('msgsOfficialBadgeLabel')");
     expect(bubble).toContain('isFirstInGroup');
     expect(bubble).toContain('isLastInGroup');
     expect(bubble).toContain("bg-white/[0.12]");
-    expect(bubble).toContain('title="Mesaj işlemleri"');
+    expect(bubble).toContain("title={t('bubbleActionsTitle')}");
     expect(official).toContain('formatMessageDay');
     expect(official).toContain('MessageBubble');
     expect(official).toContain('readOnly');
-    expect(official).toContain('Bu, Ryvo’dan gelen güvenli ve tek yönlü bir konuşmadır.');
+    expect(official).toContain("t('officialThreadFooterDisclaimer')");
   });
 
   it('uses the 21st conversation foundation without shipping registry demo data', () => {
@@ -93,10 +93,10 @@ describe('Messages communication hub', () => {
     const official = source('features/chat/OfficialRyvoThread.tsx');
     const productionSources = `${chat}\n${bubble}\n${official}`;
 
-    expect(chat).toContain('aria-label="Sohbet geçmişi"');
-    expect(chat).toContain('aria-label="Sohbet seçenekleri"');
-    expect(chat).toContain("label: 'Kullanıcıyı bildir'");
-    expect(chat).toContain("label: 'Kullanıcıyı engelle'");
+    expect(chat).toContain("aria-label={t('chatHistoryAriaLabel')}");
+    expect(chat).toContain("aria-label={t('chatOptionsLabel')}");
+    expect(chat).toContain("label: t('reportUser')");
+    expect(chat).toContain("label: t('blockUser')");
     expect(chat).toContain("type={safetyAction || 'report'}");
     expect(productionSources).not.toMatch(/DEMO_USER|DEMO_OTHER|DEMO_MESSAGES|Alice|dicebear\.com|hextaui\.com|user-123|user-456/);
     expect(productionSources).not.toContain('h-[75vh]');

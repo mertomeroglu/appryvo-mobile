@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppLogo } from './AppLogo';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 interface SplashScreenProps {
   onDismiss?: () => void;
@@ -14,6 +15,7 @@ interface SplashScreenProps {
  * loading screen after this one.
  */
 export const SplashScreen: React.FC<SplashScreenProps> = ({ onDismiss }) => {
+  const { t } = useAppTranslation();
   const sessionChecked = useAuthStore((s) => s.sessionChecked);
   const restoreSession = useAuthStore((s) => s.restoreSession);
 
@@ -92,14 +94,14 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onDismiss }) => {
               animate={{ opacity: 1, y: 0 }}
               className="absolute bottom-16 inset-x-6 z-10 flex flex-col items-center justify-center p-5 rounded-2xl bg-surface-90 backdrop-blur-md border border-app shadow-2xl text-center"
             >
-              <p className="text-sm font-medium text-app mb-3">Bağlantı kurulamadı</p>
+              <p className="text-sm font-medium text-app mb-3">{t('splashConnectionFailedTitle')}</p>
               <button
                 type="button"
                 onClick={handleRetry}
                 disabled={isRetrying}
                 className="px-6 py-2.5 rounded-full bg-brand-gradient text-white text-xs font-semibold shadow-md active:scale-95 transition-transform"
               >
-                {isRetrying ? 'Yeniden Deneniyor...' : 'Tekrar Dene'}
+                {isRetrying ? t('splashRetryingLabel') : t('retryButton')}
               </button>
             </motion.div>
           )}

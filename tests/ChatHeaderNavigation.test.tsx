@@ -63,7 +63,7 @@ describe('chat header navigation', () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Kontrollü Üye profilini aç' }));
+    fireEvent.click(screen.getByRole('button', { name: "Open Kontrollü Üye's profile" }));
     expect(screen.getByText('Eşleşme profili açıldı')).toBeTruthy();
   });
 });

@@ -58,8 +58,13 @@ describe('P0 push-token recovery', () => {
   it('registers native listeners before register and keeps Android/iOS dynamic', () => {
     const nativePush = source('src/native/push.ts');
     const realtime = source('src/components/RealtimeSync.tsx');
-    expect(nativePush.indexOf("addListener('registration'")).toBeLessThan(nativePush.indexOf('PushNotifications.register()'));
-    expect(nativePush).toContain("addListener('registrationError'");
+    // RYVO PATCH V2 03: swapped @capacitor/push-notifications (raw-APNs-token-only on iOS, no
+    // Firebase dependency) for @capacitor-firebase/messaging, which performs a real APNs->FCM
+    // token exchange -- see native/push.ts and the Patch V2 03 report. tokenReceived/
+    // notificationActionPerformed listeners are still attached before the awaitable getToken()
+    // call, for the same reason the old plugin needed listeners before its register() call.
+    expect(nativePush.indexOf("addListener('tokenReceived'")).toBeLessThan(nativePush.indexOf('FirebaseMessaging.getToken()'));
+    expect(nativePush).toContain('onRegistrationError?.(error)');
     expect(realtime).toContain('const platform = Capacitor.getPlatform()');
     expect(realtime).toContain("platform !== 'android' && platform !== 'ios'");
     expect(realtime).toContain('ensureCurrentUser(authenticatedUserId)');

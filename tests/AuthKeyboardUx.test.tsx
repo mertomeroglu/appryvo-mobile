@@ -56,6 +56,9 @@ describe('auth keyboard form UX', () => {
       if (path.includes('/username/check')) {
         return { data: { valid: true, available: true } };
       }
+      if (path.includes('/email/check')) {
+        return { data: { valid: true, available: true } };
+      }
       return { data: {} };
     });
 
@@ -75,6 +78,12 @@ describe('auth keyboard form UX', () => {
     fireEvent.change(name, { target: { value: 'Mert' } });
     fireEvent.change(email, { target: { value: 'mert@example.com' } });
     fireEvent.change(password, { target: { value: 'secret123' } });
+
+    // The email step's own debounced GET /api/auth/email/check must resolve (confirming
+    // availability) before Continue is enabled -- this is the earlier-than-final-submit
+    // duplicate check itself, so the test has to wait on it like a real user would.
+    const continueButton = screen.getByRole('button', { name: 'Devam Et' });
+    await waitFor(() => expect(continueButton).not.toBeDisabled(), { timeout: 2000 });
     fireEvent.submit(password.closest('form')!);
 
     const username = await screen.findByPlaceholderText('Kullanıcı Adı');
@@ -101,6 +110,6 @@ describe('auth keyboard form UX', () => {
     expect(globals).toContain('overflow-y: auto');
     expect(viewportHook).toContain('window.visualViewport');
     expect(viewportHook).toContain("document.addEventListener('focusin'");
-    expect(registration).toContain("const canSubmitUsername = username.length >= 3 && usernameStatus === 'available';");
+    expect(registration).toContain("const canSubmitUsername = username.length >= 5 && usernameStatus === 'available';");
   });
 });

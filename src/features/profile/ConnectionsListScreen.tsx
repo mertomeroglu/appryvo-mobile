@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
+import { formatDisplayAge } from '../../lib/profileLabels';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Users } from 'lucide-react';
 import { useFollowersQuery, useFollowingQuery } from '../../hooks/useQueries';
@@ -114,7 +115,7 @@ export const ConnectionsListScreen: React.FC = () => {
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
                     <span className="truncate text-body font-bold text-app">{item.name}</span>
-                    {item.age ? <span className="text-caption text-app-muted">{item.age}</span> : null}
+                    {formatDisplayAge(item.age) !== undefined ? <span className="text-caption text-app-muted">{formatDisplayAge(item.age)}</span> : null}
                     {item.verified && <VerifiedBadge size={16} />}
                   </span>
                 </span>

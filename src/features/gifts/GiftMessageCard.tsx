@@ -2,6 +2,7 @@ import React from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { GiftAsset } from './GiftAsset';
 import type { GiftSnapshot } from './types';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 export const GiftMessageCard: React.FC<{
   gift: GiftSnapshot;
@@ -9,6 +10,7 @@ export const GiftMessageCard: React.FC<{
   senderName?: string;
   animate?: boolean;
 }> = ({ gift, isMe, senderName, animate = false }) => {
+  const { t } = useAppTranslation();
   const reducedMotion = useReducedMotion();
   const premium = gift.tier !== 'STANDARD';
   return (
@@ -38,7 +40,7 @@ export const GiftMessageCard: React.FC<{
         <div className="min-w-0">
           <p className="text-heading font-black text-app">{gift.name}</p>
           <p className="mt-1 text-caption normal-case leading-5 text-app-muted">
-            {isMe ? 'Bu hediyeyi sen gönderdin' : `${senderName || 'Biri'} sana bir hediye gönderdi`}
+            {isMe ? t('giftCardSentByMeLabel') : t('giftCardReceivedTemplate').replace('{sender}', senderName || t('giftCardSenderFallback'))}
           </p>
         </div>
       </div>

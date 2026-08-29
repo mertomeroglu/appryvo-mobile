@@ -67,7 +67,7 @@ describe('profile and monetization UI contracts', () => {
     const editProfile = source('components/EditProfileModal.tsx');
     const settings = source('features/profile/SettingsScreen.tsx');
 
-    expect(profile).toContain('Profilini tamamla');
+    expect(profile).toContain("t('ownProfileCompleteProfileLabel')");
     expect(profile).not.toContain('Fotoğraflarını tamamla');
     expect(editProfile).not.toContain('placeholder="Şehir"');
     expect(settings).not.toContain('targetCountry');
@@ -96,13 +96,13 @@ describe('profile and monetization UI contracts', () => {
     expect(messages.tr.missingStorePriceLoading).toBe('Mağaza fiyatı yükleniyor.');
     expect(messages.tr.refreshPricesAction).toBe('Fiyatları yenile');
     expect(premium).not.toContain('Rehber fiyat');
-    expect(boost).toContain('Profilini Öne Çıkar');
-    expect(boost).toContain("Profilini 30 dakika boyunca Keşfet'te daha görünür yap.");
+    expect(boost).toContain("t('boostHeroTitle')");
+    expect(boost).toContain("t('boostHeroDescription')");
     expect(boost).not.toContain('10 Kat Daha Fazla Görüntülenme');
     expect(boost).toContain('ProfileAvatarFrame');
-    expect(boost).toContain('Ryvo Plus ve Gold’u İncele');
-    expect(boost).toContain('Ryvo Gold · Ayda 2 Boost');
-    expect(boost).toContain('Boost aktif ·');
+    expect(boost).toContain("t('boostExplorePlusGoldAction')");
+    expect(boost).toContain("t('boostGoldTierLabel')");
+    expect(boost).toContain("t('boostActiveWithTimeTemplate')");
     expect(premium).toContain('snap-mandatory');
     expect(premium).toContain('data-period={id}');
     expect(premium).toContain('aria-pressed={selected}');
@@ -130,7 +130,7 @@ describe('profile and monetization UI contracts', () => {
     expect(verification).toContain('data.verified === true');
     expect(authStore).toContain("verificationState?: 'UNVERIFIED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVERIFICATION_REQUIRED'");
     expect(profile).toContain("user?.verificationState === 'PENDING'");
-    expect(profile).toContain("? 'İnceleniyor'");
+    expect(profile).toContain("t('settingsVerificationPendingLabel')");
     expect(settings).toContain("verificationComplete || verificationPending ? undefined");
   });
 });

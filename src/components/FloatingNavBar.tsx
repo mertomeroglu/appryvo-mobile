@@ -46,6 +46,9 @@ export const FloatingNavBar: React.FC = () => {
     { path: '/profile', label: t('profile'), icon: User },
   ];
 
+  // Height + bottom margin here define --nav-footprint (globals.css) -- any screen that floats
+  // content above this nav (e.g. DiscoverScreen's swipe action row) relies on that constant to
+  // avoid this z-navigation-layer nav visually covering its buttons. Update both if this changes.
   return (
     <div className="fixed bottom-0 start-0 end-0 z-navigation pb-safe pointer-events-none flex justify-center">
       <nav className="pointer-events-auto mb-4 mx-4 w-full max-w-md bg-surface-95 backdrop-blur-xl border border-app rounded-[24px] px-2 py-1.5 flex items-center justify-around shadow-[0_8px_28px_-4px_rgba(0,0,0,0.35)] contain-layout">

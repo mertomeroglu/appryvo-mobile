@@ -7,8 +7,9 @@ import { IconButton } from '../../components/ui/IconButton';
 import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
 import { ZodiacIcon } from '../../components/ui/ZodiacIcon';
 import { normalizeCountryCode } from '../../lib/countryFlags';
-import { getRelationshipGoalLabels, getZodiacLabel } from '../../lib/profileLabels';
+import { getRelationshipGoalLabels, getZodiacLabel, formatDisplayAge } from '../../lib/profileLabels';
 import { useAppTranslation } from '../../i18n/appLocale';
+import { getLocalizedInterestLabel } from '../../lib/interestLabels';
 
 function normalizePhotos(user: any): string[] {
   if (Array.isArray(user?.photos) && user.photos.length > 0) {
@@ -20,7 +21,7 @@ function normalizePhotos(user: any): string[] {
 export const ProfilePreviewScreen: React.FC = () => {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const { locale } = useAppTranslation();
+  const { locale, t } = useAppTranslation();
   const [photoIndex, setPhotoIndex] = useState(0);
   const photos = normalizePhotos(user);
   const showFlag = user?.showCountryFlag !== false && !!normalizeCountryCode(user?.countryCode);
@@ -28,7 +29,7 @@ export const ProfilePreviewScreen: React.FC = () => {
   return (
     <div className="h-full w-full overflow-y-auto no-scrollbar bg-app text-app">
       <div className="sticky top-0 z-sticky pt-safe px-4 pb-2 bg-brand-gradient text-center">
-        <p className="text-micro font-bold text-white/90 py-2">Profilin diğer kullanıcılara böyle görünüyor</p>
+        <p className="text-micro font-bold text-white/90 py-2">{t('profilePreviewBannerText')}</p>
       </div>
 
       <div className="relative w-full h-[58vh] max-h-[520px] bg-app-secondary overflow-hidden">
@@ -56,7 +57,7 @@ export const ProfilePreviewScreen: React.FC = () => {
         )}
 
         <div className="absolute top-4 start-4 z-20">
-          <IconButton aria-label="Geri" variant="overlay" size="md" onClick={() => navigate(-1)}>
+          <IconButton aria-label={t('backButtonLabel')} variant="overlay" size="md" onClick={() => navigate(-1)}>
             <ArrowLeft className="w-5 h-5" />
           </IconButton>
         </div>
@@ -76,7 +77,7 @@ export const ProfilePreviewScreen: React.FC = () => {
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-3xl font-black">{user?.name}</h1>
-                {user?.age && <span className="text-2xl font-bold text-gray-300">{user.age}</span>}
+                {formatDisplayAge(user?.age) !== undefined && <span className="text-2xl font-bold text-gray-300">{formatDisplayAge(user?.age)}</span>}
                 {user?.verified && <ShieldCheck className="w-6 h-6 text-[#32D583]" />}
               </div>
               {user?.city && (
@@ -93,14 +94,14 @@ export const ProfilePreviewScreen: React.FC = () => {
       <div className="p-6 space-y-4">
         {user?.bio && (
           <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
-            <h4 className="text-micro text-app-muted uppercase tracking-wider">Hakkımda</h4>
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('bioSectionLabel')}</h4>
             <p className="text-body text-app leading-relaxed">{user.bio}</p>
           </div>
         )}
 
         {getRelationshipGoalLabels(user?.relationshipGoals || user?.relationshipGoal).length > 0 && (
           <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
-            <h4 className="text-micro text-app-muted uppercase tracking-wider">Aradığı</h4>
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('fullProfileLookingForLabel')}</h4>
             <div className="flex flex-wrap gap-2 pt-1">
               {getRelationshipGoalLabels(user?.relationshipGoals || user?.relationshipGoal).map((label) => (
                 <span key={label} className="text-caption px-3 py-1.5 rounded-full bg-app-secondary border border-app text-app font-semibold">
@@ -113,7 +114,7 @@ export const ProfilePreviewScreen: React.FC = () => {
 
         {user?.zodiac && getZodiacLabel(user.zodiac, locale) && (
           <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
-            <h4 className="text-micro text-app-muted uppercase tracking-wider">Burç</h4>
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('zodiacSectionLabel')}</h4>
             <p className="flex items-center gap-2 text-heading text-app">
               <ZodiacIcon sign={user.zodiac} size={20} className="text-purple-400" />
               {getZodiacLabel(user.zodiac, locale)}
@@ -123,14 +124,14 @@ export const ProfilePreviewScreen: React.FC = () => {
 
         {Array.isArray(user?.interests) && user.interests.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-micro text-app-muted uppercase tracking-wider">İlgi Alanları</h4>
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('interestsSectionLabel')}</h4>
             <div className="flex flex-wrap gap-2">
               {user.interests.map((interest: string, idx: number) => (
                 <span
                   key={idx}
                   className="text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium"
                 >
-                  {interest}
+                  {getLocalizedInterestLabel(interest, locale)}
                 </span>
               ))}
             </div>

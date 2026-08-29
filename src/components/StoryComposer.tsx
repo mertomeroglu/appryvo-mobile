@@ -146,16 +146,16 @@ export const StoryComposer: React.FC<StoryComposerProps> = ({ isOpen, onClose, o
             <img src={previewUrl} alt={t('storyPreviewLabel')} className="absolute inset-0 w-full h-full object-contain" />
           </div>
 
-          <div className="p-4 pb-safe space-y-3 bg-black/80">
+          {error && <p className="px-4 pb-2 text-caption font-semibold text-red-400 text-center">{error}</p>}
+          <div className="flex items-center gap-2.5 px-4 pb-safe pt-3">
             <input
               type="text"
               value={caption}
               onChange={(e) => setCaption(e.target.value.slice(0, 220))}
               placeholder={t('captionOptionalPlaceholder')}
-              className="w-full rounded-2xl bg-white/10 border border-white/15 px-4 py-3 text-body text-white placeholder:text-white/50 focus:outline-none focus:border-pink-500"
+              className="h-11 min-w-0 flex-1 rounded-full bg-white/10 border border-white/15 px-4 text-caption text-white placeholder:text-white/50 focus:outline-none focus:border-pink-500"
             />
-            {error && <p className="text-caption font-semibold text-red-400 text-center">{error}</p>}
-            <AppButton type="button" variant="primary" size="lg" fullWidth loading={isUploading} onClick={publish}>
+            <AppButton type="button" variant="primary" size="md" loading={isUploading} onClick={publish} className="shrink-0 px-5">
               {t('shareLabel')}
             </AppButton>
           </div>

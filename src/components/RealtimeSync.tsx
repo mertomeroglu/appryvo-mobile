@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Capacitor } from '@capacitor/core';
-import type { ActionPerformed, PushNotificationSchema } from '@capacitor/push-notifications';
+import type { NotificationTapEvent, NotificationReceivedPayload } from '../native/push';
 import { socketService } from '../services/socket/socketService';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useAppLifecycleStore } from '../stores/useAppLifecycleStore';
@@ -13,10 +13,14 @@ import { nativePush } from '../native/push';
 import { QUERY_KEYS } from '../hooks/useQueries';
 import { useCallStore } from '../stores/useCallStore';
 import { nativeHaptics } from '../native/haptics';
+import { nativeCallAudio } from '../native/callAudio';
+import { webrtcService } from '../services/call/webrtcService';
+import { callService } from '../services/call/callService';
 import { pushRegistrationService } from '../services/push/pushRegistrationService';
 import { resolvePushDestination, shouldSuppressForegroundPush, resolveDeepLinkDestination } from '../services/push/pushRouting';
 import { nativeDeepLinks } from '../native/deepLinks';
 import { crashReporting } from '../native/crashReporting';
+import { translateSync } from '../i18n/appLocale';
 
 const DEBUG = import.meta.env.DEV;
 const logLive = (...args: unknown[]) => {
@@ -57,6 +61,14 @@ export const RealtimeSync: React.FC = () => {
       queryClient.setQueryData(QUERY_KEYS.me, freshUser);
       logLive('query-invalidated', QUERY_KEYS.me.join('.'));
     }
+    // QUERY_KEYS.entitlements is a separate cached query (used by e.g. the Super Like button)
+    // with its own 2-minute staleTime -- an admin entitlement reset (or any other server-side
+    // change to boost/superlike/premium state) emits the same generic user:updated event this
+    // function already reconciles /api/me from, but /api/me and /api/entitlements are two
+    // different endpoints/caches. Without this, the entitlements UI could keep showing a stale
+    // count for up to 2 minutes (or indefinitely, since refetchOnWindowFocus is disabled) after
+    // a real server-side change.
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.entitlements });
   };
 
   // Socket connect + realtime event handlers.
@@ -82,7 +94,17 @@ export const RealtimeSync: React.FC = () => {
         .catch(() => {});
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
     });
-    const offDisconnect = socketService.on('disconnect', (reason: string) => logLive('socket-disconnected', reason));
+    const offDisconnect = socketService.on('disconnect', (reason: string) => {
+      logLive('socket-disconnected', reason);
+      // The disconnected device cannot receive the server's call:ended event for whatever call
+      // it was in. Release its own camera/microphone immediately; the server notifies and
+      // cleans up the remote participant independently.
+      if (useCallStore.getState().activeCall) {
+        webrtcService.hangup();
+        void nativeCallAudio.resetAudioMode();
+        useCallStore.getState().endCall();
+      }
+    });
 
     const offUserUpdated = socketService.on('user:updated', (payload: unknown) => {
       logLive('event-received user:updated', payload);
@@ -94,7 +116,7 @@ export const RealtimeSync: React.FC = () => {
       const deliveryId = String(payload?.id || '');
       if (!deliveryId || !seenOfficialDeliveryIdsRef.current.has(deliveryId)) {
         if (deliveryId) seenOfficialDeliveryIdsRef.current.add(deliveryId);
-        toast.show(payload?.title || payload?.body || 'Yeni bildirim', 'neutral');
+        toast.show(payload?.title || payload?.body || translateSync('realtimeNewNotificationFallback'), 'neutral');
       }
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications });
     });
@@ -102,7 +124,7 @@ export const RealtimeSync: React.FC = () => {
     const offAccountStatus = socketService.on('account:status', (payload: { status?: string }) => {
       const status = payload?.status?.toUpperCase();
       if (status !== 'SUSPENDED' && status !== 'BANNED') return;
-      toast.error(status === 'SUSPENDED' ? 'Hesabın askıya alındı.' : 'Hesabın devre dışı bırakıldı.');
+      toast.error(status === 'SUSPENDED' ? translateSync('realtimeAccountSuspendedError') : translateSync('realtimeAccountDisabledError'));
       void useAuthStore.getState().logout().finally(() => navigate('/auth', { replace: true }));
     });
 
@@ -110,6 +132,19 @@ export const RealtimeSync: React.FC = () => {
     // drives the Messages tab's nav-bar badge without the client having to poll.
     const offUnreadCount = socketService.on('unread:count', (payload: { totalUnread?: number }) => {
       useUiStore.getState().setUnreadCount(payload?.totalUnread ?? 0);
+    });
+
+    // Real chat delivery receipts (WhatsApp-style single/double/blue ticks) require the
+    // recipient's device to ack the instant it learns a message exists, regardless of whether
+    // that specific chat screen is open -- ChatScreen's own message listener only fires while
+    // its socket is joined to that exact match's room. This lightweight ping (matchId + id only,
+    // no message content) always reaches every connected device via the always-joined
+    // user:${userId} room; acking it here is what turns "sent" into a real "delivered" tick
+    // instead of the message ever silently stopping at single-tick until the recipient happens
+    // to open that specific conversation.
+    const offMessageNew = socketService.on('message:new', (payload: { matchId?: string; id?: string; senderId?: string }) => {
+      if (!payload?.matchId || !payload?.id || payload.senderId === authenticatedUserId) return;
+      socketService.acknowledgeDelivered(payload.matchId, [payload.id]);
     });
 
     // Match creation used to rely on the liker screen's local mutation invalidation. That left
@@ -158,7 +193,7 @@ export const RealtimeSync: React.FC = () => {
       queryClient.removeQueries({ queryKey: QUERY_KEYS.messages(payload.matchId) });
       queryClient.invalidateQueries({ queryKey: ['matches', 'unread-count'] });
       if (window.location.pathname === `/chat/${payload.matchId}`) {
-        toast.show('Bu eşleşme kaldırıldı.', 'neutral');
+        toast.show(translateSync('realtimeMatchRemovedToast'), 'neutral');
         navigate('/messages', { replace: true });
       }
     });
@@ -169,12 +204,50 @@ export const RealtimeSync: React.FC = () => {
         callId: data.callId,
         matchId: data.matchId,
         targetUserId: data.callerUid,
-        targetUserName: data.callerName || 'Arayan Kişi',
+        targetUserName: data.callerName || translateSync('callUnknownCallerFallback'),
         type: data.type || 'voice',
         status: 'RINGING',
         direction: 'incoming',
         offer: data.offer,
       });
+    });
+
+    // Call signaling response handlers. Deliberately registered here (RealtimeSync mounts once,
+    // eagerly, at app start) rather than inside CallOverlay, which is lazy-loaded and only
+    // rendered once activeCall is already non-null -- registering these only once that lazy
+    // chunk finishes fetching/mounting left a real window (the entire ringing period on the
+    // callee's side, worse again on a cold start) where the peer's SDP/ICE signals had no
+    // listener at all and were silently dropped by socket.io, on top of the same-issue queuing
+    // fix in webrtcService.addIceCandidate. webrtcService/callService are simple, UI-free
+    // modules -- eagerly importing them here does not pull in CallOverlay's own (larger, icon-
+    // heavy) bundle, so the original lazy-loading intent for the call UI itself is preserved.
+    const offCallAnswered = socketService.on('call:answered', async (data: any) => {
+      await webrtcService.setRemoteAnswer(data.answer);
+      useCallStore.getState().setCallStatus('ACTIVE');
+    });
+
+    const offCallIceCandidate = socketService.on('call:ice-candidate', (data: any) => {
+      void webrtcService.addIceCandidate(data.candidate);
+    });
+
+    const offCallRenegotiateOffer = socketService.on('call:renegotiate-offer', (data: any) => {
+      void callService.handleIncomingRenegotiateOffer(data.offer);
+    });
+
+    const offCallRenegotiateAnswer = socketService.on('call:renegotiate-answer', (data: any) => {
+      void callService.handleIncomingRenegotiateAnswer(data.answer);
+    });
+
+    const offCallEnded = socketService.on('call:ended', () => {
+      webrtcService.hangup();
+      void nativeCallAudio.resetAudioMode();
+      useCallStore.getState().endCall();
+    });
+
+    const offCallBusy = socketService.on('call:busy', () => {
+      webrtcService.hangup();
+      void nativeCallAudio.resetAudioMode();
+      useCallStore.getState().endCall();
     });
 
     return () => {
@@ -184,6 +257,13 @@ export const RealtimeSync: React.FC = () => {
       offNotification();
       offAccountStatus();
       offUnreadCount();
+      offMessageNew();
+      offCallAnswered();
+      offCallIceCandidate();
+      offCallRenegotiateOffer();
+      offCallRenegotiateAnswer();
+      offCallEnded();
+      offCallBusy();
       offNewMatch();
       offMatchUpdated();
       offMatchRemoved();
@@ -244,12 +324,12 @@ export const RealtimeSync: React.FC = () => {
           console.warn('[RYVO_PUSH] token association failed', error?.message || error);
         }
       },
-      (action: ActionPerformed) => {
+      (action: NotificationTapEvent) => {
         const data: any = action?.notification?.data || {};
         const destination = resolvePushDestination(data);
         if (destination) navigate(destination);
       },
-      (notification: PushNotificationSchema) => {
+      (notification: NotificationReceivedPayload) => {
         logPush('foreground-received');
         const data = (notification.data || {}) as Record<string, unknown>;
         const title = notification.title || data.title;

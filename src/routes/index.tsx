@@ -4,6 +4,7 @@ import { AppShell } from '../app/AppShell';
 import { SessionGate } from '../app/SessionGate';
 import { loadOwnProfileScreen } from './routePreload';
 import { measureProfileMilestone } from '../services/performance/profilePerformance';
+import { translateSync } from '../i18n/appLocale';
 
 // Critical routes loaded directly
 import { AuthScreen } from '../features/auth/AuthScreen';
@@ -39,7 +40,7 @@ const ProfileRouteFallback: React.FC = () => {
     return () => cancelAnimationFrame(frame);
   }, []);
   return (
-    <div className="h-full w-full bg-app px-4 text-app" aria-label="Profil yükleniyor">
+    <div className="h-full w-full bg-app px-4 text-app" aria-label={translateSync('routeProfileLoadingAriaLabel')}>
       <div className="pt-safe mx-auto mt-4 h-7 w-28 rounded-full bg-app-secondary animate-pulse" />
       <div className="mx-auto mt-6 h-28 w-28 rounded-full bg-app-secondary animate-pulse" />
       <div className="mx-auto mt-5 h-5 w-36 rounded-full bg-app-secondary animate-pulse" />

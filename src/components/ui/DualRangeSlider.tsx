@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 export interface DualRangeSliderProps {
   min: number;
@@ -25,13 +26,14 @@ export const DualRangeSlider: React.FC<DualRangeSliderProps> = ({
   onChange,
   formatValue = (v) => String(v),
 }) => {
+  const { t } = useAppTranslation();
   const rangeStartPct = ((valueMin - min) / (max - min)) * 100;
   const rangeEndPct = ((valueMax - min) / (max - min)) * 100;
 
   return (
     <div className="w-full">
       <div className="flex justify-between text-caption font-semibold mb-2">
-        <span className="text-app-muted">Yaş Aralığı</span>
+        <span className="text-app-muted">{t('sliderAgeRangeLabel')}</span>
         <span className="text-pink-500 font-bold">
           {formatValue(valueMin)} – {formatValue(valueMax)}
         </span>
@@ -56,7 +58,7 @@ export const DualRangeSlider: React.FC<DualRangeSliderProps> = ({
           onChange={(e) => onChange(Math.min(Number(e.target.value), valueMax), valueMax)}
           className="dual-range-input"
           style={{ zIndex: valueMin >= max - step ? 5 : 3 }}
-          aria-label="Minimum yaş"
+          aria-label={t('sliderMinAgeAriaLabel')}
         />
         <input
           type="range"
@@ -67,7 +69,7 @@ export const DualRangeSlider: React.FC<DualRangeSliderProps> = ({
           onChange={(e) => onChange(valueMin, Math.max(Number(e.target.value), valueMin))}
           className="dual-range-input"
           style={{ zIndex: 4 }}
-          aria-label="Maksimum yaş"
+          aria-label={t('sliderMaxAgeAriaLabel')}
         />
       </div>
     </div>

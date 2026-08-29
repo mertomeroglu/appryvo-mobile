@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { API_BASE_URL } from '../api/apiClient';
 import { secureStorage } from '../../native/secureStorage';
+import { translateSync } from '../../i18n/appLocale';
 
 type EventListenerMap = Map<string, Set<(...args: any[]) => void>>;
 const DEBUG = import.meta.env.DEV;
@@ -211,7 +212,7 @@ export class SocketService {
     const timeout = window.setTimeout(() => {
       if (settled) return;
       settled = true;
-      ack({ status: 'error', code: 'SOCKET_TIMEOUT', message: 'Bağlantı kurulamadı. Tekrar dene.' });
+      ack({ status: 'error', code: 'SOCKET_TIMEOUT', message: translateSync('socketConnectionTimeoutError') });
     }, 12000);
     this.emit('message:send', payload, (response) => {
       if (settled) return;
@@ -235,6 +236,10 @@ export class SocketService {
 
   public markMessagesRead(matchId: string, messageIds?: string[]) {
     this.emit('message:read', { matchId, messageIds });
+  }
+
+  public acknowledgeDelivered(matchId: string, messageIds: string[]) {
+    this.emit('message:delivered', { matchId, messageIds });
   }
 
   public reactToMessage(matchId: string, messageId: string, reaction?: string) {

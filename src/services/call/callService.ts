@@ -3,6 +3,7 @@ import { webrtcService, MediaAccessError } from './webrtcService';
 import { useCallStore, type CallError } from '../../stores/useCallStore';
 import { nativeCallAudio } from '../../native/callAudio';
 import { toast } from '../../stores/useToastStore';
+import { translateSync } from '../../i18n/appLocale';
 
 function generateCallId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -26,6 +27,15 @@ function clearReconnectTimer() {
     reconnectTimer = null;
   }
 }
+
+// Re-entrancy guard for startOutgoingCall/acceptIncomingCall. Both are async (media acquisition
+// + SDP creation take real time) and CallOverlay's buttons have no built-in double-tap
+// debounce, so a fast double-tap previously could run either one twice concurrently: two
+// independent RTCPeerConnections each calling webrtcService.ensurePeerConnection (which does not
+// close whatever this.pc already held, so the first connection/its tracks just leaked), two
+// call:start/call:answer emissions racing the server's isUserInActiveCall check, and two
+// activeCall sessions momentarily fighting over the same store slot.
+let isProcessingCallAction = false;
 
 /** Tears down local WebRTC resources and the remote party's session, but leaves the failure
  *  visible in the store briefly so CallOverlay can render it before the overlay unmounts. */
@@ -59,14 +69,14 @@ webrtcService.onConnectionStateChange = (state) => {
     clearReconnectTimer();
     reconnectTimer = setTimeout(() => {
       if (useCallStore.getState().activeCall?.status === 'RECONNECTING') {
-        failCall('CONNECTION_FAILED', 'connection_failed', 'Bağlantı kesildi.');
+        failCall('CONNECTION_FAILED', 'connection_failed', translateSync('callConnectionLostError'));
       }
     }, RECONNECT_GRACE_MS);
     return;
   }
 
   if (state === 'failed') {
-    failCall('CONNECTION_FAILED', 'connection_failed', 'Bağlantı kesildi.');
+    failCall('CONNECTION_FAILED', 'connection_failed', translateSync('callConnectionLostError'));
   }
 };
 
@@ -77,6 +87,11 @@ export const callService = {
     calleeName?: string;
     type: 'voice' | 'video';
   }) {
+    // Also refuses a second outgoing call while one is already ringing/active -- the overlay
+    // covers the screen once activeCall is set, but that's a UI convention, not a guarantee.
+    if (isProcessingCallAction || useCallStore.getState().activeCall) return;
+    isProcessingCallAction = true;
+
     const callId = generateCallId();
     useCallStore.getState().startCall({
       callId,
@@ -104,19 +119,22 @@ export const callService = {
           err.reason,
           'media_error',
           err.reason === 'PERMISSION_DENIED'
-            ? 'Mikrofon/kamera izni verilmedi.'
-            : 'Mikrofon/kamera kullanılamıyor.'
+            ? translateSync('callPermissionDeniedError')
+            : translateSync('callDeviceUnavailableError')
         );
       } else {
         webrtcService.hangup();
         useCallStore.getState().endCall();
       }
+    } finally {
+      isProcessingCallAction = false;
     }
   },
 
   async acceptIncomingCall() {
     const call = useCallStore.getState().activeCall;
-    if (!call || !call.offer) return;
+    if (!call || !call.offer || isProcessingCallAction) return;
+    isProcessingCallAction = true;
 
     try {
       const answer = await webrtcService.acceptOffer(call.callId, call.offer, call.type === 'video');
@@ -129,13 +147,15 @@ export const callService = {
           err.reason,
           'media_error',
           err.reason === 'PERMISSION_DENIED'
-            ? 'Mikrofon/kamera izni verilmedi.'
-            : 'Mikrofon/kamera kullanılamıyor.'
+            ? translateSync('callPermissionDeniedError')
+            : translateSync('callDeviceUnavailableError')
         );
       } else {
         webrtcService.hangup();
         useCallStore.getState().endCall();
       }
+    } finally {
+      isProcessingCallAction = false;
     }
   },
 
@@ -165,8 +185,8 @@ export const callService = {
       console.error('[CALL VIDEO UPGRADE ERROR]', err);
       toast.error(
         err instanceof MediaAccessError && err.reason === 'PERMISSION_DENIED'
-          ? 'Kamera izni verilmedi.'
-          : 'Görüntülü aramaya geçilemedi.'
+          ? translateSync('callCameraPermissionDeniedError')
+          : translateSync('callVideoUpgradeFailedError')
       );
     }
   },

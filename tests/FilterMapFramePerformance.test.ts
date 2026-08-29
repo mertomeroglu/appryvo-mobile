@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { avatarMarkerIcon, buildSocialClusterHtml, markerSizeForZoom } from '../src/features/map/SocialMapScreen';
+import { avatarMarkerHtml, buildSocialClusterHtml, markerSizeForZoom } from '../src/features/map/SocialMapScreen';
 
 const mobileSource = (path: string) => readFileSync(resolve(process.cwd(), 'src', path), 'utf8');
 const webSource = (path: string) => readFileSync(resolve(process.cwd(), '..', 'web', path), 'utf8');
@@ -21,7 +21,7 @@ describe('filter, map, and frame performance contracts', () => {
 
   it('uses an intuitive device icon for System appearance', () => {
     const settings = mobileSource('features/profile/SettingsScreen.tsx');
-    expect(settings).toContain("{ value: 'system', label: 'Sistem', icon: <Smartphone");
+    expect(settings).toContain("{ value: 'system', labelKey: 'settingsThemeSystem', icon: <Smartphone");
     expect(settings).not.toContain('font-black">A</span>');
   });
 
@@ -44,14 +44,14 @@ describe('filter, map, and frame performance contracts', () => {
 
     const map = mobileSource('features/map/SocialMapScreen.tsx');
     expect(map).toContain('useDiscoveryMapQuery(bbox, 150)');
-    expect(map).toContain("if (map.getZoom() < map.getMaxZoom()) return;");
+    expect(map).toContain('if (map2.getZoom() < MAX_ZOOM) {');
     expect(map).toContain('getProfileFramePreviewAsset(frame)');
   });
 
-  it.each([100, 250, 500])('builds %i lightweight Leaflet avatar icons within budget', (count) => {
+  it.each([100, 250, 500])('builds %i lightweight MapLibre avatar marker HTML within budget', (count) => {
     const started = performance.now();
     for (let index = 0; index < count; index += 1) {
-      avatarMarkerIcon({
+      avatarMarkerHtml({
         id: String(index), name: `Kişi ${index}`, displayLat: 39, displayLng: 35,
         photoThumbnailUrl: `/thumb-${index}.webp`,
       }, false, [], 13);

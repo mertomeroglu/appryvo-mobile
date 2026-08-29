@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform, animate, type PanInfo } from 'framer-motion';
 import {
   Check,
   CheckCheck,
@@ -20,15 +20,22 @@ import {
 import { mediaService, normalizeMediaUrl } from '../../services/media/mediaService';
 import { ActionSheet, type ActionSheetAction } from '../../components/ui/ActionSheet';
 import { toast } from '../../stores/useToastStore';
-import { DURATION, EASE } from '../../motion/tokens';
+import { DURATION, EASE, SPRING } from '../../motion/tokens';
 import { GiftMessageCard } from '../gifts/GiftMessageCard';
 import type { GiftSnapshot } from '../gifts/types';
 import { useAppTranslation } from '../../i18n/appLocale';
+import { nativeHaptics } from '../../native/haptics';
 
 export interface MessageTranslation {
   translatedText: string;
   detectedLanguage: string | null;
   targetLanguage: string;
+}
+
+export interface StoryReplyPreview {
+  id: string;
+  mediaUrl: string;
+  caption?: string | null;
 }
 
 export interface ChatMessage {
@@ -43,18 +50,27 @@ export interface ChatMessage {
   durationSeconds?: number;
   thumbnailUrl?: string;
   replyToMessageId?: string;
+  replyToStoryId?: string | null;
+  replyToStoryPreview?: StoryReplyPreview | null;
   reactions?: { userId: string; reaction: string }[];
   editedAt?: string;
   createdAt: string;
   translation?: MessageTranslation | null;
   giftSendId?: string | null;
   giftSnapshot?: GiftSnapshot | null;
+  isRead?: boolean;
+  deliveredAt?: string | null;
+  readAt?: string | null;
 }
+
+const DOUBLE_TAP_REACTION = '❤️';
+const DOUBLE_TAP_WINDOW_MS = 320;
+const REPLY_SWIPE_THRESHOLD = 56;
+const REPLY_SWIPE_MAX = 84;
 
 interface MessageBubbleProps {
   message: ChatMessage;
   isMe: boolean;
-  isLastMineRead?: boolean;
   replySource?: ChatMessage;
   viewOnceRevealed?: boolean;
   isTranslating?: boolean;
@@ -74,6 +90,7 @@ interface MessageBubbleProps {
 }
 
 function VoicePlayer({ url, durationSeconds, isMe }: { url: string; durationSeconds?: number; isMe: boolean }) {
+  const { t } = useAppTranslation();
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -96,7 +113,7 @@ function VoicePlayer({ url, durationSeconds, isMe }: { url: string; durationSeco
         type="button"
         onClick={toggle}
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isMe ? 'bg-white/20' : 'bg-pink-500/10 text-pink-500'}`}
-        aria-label={isPlaying ? 'Sesli mesajı duraklat' : 'Sesli mesajı oynat'}
+        aria-label={isPlaying ? t('bubbleVoicePauseAriaLabel') : t('bubbleVoicePlayAriaLabel')}
       >
         {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
       </button>
@@ -156,7 +173,6 @@ function useAuthorizedMediaUrl(url?: string): string | undefined {
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
   message,
   isMe,
-  isLastMineRead,
   replySource,
   viewOnceRevealed,
   isTranslating,
@@ -180,10 +196,53 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   // worth persisting or lifting; it resets naturally if the message scrolls out and back in.
   const [showOriginal, setShowOriginal] = useState(false);
   const resolvedMediaUrl = useAuthorizedMediaUrl(message.mediaUrl);
+  const resolvedStoryPreviewUrl = message.replyToStoryPreview?.mediaUrl
+    ? normalizeMediaUrl(message.replyToStoryPreview.mediaUrl)
+    : undefined;
   const reactionCounts = (message.reactions || []).reduce<Record<string, number>>((acc, r) => {
     acc[r.reaction] = (acc[r.reaction] || 0) + 1;
     return acc;
   }, {});
+
+  // Swipe-to-reply: drag right only, reveal the Reply affordance behind the bubble, commit past
+  // threshold on release. Same physical-drag idiom as SwipeCard (a motion value driving style,
+  // an imperative animate() to spring back) -- never a fixed-duration tween for a drag gesture.
+  const reduceMotion = useReducedMotion();
+  const dragX = useMotionValue(0);
+  const replyIconOpacity = useTransform(dragX, [12, REPLY_SWIPE_THRESHOLD], [0, 1]);
+  const replyIconScale = useTransform(dragX, [12, REPLY_SWIPE_THRESHOLD], [0.7, 1]);
+  const canSwipeReply = !readOnly && Boolean(onReply);
+  const handleReplyDragEnd = (_: unknown, info: PanInfo) => {
+    if (info.offset.x > REPLY_SWIPE_THRESHOLD) {
+      nativeHaptics.impact();
+      onReply?.(message);
+    }
+    animate(dragX, 0, reduceMotion ? { duration: DURATION.micro } : SPRING.snappy);
+  };
+
+  // Double-tap-to-react: manual timestamp-based double-tap detection on the bubble's native
+  // click (not Framer's onTap/onDoubleClick gesture recognizers, which depend on Pointer Events
+  // details that don't fire consistently across every WebView/test environment) toggles the
+  // heart reaction -- the server already deletes a reaction when the same one is sent twice (see
+  // socket_server.js message:reaction), so "add" and "remove" are the same call from here. A
+  // genuine drag (the swipe-to-reply gesture below) never reaches this handler: Framer suppresses
+  // the trailing click once real pointer movement has been claimed by the drag gesture.
+  const [showLikeBurst, setShowLikeBurst] = useState(false);
+  const lastTapRef = useRef(0);
+  const canDoubleTapReact = !readOnly && Boolean(onReact);
+  const handleBubbleTap = () => {
+    if (!canDoubleTapReact) return;
+    const now = Date.now();
+    if (now - lastTapRef.current < DOUBLE_TAP_WINDOW_MS) {
+      lastTapRef.current = 0;
+      nativeHaptics.impact();
+      onReact?.(message, DOUBLE_TAP_REACTION);
+      setShowLikeBurst(true);
+      window.setTimeout(() => setShowLikeBurst(false), 650);
+    } else {
+      lastTapRef.current = now;
+    }
+  };
 
   // Translation only ever applies to the other person's messages -- our own bubble always shows
   // what we actually typed, per product spec.
@@ -191,27 +250,27 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const displayText = hasTranslation && !showOriginal ? message.translation!.translatedText : message.text;
 
   const actions: ActionSheetAction[] = readOnly ? [] : [
-    { label: 'Yanıtla', icon: <Reply className="w-4 h-4" />, onSelect: () => onReply?.(message) },
-    { label: 'Beğen ❤️', icon: <Heart className="w-4 h-4" />, onSelect: () => onReact?.(message, '❤️') },
-    { label: 'Güldür 😂', icon: <Laugh className="w-4 h-4" />, onSelect: () => onReact?.(message, '😂') },
-    { label: 'Onayla 👍', icon: <ThumbsUp className="w-4 h-4" />, onSelect: () => onReact?.(message, '👍') },
+    { label: t('chatReplyingLabel'), icon: <Reply className="w-4 h-4" />, onSelect: () => onReply?.(message) },
+    { label: t('bubbleReactLikeLabel'), icon: <Heart className="w-4 h-4" />, onSelect: () => onReact?.(message, '❤️') },
+    { label: t('bubbleReactLaughLabel'), icon: <Laugh className="w-4 h-4" />, onSelect: () => onReact?.(message, '😂') },
+    { label: t('bubbleReactApproveLabel'), icon: <ThumbsUp className="w-4 h-4" />, onSelect: () => onReact?.(message, '👍') },
   ];
   if (!readOnly && message.text) {
     actions.push({
-      label: 'Kopyala',
+      label: t('bubbleCopyAction'),
       icon: <Copy className="w-4 h-4" />,
       onSelect: () => {
         navigator.clipboard?.writeText(message.text || '');
-        toast.success('Kopyalandı');
+        toast.success(t('bubbleCopiedToast'));
       },
     });
   }
   if (!readOnly && isMe && message.text) {
-    actions.push({ label: 'Düzenle', icon: <Pencil className="w-4 h-4" />, onSelect: () => onEdit?.(message) });
+    actions.push({ label: t('bubbleEditAction'), icon: <Pencil className="w-4 h-4" />, onSelect: () => onEdit?.(message) });
   }
   if (!readOnly && isMe) {
     actions.push({
-      label: 'Sil',
+      label: t('deleteLabel'),
       icon: <Trash2 className="w-4 h-4" />,
       destructive: true,
       onSelect: () => onDelete?.(message),
@@ -219,13 +278,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   } else if (!readOnly) {
     if (message.text && !message.translation && !isTranslating) {
       actions.push({
-        label: 'Çevir',
+        label: t('bubbleTranslateAction'),
         icon: <Languages className="w-4 h-4" />,
         onSelect: () => onTranslate?.(message),
       });
     }
     actions.push({
-      label: 'Bildir',
+      label: t('reportLabel'),
       icon: <Flag className="w-4 h-4" />,
       destructive: true,
       onSelect: () => onReport?.(message),
@@ -253,38 +312,83 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             type="button"
             onClick={() => setIsSheetOpen(true)}
             className={`absolute bottom-0 z-10 grid h-8 w-8 place-items-center rounded-full text-app-muted opacity-70 transition-colors active:bg-app-secondary md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isMe ? '-left-9' : '-right-9'}`}
-            aria-label="Mesaj seçenekleri"
+            aria-label={t('bubbleMessageOptionsAriaLabel')}
           >
             <MoreHorizontal className="w-4 h-4" />
           </button>
         )}
 
         <div className="flex min-w-0 flex-col gap-1" style={{ alignItems: isMe ? 'flex-end' : 'flex-start' }}>
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: DURATION.micro, ease: EASE.standard }}
-            onContextMenu={(event) => {
-              if (actions.length === 0) return;
-              event.preventDefault();
-              setIsSheetOpen(true);
-            }}
-            className={`min-w-0 px-3 py-2 text-body ${
-              isMe
-                ? `bg-brand-gradient font-medium text-white ${isLastInGroup ? 'rounded-[18px] rounded-br-[5px]' : 'rounded-[18px] rounded-br-xl'}`
-                : `bg-surface-elevated font-medium text-app shadow-soft ${isLastInGroup ? 'rounded-[18px] rounded-bl-[5px]' : 'rounded-[18px] rounded-bl-xl'}`
-            }`}
-          >
-            {message.title && <p className={`mb-1 text-micro font-extrabold normal-case ${isMe ? 'text-white/85' : 'text-pink-500'}`}>{message.title}</p>}
-            {replySource && (
-              <div className={`mb-1.5 flex max-w-full items-stretch overflow-hidden rounded-xl ${isMe ? 'bg-white/[0.12]' : 'bg-app'}`}>
-                <span className={`w-0.5 shrink-0 ${isMe ? 'bg-white/70' : 'bg-pink-500'}`} />
-                <p className={`truncate px-2.5 py-1.5 text-micro normal-case ${isMe ? 'text-white/85' : 'text-app-muted'}`}>
-                  {replySource.text || (replySource.messageType ? `${replySource.messageType} mesajı` : 'Mesaj')}
-                </p>
-              </div>
+          <div className="relative min-w-0">
+            {canSwipeReply && (
+              <motion.div
+                aria-hidden="true"
+                style={{ opacity: replyIconOpacity, scale: replyIconScale }}
+                className="pointer-events-none absolute inset-y-0 start-0 -ms-9 flex items-center text-pink-500"
+              >
+                <Reply className="w-5 h-5" />
+              </motion.div>
             )}
-            {showViewOnceLock ? (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: DURATION.micro, ease: EASE.standard }}
+              style={{ x: dragX }}
+              drag={canSwipeReply ? 'x' : false}
+              dragConstraints={{ left: 0, right: REPLY_SWIPE_MAX }}
+              dragElastic={0.35}
+              dragMomentum={false}
+              onDragEnd={canSwipeReply ? handleReplyDragEnd : undefined}
+              onClick={handleBubbleTap}
+              onContextMenu={(event) => {
+                if (actions.length === 0) return;
+                event.preventDefault();
+                setIsSheetOpen(true);
+              }}
+              className={`relative min-w-0 px-3 py-2 text-body ${
+                isMe
+                  ? `bg-brand-gradient font-medium text-white ${isLastInGroup ? 'rounded-[18px] rounded-br-[5px]' : 'rounded-[18px] rounded-br-xl'}`
+                  : `bg-surface-elevated font-medium text-app shadow-soft ${isLastInGroup ? 'rounded-[18px] rounded-bl-[5px]' : 'rounded-[18px] rounded-bl-xl'}`
+              }`}
+            >
+              <AnimatePresence>
+                {showLikeBurst && (
+                  <motion.div
+                    aria-hidden="true"
+                    initial={{ opacity: 0, scale: 0.4 }}
+                    animate={{ opacity: [0, 1, 1, 0], scale: [0.4, 1.25, 1.1, 1] }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.6, ease: EASE.decelerate }}
+                    className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+                  >
+                    <Heart className="h-10 w-10 fill-[#FF4D8D] text-[#FF4D8D] drop-shadow-lg" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              {message.replyToStoryPreview && (
+                <div className={`mb-1.5 flex items-center gap-2 overflow-hidden rounded-xl p-1.5 ${isMe ? 'bg-white/[0.12]' : 'bg-app'}`}>
+                  {resolvedStoryPreviewUrl && (
+                    <img
+                      src={resolvedStoryPreviewUrl}
+                      alt=""
+                      className="h-10 w-7 shrink-0 rounded-lg object-cover"
+                    />
+                  )}
+                  <p className={`min-w-0 truncate text-micro normal-case ${isMe ? 'text-white/85' : 'text-app-muted'}`}>
+                    {t('bubbleStoryReplyLabel')}{message.replyToStoryPreview.caption ? `: ${message.replyToStoryPreview.caption}` : ''}
+                  </p>
+                </div>
+              )}
+              {message.title && <p className={`mb-1 text-micro font-extrabold normal-case ${isMe ? 'text-white/85' : 'text-pink-500'}`}>{message.title}</p>}
+              {replySource && (
+                <div className={`mb-1.5 flex max-w-full items-stretch overflow-hidden rounded-xl ${isMe ? 'bg-white/[0.12]' : 'bg-app'}`}>
+                  <span className={`w-0.5 shrink-0 ${isMe ? 'bg-white/70' : 'bg-pink-500'}`} />
+                  <p className={`truncate px-2.5 py-1.5 text-micro normal-case ${isMe ? 'text-white/85' : 'text-app-muted'}`}>
+                    {replySource.text || (replySource.messageType ? t('bubbleTypedMessageTemplate').replace('{type}', replySource.messageType) : t('chatMessagePlaceholder'))}
+                  </p>
+                </div>
+              )}
+              {showViewOnceLock ? (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -293,7 +397,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 className="flex items-center gap-2 py-1"
               >
                 <Eye className="w-4 h-4" />
-                <span>Tek seferlik fotoğrafı görüntüle</span>
+                <span>{t('bubbleViewOnceRevealAction')}</span>
               </button>
             ) : (
               <>
@@ -311,7 +415,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   (message.messageType === 'IMAGE' || message.messageType === 'GIF' || !message.messageType) && (
                     <img
                       src={resolvedMediaUrl}
-                      alt="Medya"
+                      alt={t('bubbleMediaAlt')}
                       loading="lazy"
                       decoding="async"
                       className="mb-1.5 max-h-60 w-full rounded-[14px] object-cover"
@@ -319,7 +423,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   )}
                 {displayText && <p className="whitespace-pre-wrap leading-[1.42]">{displayText}</p>}
                 {!message.translation && isTranslating && (
-                  <p className="text-micro italic opacity-70 mt-0.5">Çevriliyor...</p>
+                  <p className="text-micro italic opacity-70 mt-0.5">{t('bubbleTranslatingLabel')}</p>
                 )}
                 {hasTranslation && (
                   <button
@@ -329,7 +433,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                     }}
                     className="text-micro underline mt-0.5 text-app-muted"
                   >
-                    {showOriginal ? 'Çeviriyi göster' : 'Çevrildi · Orijinali göster'}
+                    {showOriginal ? t('bubbleShowTranslationLabel') : t('bubbleShowOriginalLabel')}
                   </button>
                 )}
               </>
@@ -346,9 +450,19 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   ? new Date(message.createdAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
                   : ''}
               </span>
-              {isMe && (isLastMineRead ? <CheckCheck className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />)}
+              {isMe && (
+                // Real per-message backend state, not a UI guess: message.isRead/deliveredAt come
+                // straight from the messages row (REST fetch) or a realtime message:read/
+                // message:delivered patch -- never derived from "is this the last message I sent."
+                message.isRead
+                  ? <CheckCheck className="w-3.5 h-3.5 text-[#34B7F1]" />
+                  : message.deliveredAt
+                    ? <CheckCheck className="w-3.5 h-3.5" />
+                    : <Check className="w-3.5 h-3.5" />
+              )}
             </div>
-          </motion.div>
+            </motion.div>
+          </div>
 
           {Object.keys(reactionCounts).length > 0 && (
             <div className="-mt-1 flex gap-1 px-1">
@@ -365,7 +479,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         </div>
       </div>
 
-      {actions.length > 0 && <ActionSheet isOpen={isSheetOpen} onClose={() => setIsSheetOpen(false)} title="Mesaj işlemleri" actions={actions} />}
+      {actions.length > 0 && <ActionSheet isOpen={isSheetOpen} onClose={() => setIsSheetOpen(false)} title={t('bubbleActionsTitle')} actions={actions} />}
     </div>
   );
 };

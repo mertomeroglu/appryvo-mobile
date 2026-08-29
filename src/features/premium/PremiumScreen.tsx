@@ -213,8 +213,8 @@ export const PremiumScreen: React.FC = () => {
   };
 
   const featureIcons = selectedTier === 'GOLD' ? GOLD_FEATURE_ICONS : FEATURE_ICONS;
-  const features = PUBLIC_PLAN_FEATURES[selectedTier].map((label, index) => ({
-    label: label === 'Passport' ? PASSPORT_LABELS[locale] : label,
+  const features = PUBLIC_PLAN_FEATURES[selectedTier].map((key, index) => ({
+    label: key === 'Passport' ? PASSPORT_LABELS[locale] : t(key),
     icon: featureIcons[index],
   }));
   return (

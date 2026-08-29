@@ -69,6 +69,7 @@ export const pushRegistrationService = {
     if (!cleanToken || !userId) return false;
     const current = await readState();
     const tokenChanged = current?.token !== cleanToken || current?.platform !== platform;
+    const staleToken = tokenChanged ? current?.token : null;
     const next: PushRegistrationState = {
       token: cleanToken,
       platform,
@@ -78,6 +79,15 @@ export const pushRegistrationService = {
     // Persist the native token before the network request. A failed request is retried on
     // resume/login instead of losing the only copy of the registration event.
     await writeState(next);
+    if (staleToken) {
+      // Firebase can rotate this device's token during the session (app restore, OS-level
+      // refresh, re-registration after a native reinstall of the messaging SDK). Without this,
+      // the OLD token row stays is_active=TRUE in device_push_tokens indefinitely -- it only ever
+      // gets cleaned up lazily, if and when a future send happens to target it and fails with an
+      // invalid-token error. Deactivating it here the moment we know it's superseded keeps this
+      // device from silently accumulating duplicate active tokens between sends.
+      apiClient.delete('/api/devices/push-token', { token: staleToken }).catch(() => {});
+    }
     return syncState(next, userId, tokenChanged || next.associatedUserId !== userId);
   },
 

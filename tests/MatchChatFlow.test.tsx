@@ -5,11 +5,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { MatchModal } from '../src/components/MatchModal';
 import { ConversationRow } from '../src/features/chat/MessagesScreen';
+import { useAppLocaleStore } from '../src/i18n/appLocale';
 
 const source = (relativePath: string) => fs.readFileSync(path.join(process.cwd(), 'src', relativePath), 'utf8');
 
 describe('match to live chat flow', () => {
   it('offers both post-match choices and opens the new conversation', () => {
+    // RYVO PATCH V2 04: MatchModal now renders real, locale-aware copy (previously hardcoded
+    // Turkish) -- jsdom's default navigator.language resolves to 'en-US', so without pinning the
+    // locale here this test would (correctly, per the new locale-priority logic) render English
+    // instead of the Turkish text this test asserts. Pinned to 'tr' to keep testing the same
+    // strings as before; the underlying flow being tested (match -> chat) is locale-independent.
+    useAppLocaleStore.getState().setLocale('tr');
     const onClose = vi.fn();
     render(
       <MemoryRouter initialEntries={['/discover']}>
@@ -38,12 +45,12 @@ describe('match to live chat flow', () => {
     expect(realtime).toContain("socketService.on('unread:count'");
     expect(socket).toContain('conversationRooms');
     expect(socket).toContain("this.socket?.emit('join:conversation', matchId)");
-    expect(messages).toContain('okundu işaretleyebilirsin');
+    expect(messages).toContain("t('msgsSwipeToMarkReadHint')");
     expect(chat).toContain("socketService.on('message:received'");
     expect(chat).toContain("socketService.on('message:edit'");
     expect(chat).toContain("socketService.on('message:delete'");
     expect(chat).toContain('queryClient.setQueryData<any>(QUERY_KEYS.messages(matchId)');
-    expect(chat).toContain('profilini aç');
+    expect(chat).toContain("t('chatOpenProfileAriaLabelTemplate')");
   });
 
   it('uses the server paging cursor instead of treating a message id as a cursor', () => {

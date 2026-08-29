@@ -7,6 +7,8 @@ import { AppButton } from './ui/AppButton';
 import { IconButton } from './ui/IconButton';
 import { DURATION, EASE, SPRING } from '../motion/tokens';
 import { ProfileAvatarFrame } from './ui/FramedAvatar';
+import { getPhotoUrl } from '../services/media/mediaService';
+import { useAppTranslation } from '../i18n/appLocale';
 
 interface MatchModalProps {
   isOpen: boolean;
@@ -15,19 +17,25 @@ interface MatchModalProps {
   matchId?: string;
 }
 
+// A photo shows up in three different shapes across the API (plain URL string, { url }, or
+// GET /api/me's { original, thumbnail, medium, large } with no .url field at all -- see
+// mediaService.getPhotoUrl for the full breakdown). The current user's avatar here comes from
+// useAuthStore, which is populated straight from /api/me, so reading `.url` unconditionally
+// silently returned undefined and the current user's own photo never rendered in the match
+// celebration -- it fell back to initials every time.
 function primaryPhoto(user?: { photos?: any[]; photoUrl?: string } | null): string | undefined {
-  if (Array.isArray(user?.photos) && user!.photos!.length > 0) {
-    const first = user!.photos![0];
-    return typeof first === 'object' ? first?.url : first;
+  if (Array.isArray(user?.photos) && user.photos.length > 0) {
+    return getPhotoUrl(user.photos[0]) || user?.photoUrl;
   }
   return user?.photoUrl;
 }
 
 export const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, matchedUser, matchId }) => {
   const navigate = useNavigate();
+  const { t } = useAppTranslation();
   const currentUser = useAuthStore((s) => s.user);
   const reduceMotion = useReducedMotion();
-  const matchedUserName = matchedUser?.name || 'Üye';
+  const matchedUserName = matchedUser?.name || t('matchedUserFallback');
   const avatarSlideDistance = reduceMotion ? 0 : 70;
 
   return (
@@ -55,7 +63,7 @@ export const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, matched
             className="w-full max-w-sm flex flex-col items-center text-center relative"
           >
             <IconButton
-              aria-label="Kapat"
+              aria-label={t('closeAriaLabel')}
               variant="ghost"
               size="sm"
               className="absolute -top-2 -end-2 text-white"
@@ -83,7 +91,7 @@ export const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, matched
                 >
                   <ProfileAvatarFrame
                     photoUrl={primaryPhoto(currentUser)}
-                    name={currentUser?.name || 'Sen'}
+                    name={currentUser?.name || t('youFallback')}
                     activeFrameId={currentUser?.activeFrameId}
                     size="xl"
                     eager
@@ -127,7 +135,7 @@ export const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, matched
               transition={{ delay: 0.55, duration: DURATION.standard }}
               className="text-title text-brand-gradient mb-2"
             >
-              Yeni Eşleşme
+              {t('newMatchTitle')}
             </motion.h2>
             <motion.p
               initial={{ opacity: 0 }}
@@ -135,7 +143,12 @@ export const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, matched
               transition={{ delay: 0.6, duration: DURATION.standard }}
               className="text-body text-white/80 mb-8"
             >
-              Sen ve <span className="font-bold text-white">{matchedUserName}</span> birbirinizi beğendiniz!
+              {t('matchCelebrationTemplate').split('{name}').map((part, idx, arr) => (
+                <React.Fragment key={idx}>
+                  {part}
+                  {idx < arr.length - 1 && <span className="font-bold text-white">{matchedUserName}</span>}
+                </React.Fragment>
+              ))}
             </motion.p>
 
             {/* CTA */}
@@ -155,10 +168,10 @@ export const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, matched
                   if (matchId) navigate(`/chat/${matchId}`);
                 }}
               >
-                Mesaj Yaz
+                {t('sendMessageButtonLabel')}
               </AppButton>
               <AppButton variant="secondary" size="lg" fullWidth onClick={onClose}>
-                Keşfe Devam Et
+                {t('continueDiscoveringButtonLabel')}
               </AppButton>
             </motion.div>
           </motion.div>

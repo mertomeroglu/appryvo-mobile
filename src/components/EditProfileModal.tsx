@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Capacitor } from '@capacitor/core';
 import { AtSign, Camera as CameraIcon, ChevronRight, LockKeyhole, Plus, Ruler, Sparkles, User, X } from 'lucide-react';
@@ -25,6 +25,7 @@ import {
   getZodiacLabel,
 } from '../lib/profileLabels';
 import { INTEREST_MAX, INTEREST_MIN } from '../lib/interests';
+import { getLocalizedInterestLabel } from '../lib/interestLabels';
 import { normalizeLanguageNames } from '../lib/languages';
 import { useAppTranslation } from '../i18n/appLocale';
 
@@ -113,6 +114,45 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
   const isSavingRef = useRef(false);
   const [isInterestsEditorOpen, setIsInterestsEditorOpen] = useState(false);
 
+  // Snapshot of every editable field as loaded, captured once (the modal fully unmounts on close
+  // per OwnProfileScreen, so there's no need to react to `user` changing later). Everything below
+  // that can actually change value is compared against this to drive the sticky Save affordance --
+  // previously there was no dirty-state concept at all, so a change to any field (including photo
+  // add/remove/reorder) was invisible until the user scrolled to the bottom submit button.
+  const initialSnapshotRef = useRef<{
+    photoKeys: string[];
+    bio: string;
+    relationshipGoals: string[];
+    interests: string[];
+    heightCm: string;
+    zodiac: string;
+    smokingStatus: string;
+    drinkingStatus: string;
+    childrenStatus: string;
+    familyPlans: string;
+    languages: string[];
+  } | null>(null);
+  if (initialSnapshotRef.current === null) {
+    initialSnapshotRef.current = {
+      photoKeys: normalizeInitialPhotos(user?.photos).map((p) => p.url),
+      bio: user?.bio || '',
+      relationshipGoals:
+        Array.isArray(user?.relationshipGoals) && user.relationshipGoals.length > 0
+          ? user.relationshipGoals.slice(0, 2)
+          : user?.relationshipGoal
+            ? [user.relationshipGoal]
+            : [],
+      interests: user?.interests || [],
+      heightCm: user?.heightCm ? String(user.heightCm) : '',
+      zodiac: user?.zodiac || '',
+      smokingStatus: user?.smokingStatus || '',
+      drinkingStatus: user?.drinkingStatus || '',
+      childrenStatus: user?.childrenStatus || '',
+      familyPlans: user?.familyPlans || '',
+      languages: normalizeLanguageNames(user?.languages || []),
+    };
+  }
+
   useEffect(() => {
     if (!isOpen || !focusSection) return;
     const anchor = SECTION_ANCHORS[focusSection];
@@ -127,6 +167,28 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
   useEffect(() => () => {
     if (cropSource) URL.revokeObjectURL(cropSource);
   }, [cropSource]);
+
+  // A pending upload has no url yet, but adding/removing a photo is itself a change -- keying on
+  // `photo.id` for uploading slots (never present in the initial snapshot) means the Save
+  // affordance appears the instant a photo is added, not only once its upload finishes.
+  const currentPhotoKeys = photos.map((p) => p.url || `pending:${p.id}`);
+  const isDirty = useMemo(() => {
+    const snap = initialSnapshotRef.current!;
+    return (
+      JSON.stringify(currentPhotoKeys) !== JSON.stringify(snap.photoKeys) ||
+      bio !== snap.bio ||
+      JSON.stringify(relationshipGoals) !== JSON.stringify(snap.relationshipGoals) ||
+      JSON.stringify(interests) !== JSON.stringify(snap.interests) ||
+      heightCm !== snap.heightCm ||
+      zodiac !== snap.zodiac ||
+      smokingStatus !== snap.smokingStatus ||
+      drinkingStatus !== snap.drinkingStatus ||
+      childrenStatus !== snap.childrenStatus ||
+      familyPlans !== snap.familyPlans ||
+      JSON.stringify(languages) !== JSON.stringify(snap.languages)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPhotoKeys.join('|'), bio, relationshipGoals, interests, heightCm, zodiac, smokingStatus, drinkingStatus, childrenStatus, familyPlans, languages]);
 
   if (!isOpen) return null;
 
@@ -222,6 +284,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Nothing changed -- skip the network round-trip entirely (the bottom-of-form submit button
+    // has no dirty guard of its own, unlike the sticky header one which only renders when dirty).
+    if (!isDirty) return;
     // Belt-and-suspenders against double taps: guards the instant between a fast second tap and
     // React re-rendering AppButton's disabled state from isLoading.
     if (isSavingRef.current) return;
@@ -311,7 +376,12 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       }));
       void fetchMe().catch(() => {});
     } catch (err: any) {
-      setErrorMsg(err.message || t('profileSaveFailedError'));
+      // The inline error box lives at the bottom of a long scrollable form -- a toast makes the
+      // failure visible immediately even if the save was triggered from the sticky header button
+      // and the user never scrolls down. Form state is untouched either way, so nothing is lost.
+      const message = err.message || t('profileSaveFailedError');
+      setErrorMsg(message);
+      toast.error(message);
     } finally {
       isSavingRef.current = false;
       setIsLoading(false);
@@ -327,9 +397,25 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
             <AppLogo size="sm" variant="icon" className="shrink-0" />
             <h3 className="text-heading text-app truncate">{t('editProfileTitle')}</h3>
           </div>
-          <IconButton aria-label={t('closeAriaLabel')} variant="ghost" size="md" onClick={onClose} className="shrink-0">
-            <X className="w-5 h-5" />
-          </IconButton>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Appears the instant any field becomes dirty (see isDirty above) so saving never
+                requires scrolling to the bottom-of-form submit button; stays visible (with a
+                spinner) through the save so a fast second tap can't double-submit. */}
+            {isDirty && (
+              <AppButton
+                type="button"
+                variant="primary"
+                size="sm"
+                loading={isLoading}
+                onClick={() => formRef.current?.requestSubmit()}
+              >
+                {t('saveButtonShortLabel')}
+              </AppButton>
+            )}
+            <IconButton aria-label={t('closeAriaLabel')} variant="ghost" size="md" onClick={onClose} className="shrink-0">
+              <X className="w-5 h-5" />
+            </IconButton>
+          </div>
         </header>
 
         {/* Scrollable Form Body */}
@@ -575,7 +661,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
             {interests.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {interests.slice(0, 6).map((item) => (
-                  <Chip key={item}>{item}</Chip>
+                  <Chip key={item}>{getLocalizedInterestLabel(item, locale)}</Chip>
                 ))}
                 {interests.length > 6 && <Chip>+{interests.length - 6}</Chip>}
               </div>

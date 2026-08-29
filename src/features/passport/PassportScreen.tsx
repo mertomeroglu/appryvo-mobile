@@ -2,16 +2,21 @@ import React, { useState } from 'react';
 import { ArrowLeft, Compass, Search, MapPin, Check, Crown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../services/api/apiClient';
+import { searchCities, type GeoCityResult } from '../../services/geo/cityService';
 import { useEntitlementsQuery } from '../../hooks/useQueries';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { AppButton } from '../../components/ui/AppButton';
 import { IconButton } from '../../components/ui/IconButton';
 import { toast } from '../../stores/useToastStore';
-import { PASSPORT_LABELS, useAppLocaleStore } from '../../i18n/appLocale';
+import { PASSPORT_LABELS, useAppLocaleStore, useAppTranslation } from '../../i18n/appLocale';
 
 export const PassportScreen: React.FC = () => {
+  const { t } = useAppTranslation();
   const [searchQuery, setSearchQuery] = useState('');
-  const [cities, setCities] = useState<any[]>([]);
+  const [cities, setCities] = useState<GeoCityResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const [activePassportCity, setActivePassportCity] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const navigate = useNavigate();
@@ -25,28 +30,34 @@ export const PassportScreen: React.FC = () => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
 
+    setIsSearching(true);
+    setSearchError(false);
+    setHasSearched(true);
     try {
-      const res = await apiClient.get(`/api/geo/search-cities?query=${encodeURIComponent(searchQuery)}`);
-      setCities(res?.data || []);
+      const results = await searchCities(searchQuery);
+      setCities(results);
     } catch {
       setCities([]);
+      setSearchError(true);
+    } finally {
+      setIsSearching(false);
     }
   };
 
-  const handleSelectCity = async (city: any) => {
-    if (typeof city.lat !== 'number' || typeof city.lng !== 'number') return;
+  const handleSelectCity = async (city: GeoCityResult) => {
+    if (typeof city.latitude !== 'number' || typeof city.longitude !== 'number') return;
     setIsSaving(true);
     try {
       await apiClient.post('/api/user/passport', {
-        latitude: city.lat,
-        longitude: city.lng,
-        city: city.name,
+        latitude: city.latitude,
+        longitude: city.longitude,
+        city: city.city,
         country: city.country,
       });
-      setActivePassportCity(city.name);
-      toast.success(`${city.name} konumuna ışınlandın`);
+      setActivePassportCity(city.city);
+      toast.success(t('passportTeleportedToastTemplate').replace('{city}', city.city));
     } catch (err: any) {
-      toast.error(err.message || 'Konum güncellenemedi.');
+      toast.error(err.message || t('passportLocationUpdateFailedError'));
     } finally {
       setIsSaving(false);
     }
@@ -56,10 +67,10 @@ export const PassportScreen: React.FC = () => {
     <div className="flex flex-col h-full w-full bg-app text-app p-4 overflow-y-auto no-scrollbar select-none">
       {/* Top Bar */}
       <header className="pt-safe flex items-center justify-between my-2">
-        <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate(-1)}>
+        <IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
-        <h3 className="text-heading text-app">{passportLabel} Modu</h3>
+        <h3 className="text-heading text-app">{t('passportModeTitleTemplate').replace('{passport}', passportLabel)}</h3>
         <div className="w-9" />
       </header>
 
@@ -67,9 +78,9 @@ export const PassportScreen: React.FC = () => {
         <div className="w-16 h-16 rounded-full bg-brand-gradient flex items-center justify-center shadow-elevated shadow-purple-500/30 mb-3">
           <Compass className="w-8 h-8 text-white" />
         </div>
-        <h2 className="text-title text-app">Dünyanın Her Yerinde Işınlan</h2>
+        <h2 className="text-title text-app">{t('passportHeroTitle')}</h2>
         <p className="text-caption text-app-muted mt-1 max-w-xs leading-relaxed normal-case">
-          İstediğin şehri seçerek oradaki profilleri keşfetmeye başla.
+          {t('passportHeroDescription')}
         </p>
       </div>
 
@@ -80,12 +91,12 @@ export const PassportScreen: React.FC = () => {
       ) : !passportEnabled ? (
         <div className="my-auto p-6 rounded-3xl bg-surface border border-app text-center space-y-4 shadow-soft">
           <PremiumBadgeInline />
-          <p className="text-body font-extrabold text-app">{passportLabel}, Ryvo Plus ve Gold ile açılır</p>
+          <p className="text-body font-extrabold text-app">{t('passportUnlockTitleTemplate').replace('{passport}', passportLabel)}</p>
           <p className="text-caption text-app-muted normal-case">
-            Ryvo Plus ve Gold üyeleri konumlarını değiştirip dünyanın her yerinden insanlarla eşleşebilir.
+            {t('passportUnlockDescription')}
           </p>
           <AppButton variant="primary" size="lg" fullWidth onClick={() => navigate('/premium')}>
-            Ryvo Plus veya Gold’a Geç
+            {t('passportUpgradeAction')}
           </AppButton>
         </div>
       ) : (
@@ -95,7 +106,7 @@ export const PassportScreen: React.FC = () => {
             <Search className="absolute start-4 top-3.5 w-5 h-5 text-app-muted" />
             <input
               type="text"
-              placeholder="Hedef şehir ara (örn. Paris, Tokyo...)"
+              placeholder={t('passportSearchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-input-app border border-app rounded-full ps-12 pe-4 py-3 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-purple-500 focus-visible:ring-2 focus-visible:ring-purple-500/40"
@@ -104,8 +115,17 @@ export const PassportScreen: React.FC = () => {
 
           {/* Cities List */}
           <div className="space-y-2 my-2">
-            {cities.map((city: any, idx: number) => {
-              const isSelected = activePassportCity === city.name;
+            {isSearching && (
+              <p className="text-caption font-semibold text-app-muted text-center py-4">{t('mapSearchingLabel')}</p>
+            )}
+            {!isSearching && searchError && (
+              <p className="text-caption font-semibold text-app-muted text-center py-4">{t('mapSearchErrorLabel')}</p>
+            )}
+            {!isSearching && !searchError && hasSearched && cities.length === 0 && (
+              <p className="text-caption font-semibold text-app-muted text-center py-4">{t('passportNoCityResultsLabel')}</p>
+            )}
+            {!isSearching && !searchError && cities.map((city, idx) => {
+              const isSelected = activePassportCity === city.city;
               return (
                 <button
                   key={idx}
@@ -118,7 +138,7 @@ export const PassportScreen: React.FC = () => {
                   <div className="flex items-center gap-3">
                     <MapPin className="w-5 h-5 text-purple-500" />
                     <div className="text-start">
-                      <h4 className="text-body font-extrabold text-app">{city.name}</h4>
+                      <h4 className="text-body font-extrabold text-app">{city.city}</h4>
                       <span className="text-caption text-app-muted normal-case">{city.country}</span>
                     </div>
                   </div>

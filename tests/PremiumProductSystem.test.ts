@@ -5,6 +5,7 @@ import {
   PUBLIC_PLAN_FEATURES,
   SUBSCRIPTION_PRODUCTS,
 } from '../src/features/premium/subscriptionProducts';
+import { messages } from '../src/i18n/appLocale';
 
 describe('public premium product system', () => {
   it('maps legacy paid tiers to Ryvo Gold without dropping entitlement', () => {
@@ -20,10 +21,17 @@ describe('public premium product system', () => {
   });
 
   it('keeps exact Plus and Gold quota matrices', () => {
-    expect(PUBLIC_PLAN_FEATURES.PLUS).toContain('3 Super Like / hafta');
-    expect(PUBLIC_PLAN_FEATURES.PLUS).toContain('1 adet 30 dk Boost / ay');
-    expect(PUBLIC_PLAN_FEATURES.GOLD).toContain('5 Super Like / hafta');
-    expect(PUBLIC_PLAN_FEATURES.GOLD).toContain('2 adet 30 dk Boost / ay');
+    // PUBLIC_PLAN_FEATURES now holds AppMessageKeys (translated via t() on render) rather than
+    // literal display strings -- assert on the key names, and cross-check their `tr` copy still
+    // matches what used to be hardcoded here.
+    expect(PUBLIC_PLAN_FEATURES.PLUS).toContain('planFeaturePlusSuperLike');
+    expect(PUBLIC_PLAN_FEATURES.PLUS).toContain('planFeaturePlusBoost');
+    expect(PUBLIC_PLAN_FEATURES.GOLD).toContain('planFeatureGoldSuperLike');
+    expect(PUBLIC_PLAN_FEATURES.GOLD).toContain('planFeatureGoldBoost');
+    expect(messages.tr.planFeaturePlusSuperLike).toBe('3 Super Like / hafta');
+    expect(messages.tr.planFeaturePlusBoost).toBe('1 adet 30 dk Boost / ay');
+    expect(messages.tr.planFeatureGoldSuperLike).toBe('5 Super Like / hafta');
+    expect(messages.tr.planFeatureGoldBoost).toBe('2 adet 30 dk Boost / ay');
   });
 
   it('keeps Android and iOS storefront IDs explicit without developer fallback prices', () => {

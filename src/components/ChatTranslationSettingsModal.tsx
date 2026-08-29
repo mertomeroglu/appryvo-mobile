@@ -5,7 +5,8 @@ import { Modal } from './ui/Modal';
 import { apiClient } from '../services/api/apiClient';
 import { toast } from '../stores/useToastStore';
 import { SPRING } from '../motion/tokens';
-import { CHAT_TRANSLATION_LANGUAGES } from '../lib/chatTranslationLanguages';
+import { CHAT_TRANSLATION_LANGUAGES, getLocalizedChatLanguageLabel } from '../lib/chatTranslationLanguages';
+import { useAppTranslation } from '../i18n/appLocale';
 
 interface ChatTranslationSettingsModalProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ export const ChatTranslationSettingsModal: React.FC<ChatTranslationSettingsModal
   translationLanguage,
   onSettingsChanged,
 }) => {
+  const { t, locale } = useAppTranslation();
   const [isSaving, setIsSaving] = useState(false);
 
   const save = async (patch: { autoTranslateEnabled?: boolean; translationLanguage?: string }) => {
@@ -39,7 +41,7 @@ export const ChatTranslationSettingsModal: React.FC<ChatTranslationSettingsModal
       });
       onSettingsChanged(next);
     } catch {
-      toast.error('Ayarlar kaydedilemedi.');
+      toast.error(t('translationSettingsSaveFailedToast'));
     } finally {
       setIsSaving(false);
     }
@@ -52,20 +54,20 @@ export const ChatTranslationSettingsModal: React.FC<ChatTranslationSettingsModal
           <span className="text-pink-500">
             <Languages className="w-5 h-5" />
           </span>
-          <h3 className="text-heading text-app">Çeviri Ayarları</h3>
+          <h3 className="text-heading text-app">{t('chatTranslationSettingsAriaLabel')}</h3>
         </div>
 
         <div className="w-full p-3.5 rounded-2xl bg-surface-elevated border border-app flex items-center justify-between">
           <div className="min-w-0 pe-3">
-            <p className="text-body font-bold text-app">Otomatik Çeviri</p>
+            <p className="text-body font-bold text-app">{t('autoTranslateLabel')}</p>
             <p className="text-micro text-app-muted normal-case mt-0.5">
-              Gelen mesajlar otomatik olarak seçtiğin dile çevrilir.
+              {t('autoTranslateDescription')}
             </p>
           </div>
           <button
             role="switch"
             aria-checked={autoTranslateEnabled}
-            aria-label="Otomatik Çeviri"
+            aria-label={t('autoTranslateLabel')}
             disabled={isSaving}
             onClick={() => save({ autoTranslateEnabled: !autoTranslateEnabled })}
             className={`relative w-12 h-7 rounded-full shrink-0 transition-colors disabled:opacity-50 ${
@@ -81,7 +83,7 @@ export const ChatTranslationSettingsModal: React.FC<ChatTranslationSettingsModal
         </div>
 
         <div>
-          <p className="text-caption font-bold text-app-muted normal-case mb-2">Çeviri Dili</p>
+          <p className="text-caption font-bold text-app-muted normal-case mb-2">{t('translationLanguageLabel')}</p>
           <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto no-scrollbar">
             {CHAT_TRANSLATION_LANGUAGES.map((lang) => {
               const selected = lang.code === translationLanguage;
@@ -96,7 +98,7 @@ export const ChatTranslationSettingsModal: React.FC<ChatTranslationSettingsModal
                       : 'border-app bg-surface text-app'
                   }`}
                 >
-                  <span className="truncate">{lang.label}</span>
+                  <span className="truncate">{getLocalizedChatLanguageLabel(lang.code, locale)}</span>
                   {selected && <Check className="w-4 h-4 shrink-0" />}
                 </button>
               );

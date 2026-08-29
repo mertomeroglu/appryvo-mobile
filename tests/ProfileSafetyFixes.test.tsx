@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FloatingNavBar } from '../src/components/FloatingNavBar';
 import { SplashScreen } from '../src/components/ui/SplashScreen';
-import { PASSPORT_LABELS, useAppLocaleStore } from '../src/i18n/appLocale';
+import { PASSPORT_LABELS, messages, useAppLocaleStore } from '../src/i18n/appLocale';
 import { computeProfileCompletion } from '../src/lib/profileCompletion';
 import { useAuthStore } from '../src/stores/useAuthStore';
 
@@ -42,11 +42,17 @@ describe('profile completion behavior', () => {
       'languages',
       'drinkingStatus',
     ]);
-    expect(result.missing.map((field) => field.cta)).toEqual([
-      'İlgi alanı ekle',
-      'Dil ekle',
-      'Alkol tercihi',
+    // CompletionField now carries a translation key (ctaKey) rather than a literal display
+    // string -- assert on the key names, and cross-check their `tr` copy matches what used to
+    // be hardcoded here.
+    expect(result.missing.map((field) => field.ctaKey)).toEqual([
+      'completionAddInterestCta',
+      'completionAddLanguageCta',
+      'completionDrinkingCta',
     ]);
+    expect(messages.tr.completionAddInterestCta).toBe('İlgi alanı ekle');
+    expect(messages.tr.completionAddLanguageCta).toBe('Dil ekle');
+    expect(messages.tr.completionDrinkingCta).toBe('Alkol tercihi');
   });
 
   it('keeps the completion sheet tappable and deep-links every item to an exact editor anchor', () => {
@@ -78,7 +84,7 @@ describe('destructive account re-authentication', () => {
     const modal = source('src/components/SafetyReportModal.tsx');
     const server = source('../web/server/api/src/user_controller.js');
     expect(modal).toContain("apiClient.delete('/api/account', { password })");
-    expect(modal).toContain('Hesabımı Kalıcı Olarak Sil');
+    expect(modal).toContain("t('safetyDeleteAccountConfirmButton')");
     expect(modal).not.toMatch(/password\s*===/);
     expect(server).toContain('await verifyPassword(password, passwordHash)');
     expect(server).toContain('accountDeleteRateLimiter');

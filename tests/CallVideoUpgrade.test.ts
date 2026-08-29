@@ -53,12 +53,19 @@ describe('mid-call voice->video upgrade never disturbs the existing audio connec
     expect(body).toContain("call.status !== 'ACTIVE'");
   });
 
-  it('CallOverlay wires both renegotiation socket events and exposes a request-video control only on active voice calls', () => {
-    const source = read('src/components/CallOverlay.tsx');
+  it('RealtimeSync wires both renegotiation socket events (registered eagerly, not inside the lazy-loaded CallOverlay)', () => {
+    const source = read('src/components/RealtimeSync.tsx');
     expect(source).toContain("socketService.on('call:renegotiate-offer'");
     expect(source).toContain("socketService.on('call:renegotiate-answer'");
-    expect(source).toContain('unsubRenegotiateOffer()');
-    expect(source).toContain('unsubRenegotiateAnswer()');
+    expect(source).toContain('offCallRenegotiateOffer()');
+    expect(source).toContain('offCallRenegotiateAnswer()');
+
+    const overlaySource = read('src/components/CallOverlay.tsx');
+    expect(overlaySource).not.toContain("socketService.on('call:renegotiate-offer'");
+  });
+
+  it('CallOverlay exposes a request-video control only on active voice calls', () => {
+    const source = read('src/components/CallOverlay.tsx');
     expect(source).toContain('handleRequestVideo');
     expect(source).toMatch(/!isVideoCall && activeCall\.status === 'ACTIVE'/);
   });

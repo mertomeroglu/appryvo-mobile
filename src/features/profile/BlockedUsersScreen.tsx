@@ -9,9 +9,11 @@ import { IconButton } from '../../components/ui/IconButton';
 import { Avatar } from '../../components/ui/Avatar';
 import { AppButton } from '../../components/ui/AppButton';
 import { toast } from '../../stores/useToastStore';
+import { useAppTranslation } from '../../i18n/appLocale';
 
 export const BlockedUsersScreen: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useAppTranslation();
   const { data: blocked, isLoading } = useBlockedUsersQuery();
   const unblockMutation = useUnblockMutation();
 
@@ -19,29 +21,29 @@ export const BlockedUsersScreen: React.FC = () => {
 
   const handleUnblock = (userId: string, name?: string) => {
     unblockMutation.mutate(userId, {
-      onSuccess: () => toast.success(`${name || 'Kullanıcı'} engeli kaldırıldı.`),
-      onError: () => toast.error('Engel kaldırılamadı.'),
+      onSuccess: () => toast.success(t('userUnblockedToastTemplate').replace('{name}', name || t('genericUserLabel'))),
+      onError: () => toast.error(t('unblockFailedToast')),
     });
   };
 
   return (
     <div className="flex flex-col h-full w-full bg-app text-app select-none">
       <header className="pt-safe px-4 h-16 flex items-center gap-3 border-b border-app bg-surface-80 backdrop-blur-md z-sticky">
-        <IconButton aria-label="Geri" variant="ghost" size="sm" onClick={() => navigate(-1)}>
+        <IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
-        <h2 className="text-heading text-app">Engellenen Kullanıcılar</h2>
+        <h2 className="text-heading text-app">{t('blockedUsersTitle')}</h2>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
         {isLoading ? (
-          <LoadingState fullScreen={false} message="Yükleniyor..." />
+          <LoadingState fullScreen={false} message={t('loadingMessage')} />
         ) : blockedList.length === 0 ? (
           <div className="my-auto py-16">
             <EmptyState
               icon={<UserX className="w-7 h-7" />}
-              title="Engellenen Kimse Yok"
-              subtitle="Engellediğin kullanıcılar burada listelenir."
+              title={t('blockedUsersEmptyTitle')}
+              subtitle={t('blockedUsersEmptySubtitle')}
             />
           </div>
         ) : (
@@ -59,7 +61,7 @@ export const BlockedUsersScreen: React.FC = () => {
                     size="md"
                   />
                   <div className="flex-1 min-w-0">
-                    <h4 className="text-body font-bold text-app truncate">{u.name || 'Kullanıcı'}</h4>
+                    <h4 className="text-body font-bold text-app truncate">{u.name || t('genericUserLabel')}</h4>
                   </div>
                   <AppButton
                     variant="secondary"
@@ -67,7 +69,7 @@ export const BlockedUsersScreen: React.FC = () => {
                     loading={unblockMutation.isPending}
                     onClick={() => handleUnblock(u.id, u.name)}
                   >
-                    Kaldır
+                    {t('removeButtonLabel')}
                   </AppButton>
                 </div>
               );

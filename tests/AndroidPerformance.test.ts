@@ -48,15 +48,20 @@ describe('Android performance contracts', () => {
     const map = source('features/map/SocialMapScreen.tsx');
     const chat = source('features/chat/ChatScreen.tsx');
     const call = source('components/CallOverlay.tsx');
+    // Call signaling responses, including disconnect cleanup, are registered in RealtimeSync
+    // (mounted eagerly at app start) rather than the lazy-loaded CallOverlay -- see
+    // CallSignalingReliability.test.ts for the full reasoning.
+    const realtimeSync = source('components/RealtimeSync.tsx');
     const webrtc = source('services/call/webrtcService.ts');
     const styles = source('styles/globals.css');
     expect(map).toContain("container?.querySelectorAll('img')");
     expect(map).toContain('container?.replaceChildren()');
-    expect(map).toContain('keepBuffer: 1');
+    expect(map).toContain('maxTileCacheSize: 50');
     expect(chat).toContain("recorder.state !== 'inactive'");
     expect(chat).toContain('recorder.stream.getTracks().forEach((track) => track.stop())');
     expect(call).toContain('webrtcService.hangup()');
-    expect(call).toContain("socketService.on('disconnect'");
+    expect(realtimeSync).toContain("socketService.on('disconnect'");
+    expect(realtimeSync).toContain('webrtcService.hangup()');
     expect(webrtc).toContain('requestId !== this.mediaRequestId');
     expect(webrtc).toContain('activeLocalTracks:');
     expect(webrtc).toContain('hasPeerConnection: this.pc !== null');

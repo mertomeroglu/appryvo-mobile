@@ -15,6 +15,9 @@ vi.mock('../src/hooks/useQueries', () => ({
   useDeleteMessageMutation: () => ({ mutate: vi.fn() }),
   useMarkViewOnceMutation: () => ({ mutate: vi.fn() }),
   useUnmatchMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  useMeetingStatusQuery: () => ({ data: undefined, isLoading: false }),
+  useConfirmMeetingMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  useSubmitMeetingFeedbackMutation: () => ({ mutate: vi.fn(), isPending: false }),
   fetchOlderMessages: vi.fn(),
 }));
 

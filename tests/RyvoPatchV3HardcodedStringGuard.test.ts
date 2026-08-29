@@ -17,6 +17,7 @@ const EXCLUDED_FILES = new Set([
   'lib/languages.ts',
   'lib/interests.ts',
   'lib/interestLabels.ts',
+  'lib/trustLabels.ts',
   'lib/countryFlags.ts',
   'lib/legalContent.ts',
   'lib/chatTranslationLanguages.ts',

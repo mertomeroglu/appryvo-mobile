@@ -20,7 +20,7 @@ function renderApp(initialPath: string) {
         <Route element={<SessionGate />}>
           <Route path="/auth" element={<AuthScreen />} />
           <Route path="/discover/:userId" element={<div>Paylaşılan profil</div>} />
-          <Route path="/discover" element={<div>Keşfet</div>} />
+          <Route path="/map" element={<div>Dünya</div>} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -56,7 +56,7 @@ describe('RYVO PATCH 05 issue 8 -- shared-profile deep link survives the login/r
     expect(screen.getByLabelText('current-route')).toHaveTextContent('/auth');
   });
 
-  it('logging in from that redirect resumes the originally-shared profile, not the default /discover', async () => {
+  it('logging in from that redirect resumes the originally-shared profile, not the default /map', async () => {
     const login = vi.fn().mockImplementation(async () => {
       useAuthStore.setState({ isAuthenticated: true, user: { id: 'me' } as any });
     });
@@ -71,7 +71,7 @@ describe('RYVO PATCH 05 issue 8 -- shared-profile deep link survives the login/r
     expect(screen.getByLabelText('current-route')).toHaveTextContent('/discover/abc-123-uuid');
   });
 
-  it('a plain (no deep link) app open still lands on the default /discover route after login', async () => {
+  it('a plain (no deep link) app open lands on the default /map (World/Social Discovery) route after login', async () => {
     const login = vi.fn().mockImplementation(async () => {
       useAuthStore.setState({ isAuthenticated: true, user: { id: 'me' } as any });
     });
@@ -83,7 +83,7 @@ describe('RYVO PATCH 05 issue 8 -- shared-profile deep link survives the login/r
     await loginFromWelcomeScreen();
 
     await waitFor(() => expect(login).toHaveBeenCalled());
-    await screen.findByText('Keşfet');
-    expect(screen.getByLabelText('current-route')).toHaveTextContent('/discover');
+    await screen.findByText('Dünya');
+    expect(screen.getByLabelText('current-route')).toHaveTextContent('/map');
   });
 });

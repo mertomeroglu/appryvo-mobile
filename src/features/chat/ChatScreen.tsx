@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowLeft, Camera, Flag, Gift as GiftIcon, Languages, Mic, MoreVertical, Phone, Send, Unlink, UserMinus, Video, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, Camera, Flag, Gift as GiftIcon, Handshake, Languages, Mic, MoreVertical, Phone, Send, Unlink, UserMinus, Video, X } from 'lucide-react';
 import {
   QUERY_KEYS,
   useMessagesQuery,
@@ -26,6 +26,7 @@ import { Modal } from '../../components/ui/Modal';
 import { AppButton } from '../../components/ui/AppButton';
 import { MessageBubble, type ChatMessage, type MessageTranslation } from './MessageBubble';
 import { SafetyReportModal } from '../../components/SafetyReportModal';
+import { MeetingFeedbackModal } from '../../components/MeetingFeedbackModal';
 import { ChatTranslationSettingsModal } from '../../components/ChatTranslationSettingsModal';
 import { GiftShopSheet } from '../gifts/GiftShopSheet';
 import { GiftCelebrationOverlay } from '../gifts/GiftCelebrationOverlay';
@@ -64,6 +65,7 @@ export const ChatScreen: React.FC = () => {
   const [safetyAction, setSafetyAction] = useState<'report' | 'block' | null>(null);
   const [isConversationActionsOpen, setIsConversationActionsOpen] = useState(false);
   const [isUnmatchConfirmOpen, setIsUnmatchConfirmOpen] = useState(false);
+  const [isMeetingModalOpen, setIsMeetingModalOpen] = useState(false);
   const [isGiftShopOpen, setIsGiftShopOpen] = useState(false);
   const [freshGiftIds, setFreshGiftIds] = useState<Set<string>>(new Set());
   const [giftCelebration, setGiftCelebration] = useState<GiftSnapshot | null>(null);
@@ -622,6 +624,11 @@ export const ChatScreen: React.FC = () => {
 
   const conversationActions: ActionSheetAction[] = [
     {
+      label: t('giveFeedbackButton'),
+      icon: <Handshake className="h-5 w-5" />,
+      onSelect: () => setIsMeetingModalOpen(true),
+    },
+    {
       label: t('chatUnmatchActionLabel'),
       icon: <Unlink className="h-5 w-5" />,
       destructive: true,
@@ -880,6 +887,8 @@ export const ChatScreen: React.FC = () => {
         title={partner?.name ? t('chatOptionsTitleTemplate').replace('{name}', partner.name) : t('chatOptionsLabel')}
         actions={conversationActions}
       />
+
+      <MeetingFeedbackModal isOpen={isMeetingModalOpen} onClose={() => setIsMeetingModalOpen(false)} matchId={matchId} />
 
       <Modal isOpen={isUnmatchConfirmOpen} onClose={() => !unmatchMutation.isPending && setIsUnmatchConfirmOpen(false)}>
         <div className="space-y-4">

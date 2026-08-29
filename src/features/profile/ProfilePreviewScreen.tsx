@@ -19,6 +19,7 @@ import {
 import { useAppTranslation } from '../../i18n/appLocale';
 import { getLocalizedInterestLabel } from '../../lib/interestLabels';
 import { getLocalizedStoredLanguageName } from '../../lib/languages';
+import { TrustProfileSection } from '../../components/TrustProfileSection';
 
 function normalizePhotos(user: any): string[] {
   if (Array.isArray(user?.photos) && user.photos.length > 0) {
@@ -235,6 +236,8 @@ export const ProfilePreviewScreen: React.FC = () => {
             })}
           </div>
         )}
+
+        <TrustProfileSection userId={user?.id} />
       </div>
     </div>
   );

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useDiscoveryUserQuery, useEntitlementsQuery, useLikeMutation, useMatchesQuery, usePassMutation, useFollowStatusQuery } from '../../hooks/useQueries';
 import { FollowButton } from '../../components/FollowButton';
+import { TrustProfileSection } from '../../components/TrustProfileSection';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { VerifiedBadge } from '../../components/ui/Badge';
 import { nativeHaptics } from '../../native/haptics';
@@ -403,6 +404,8 @@ export const FullProfileScreen: React.FC = () => {
             })}
           </div>
         )}
+
+        <TrustProfileSection userId={userId} />
 
         <button
           type="button"

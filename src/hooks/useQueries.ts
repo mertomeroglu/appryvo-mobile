@@ -34,6 +34,8 @@ export const QUERY_KEYS = {
   followStatus: (userId: string) => ['follows', userId, 'status'],
   followers: (userId: string) => ['follows', userId, 'followers'],
   following: (userId: string) => ['follows', userId, 'following'],
+  trustProfile: (userId: string) => ['trust', 'profile', userId],
+  meetingStatus: (matchId: string) => ['trust', 'meetings', matchId, 'status'],
 };
 
 // Hooks
@@ -456,6 +458,69 @@ export function useUnfollowMutation() {
       if (data) queryClient.setQueryData(QUERY_KEYS.followStatus(userId), data);
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.followers(userId) });
     },
+  });
+}
+
+// --- Trust Profile / Meeting Feedback -----------------------------------------------------
+// See server/api/src/trust_controller.js. Public trust data is aggregate-only: below the
+// server's PUBLIC_THRESHOLD, `averages` is null and only a count is returned.
+
+export interface TrustProfile {
+  userId: string;
+  count: number;
+  threshold: number;
+  thresholdReached: boolean;
+  averages: {
+    communication: number;
+    profileMatch: number;
+    reliability: number;
+    comfort: number;
+    intent: number;
+    listening: number;
+    respect: number;
+  } | null;
+}
+
+export function useTrustProfileQuery(userId?: string | null) {
+  return useQuery({
+    queryKey: QUERY_KEYS.trustProfile(userId || ''),
+    queryFn: () => apiClient.get(`/api/trust/profile/${userId}`).then((res) => res?.data as TrustProfile),
+    enabled: !!userId,
+    staleTime: 60 * 1000,
+  });
+}
+
+export interface MeetingStatus {
+  meetingId: string | null;
+  status: 'PENDING' | 'CONFIRMED';
+  selfConfirmed: boolean;
+  otherConfirmed: boolean;
+  feedbackSubmitted: boolean;
+}
+
+export function useMeetingStatusQuery(matchId?: string | null) {
+  return useQuery({
+    queryKey: QUERY_KEYS.meetingStatus(matchId || ''),
+    queryFn: () => apiClient.get(`/api/trust/meetings/${matchId}/status`).then((res) => res?.data as MeetingStatus),
+    enabled: !!matchId,
+    staleTime: 15 * 1000,
+  });
+}
+
+export function useConfirmMeetingMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (matchId: string) => apiClient.post('/api/trust/meetings/confirm', { matchId }).then((res) => res?.data),
+    onSuccess: (_data, matchId) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.meetingStatus(matchId) });
+    },
+  });
+}
+
+export function useSubmitMeetingFeedbackMutation() {
+  return useMutation({
+    mutationFn: (payload: { meetingId: string; scores: Record<string, number> }) =>
+      apiClient.post('/api/trust/feedback', payload),
   });
 }
 

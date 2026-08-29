@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Capacitor } from '@capacitor/core';
-import { AtSign, Camera as CameraIcon, ChevronRight, LockKeyhole, Plus, Ruler, Sparkles, User, X } from 'lucide-react';
+import { AtSign, Briefcase, Camera as CameraIcon, ChevronRight, LockKeyhole, Plus, Ruler, Sparkles, User, X } from 'lucide-react';
 import { apiClient } from '../services/api/apiClient';
 import { mediaService, normalizeMediaUrl, getPhotoUrl } from '../services/media/mediaService';
 import { nativeCamera } from '../native/camera';
@@ -90,6 +90,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
 
   const [photos, setPhotos] = useState<PhotoSlot[]>(() => normalizeInitialPhotos(user?.photos));
   const [bio, setBio] = useState(user?.bio || '');
+  const [job, setJob] = useState(user?.job || '');
   const [relationshipGoals, setRelationshipGoals] = useState<string[]>(() => {
     if (Array.isArray(user?.relationshipGoals) && user.relationshipGoals.length > 0) {
       return user.relationshipGoals.slice(0, 2);
@@ -122,6 +123,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
   const initialSnapshotRef = useRef<{
     photoKeys: string[];
     bio: string;
+    job: string;
     relationshipGoals: string[];
     interests: string[];
     heightCm: string;
@@ -136,6 +138,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     initialSnapshotRef.current = {
       photoKeys: normalizeInitialPhotos(user?.photos).map((p) => p.url),
       bio: user?.bio || '',
+      job: user?.job || '',
       relationshipGoals:
         Array.isArray(user?.relationshipGoals) && user.relationshipGoals.length > 0
           ? user.relationshipGoals.slice(0, 2)
@@ -177,6 +180,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     return (
       JSON.stringify(currentPhotoKeys) !== JSON.stringify(snap.photoKeys) ||
       bio !== snap.bio ||
+      job !== snap.job ||
       JSON.stringify(relationshipGoals) !== JSON.stringify(snap.relationshipGoals) ||
       JSON.stringify(interests) !== JSON.stringify(snap.interests) ||
       heightCm !== snap.heightCm ||
@@ -188,7 +192,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       JSON.stringify(languages) !== JSON.stringify(snap.languages)
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPhotoKeys.join('|'), bio, relationshipGoals, interests, heightCm, zodiac, smokingStatus, drinkingStatus, childrenStatus, familyPlans, languages]);
+  }, [currentPhotoKeys.join('|'), bio, job, relationshipGoals, interests, heightCm, zodiac, smokingStatus, drinkingStatus, childrenStatus, familyPlans, languages]);
 
   if (!isOpen) return null;
 
@@ -324,6 +328,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
         photoUrls.length !== initialPhotoUrls.length || photoUrls.some((url, index) => url !== initialPhotoUrls[index]);
       const payload: Record<string, unknown> = {
         bio,
+        job: job.trim(),
         interests,
         relationshipGoal: relationshipGoals[0],
         relationshipGoals,
@@ -349,6 +354,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
         const optimisticUser = {
           ...user,
           bio,
+          job: job.trim(),
           interests,
           relationshipGoal: relationshipGoals[0],
           relationshipGoals,
@@ -506,6 +512,18 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
                 <LockKeyhole className="absolute end-3.5 top-3.5 w-4 h-4 text-app-muted/70" aria-hidden="true" />
               </div>
               <p className="px-1 text-micro normal-case text-app-muted">{t('usernameLockedHint')}</p>
+            </div>
+            <div className="relative">
+              <Briefcase className="absolute start-3.5 top-3.5 w-4 h-4 text-app-muted" />
+              <input
+                type="text"
+                aria-label={t('jobFieldAriaLabel')}
+                placeholder={t('jobPlaceholder')}
+                maxLength={120}
+                value={job}
+                onChange={(e) => setJob(e.target.value)}
+                className="w-full bg-input-app border border-app rounded-2xl ps-10 pe-4 py-2.5 text-body font-semibold text-app focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/40"
+              />
             </div>
           </div>
 

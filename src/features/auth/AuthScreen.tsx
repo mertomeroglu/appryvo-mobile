@@ -82,7 +82,10 @@ export const AuthScreen: React.FC = () => {
       await nativeKeyboard.hide();
       navigate(resumeDestination, { replace: true });
     } catch (err: any) {
-      setErrorMsg(err.message || t('loginFailedMessage'));
+      // The backend's default message is Turkish prose (security-by-obscurity: it never reveals
+      // whether the email/username or the password was wrong) -- a non-Turkish-locale user must
+      // see a localized message instead of that raw string, so the stable `code` is checked first.
+      setErrorMsg(err.code === 'INVALID_CREDENTIALS' ? t('invalidCredentialsError') : (err.message || t('loginFailedMessage')));
     }
   };
 

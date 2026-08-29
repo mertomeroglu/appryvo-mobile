@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG BUILD ONLY (app/src/debug/, never merged into the release build; see
+  app/src/main/AndroidManifest.xml's usesCleartextTraffic="false" for the real, shipped policy).
+  Allows plaintext HTTP to the Android emulator's host-loopback alias only, so a local dev/QA
+  backend (e.g. for the Trust Profile feature before it is deployed) can be reached during
+  emulator testing without weakening the production app's cleartext policy.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

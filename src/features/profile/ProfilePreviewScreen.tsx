@@ -99,11 +99,11 @@ export const ProfilePreviewScreen: React.FC = () => {
           </div>
         )}
 
-        {getRelationshipGoalLabels(user?.relationshipGoals || user?.relationshipGoal).length > 0 && (
+        {getRelationshipGoalLabels(user?.relationshipGoals || user?.relationshipGoal, locale).length > 0 && (
           <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
             <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('fullProfileLookingForLabel')}</h4>
             <div className="flex flex-wrap gap-2 pt-1">
-              {getRelationshipGoalLabels(user?.relationshipGoals || user?.relationshipGoal).map((label) => (
+              {getRelationshipGoalLabels(user?.relationshipGoals || user?.relationshipGoal, locale).map((label) => (
                 <span key={label} className="text-caption px-3 py-1.5 rounded-full bg-app-secondary border border-app text-app font-semibold">
                   {label}
                 </span>

@@ -3,6 +3,20 @@
    filter hack is needed here to mute a busy default basemap. This file only adjusts MapLibre's
    own default chrome to fit the app shell. */
 
+/* MapLibre's own stylesheet (maplibre-gl.css, imported in SocialMapScreen.tsx) ships
+   `.maplibregl-map { position: relative; ... }` and adds that class to the container element
+   itself when the Map is constructed. Since maplibre-gl.css loads after Tailwind's own generated
+   stylesheet in the final bundle, that single-class rule has equal specificity to (and wins the
+   cascade over) our own `absolute` utility class on the same element -- confirmed on-device
+   (RYVO PATCH V5 03): the container's COMPUTED position came back `relative`, not `absolute`, so
+   its `inset-0` offsets became no-ops and it collapsed to its own (empty) content height of 0px,
+   leaving the entire map permanently invisible despite the map, style, tiles, and worker all
+   genuinely initializing and rendering correctly underneath. Two classes beats MapLibre's one
+   regardless of source order, so this wins without needing !important. */
+.ryvo-map-root.maplibregl-map {
+  position: absolute;
+}
+
 /* Required attribution (© OpenMapTiles © OpenStreetMap contributors) stays visible, just
    restyled to sit quietly above the bottom-nav safe area instead of MapLibre's default
    bottom-right placement, which the floating controls/sheets in this screen would otherwise

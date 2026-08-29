@@ -41,6 +41,7 @@ vi.mock('maplibre-gl', () => {
     Map: vi.fn(() => mapStub),
     Marker: vi.fn(() => makeMarkerStub()),
     AttributionControl: vi.fn(() => ({})),
+    setWorkerUrl: vi.fn(),
   };
 });
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
@@ -125,6 +126,18 @@ describe('Ryvo privacy requirement: map visibility is manual check-in only', () 
     updateProfileMutateMock.mockClear();
     vi.stubGlobal('requestAnimationFrame', (cb: (time: number) => void) => setTimeout(() => cb(0), 0) as unknown as number);
     vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
+    // SocialMapScreen resolves its own TileJSON via fetch() (see its map-init effect) and watches
+    // its container with a ResizeObserver -- jsdom has neither by default; stubbed here so this
+    // test never makes a real network call and never throws on a missing browser API.
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ tiles: ['https://tiles.test.invalid/{z}/{x}/{y}.pbf'] }),
+    } as Response)));
+    vi.stubGlobal('ResizeObserver', class {
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    });
   });
 
   afterEach(() => {

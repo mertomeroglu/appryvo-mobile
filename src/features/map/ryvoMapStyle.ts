@@ -1,10 +1,17 @@
 // Custom "Ryvo map" MapLibre style: an OpenMapTiles-schema vector source rendered through a
 // deliberately quiet, social-discovery-first style, not a general-purpose street map. Follows
 // OpenMapTiles' own recommended integration (MapLibre GL JS + a StyleSpecification JSON + a
-// vector source pointed at a TileJSON URL -- MapLibre resolves the TileJSON itself when a vector
-// source is given a `url`, no separate fetch/parse needed here) -- see prompt 02 for the actual
-// production TileServer GL standing behind these URLs; this module only ever reads already-
-// configured endpoints, never a baked-in provider or demo key.
+// vector source backed by a TileJSON) -- see prompt 02 for the actual production TileServer GL
+// standing behind these URLs; this module only ever reads already-configured endpoints, never a
+// baked-in provider or demo key.
+//
+// The vector source below takes an already-resolved `tiles` URL template rather than a bare
+// `url: tileJsonUrl` for MapLibre to auto-fetch itself -- see the fetch in SocialMapScreen.tsx's
+// map-init effect for why: MapLibre's own TileJSON auto-resolution was confirmed (RYVO PATCH V5
+// 03, on-device) to silently never settle in this Capacitor/Android WebView build, while a plain
+// fetch() to the identical URL always succeeds. The caller fetches the TileJSON itself and passes
+// the resolved fields in; MapLibre's own per-tile fetching (independently verified working) still
+// handles every actual .pbf request from there.
 //
 // Every layer below is a deliberate simplification pass over the standard OpenMapTiles schema
 // (https://openmaptiles.org/schema/), not the schema's own defaults:
@@ -24,8 +31,15 @@ import type { StyleSpecification } from 'maplibre-gl';
 
 export type RyvoMapTheme = 'light' | 'dark';
 
+export interface ResolvedTileSource {
+  tiles: string[];
+  minzoom?: number;
+  maxzoom?: number;
+  bounds?: [number, number, number, number];
+}
+
 export interface RyvoMapStyleConfig {
-  tileJsonUrl: string;
+  tileSource: ResolvedTileSource;
   spriteUrl?: string;
   glyphsUrl?: string;
 }
@@ -113,10 +127,19 @@ export function buildRyvoMapStyle(theme: RyvoMapTheme, config: RyvoMapStyleConfi
   return {
     version: 8,
     name: `ryvo-${theme}`,
-    glyphs: config.glyphsUrl || 'https://tiles.appryvo.online/fonts/{fontstack}/{range}.pbf',
+    // Matches the OpenFreeMap tile source default (ryvoMapConfig.ts) -- verified reachable
+    // (200, real glyph PBFs) at the time this was written. Overridable via
+    // VITE_OPENMAPTILES_GLYPHS_URL for a self-hosted/paid provider, same as the tile source.
+    glyphs: config.glyphsUrl || 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
     sprite: config.spriteUrl,
     sources: {
-      [sourceId]: { type: 'vector', url: config.tileJsonUrl },
+      [sourceId]: {
+        type: 'vector',
+        tiles: config.tileSource.tiles,
+        minzoom: config.tileSource.minzoom,
+        maxzoom: config.tileSource.maxzoom,
+        bounds: config.tileSource.bounds,
+      },
     },
     layers: [
       { id: 'background', type: 'background', paint: { 'background-color': c.background } },

@@ -304,7 +304,7 @@ const SwipeCardComponent = React.forwardRef<SwipeCardHandle, SwipeCardProps>(fun
               {getZodiacLabel(profile.zodiac, locale)}
             </span>
           )}
-          {getRelationshipGoalLabels(profile.relationshipGoals || profile.relationshipGoal).map((label) => (
+          {getRelationshipGoalLabels(profile.relationshipGoals || profile.relationshipGoal, locale).map((label) => (
             <span key={label} className="text-[11px] font-semibold bg-black/35 px-3 py-1 rounded-full text-white border border-white/10">
               {label}
             </span>

@@ -2,8 +2,20 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Map as MapLibreMap, Marker as MapLibreMarker, AttributionControl } from 'maplibre-gl';
+import { Map as MapLibreMap, Marker as MapLibreMarker, AttributionControl, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+// maplibre-gl resolves its tile-parsing Web Worker at runtime via a `new URL('./maplibre-gl-worker.mjs',
+// import.meta.url)`-style template string built from a variable, not a literal -- Vite's static
+// worker-bundling analysis can't trace that, so the file was silently never emitted into the build
+// and every map render came up as a blank canvas (confirmed on-device: Capacitor's local asset
+// server logged "Unable to open asset URL: https://localhost/assets/maplibre-gl-worker.mjs"). Fixed
+// by copying the worker file into public/ (scripts/copy-maplibre-worker-assets.mjs, runs before
+// every dev/build) and pointing setWorkerUrl() at that fixed, unhashed path -- NOT a Vite `?url`
+// import: the worker has its own internal `from "./maplibre-gl-shared.mjs"` sibling import that is
+// never rewritten (it's copied verbatim, not parsed by Vite), so hashing just the worker's own
+// filename via `?url` would leave that unhashed sibling reference dangling. Copying the matched
+// pair into public/ together, unhashed, keeps their relative reference to each other intact.
+setWorkerUrl('/maplibre-gl-worker.mjs');
 import Supercluster, { type PointFeature } from 'supercluster';
 import './SocialMapScreen.css';
 import { Search, Compass, Heart, ShieldCheck, LocateFixed, X, Sparkles, Crown, MapPin, EyeOff } from 'lucide-react';
@@ -23,7 +35,7 @@ import { nativeLocation } from '../../native/location';
 import { nativeHaptics } from '../../native/haptics';
 import { socketService } from '../../services/socket/socketService';
 import { searchCities, type GeoCityResult } from '../../services/geo/cityService';
-import { buildRyvoMapStyle } from './ryvoMapStyle';
+import { buildRyvoMapStyle, type ResolvedTileSource } from './ryvoMapStyle';
 import { OPENMAPTILES_SPRITE_URL, OPENMAPTILES_GLYPHS_URL, OPENMAPTILES_TILEJSON_URL, isRyvoMapConfigured } from './ryvoMapConfig';
 import { BottomSheet } from '../../components/ui/BottomSheet';
 import { IconButton } from '../../components/ui/IconButton';
@@ -204,7 +216,7 @@ const InterestChip: React.FC<{ label: string; index: number }> = ({ label, index
 );
 
 export const SocialMapScreen: React.FC = () => {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const navigate = useNavigate();
   const isDark = useIsDarkMode();
 
@@ -214,6 +226,12 @@ export const SocialMapScreen: React.FC = () => {
   const onScreenMarkersRef = useRef<Map<string, MapLibreMarker>>(new Map());
   const clusterIndexRef = useRef<Supercluster<{ user: MapUser }> | null>(null);
   const moveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  // Set once the init effect's own fetch() resolves the TileJSON (see below for why that's done
+  // manually instead of via MapLibre's built-in url: auto-resolution) -- the theme-swap effect
+  // reuses this instead of re-fetching, since it only needs to re-run buildRyvoMapStyle with new
+  // theme tokens, not re-resolve tiles that already succeeded once.
+  const tileSourceRef = useRef<ResolvedTileSource | null>(null);
   const mapUsersSignatureRef = useRef<string>('');
   const lastFrameCatalogRef = useRef<ProfileFrameRecord[] | null>(null);
   // Imperative map event handlers (registered once at map init) close over stale React state --
@@ -397,59 +415,110 @@ export const SocialMapScreen: React.FC = () => {
       return;
     }
 
-    const map = new MapLibreMap({
-      container,
-      style: buildRyvoMapStyle(isDark ? 'dark' : 'light', {
-        tileJsonUrl: OPENMAPTILES_TILEJSON_URL,
-        spriteUrl: OPENMAPTILES_SPRITE_URL,
-        glyphsUrl: OPENMAPTILES_GLYPHS_URL,
-      }),
-      center: DEFAULT_CENTER,
-      zoom: DEFAULT_ZOOM,
-      minZoom: MIN_ZOOM,
-      maxZoom: MAX_ZOOM,
-      attributionControl: false,
-      dragRotate: false,
-      pitchWithRotate: false,
-      touchPitch: false,
-      // Bounds how many off-screen vector tiles MapLibre keeps decoded in memory -- the same
-      // Android memory-conservation intent the old Leaflet raster setup's `keepBuffer: 1` served,
-      // just MapLibre's own equivalent knob (there is no literal keepBuffer option here).
-      maxTileCacheSize: 50,
-    });
-    map.addControl(
-      new AttributionControl({
-        compact: true,
-        // Exact format OpenFreeMap's operator requests (openfreemap.org) -- the tile source this
-        // build points at by default, see ryvoMapConfig.ts.
-        customAttribution: 'OpenFreeMap © OpenMapTiles Data from OpenStreetMap',
+    let cancelled = false;
+    let map: MapLibreMap | null = null;
+    let raf = 0;
+
+    // The vector source below is given a fully-resolved `tiles` array instead of MapLibre's own
+    // `url: tileJsonUrl` auto-resolution -- confirmed on-device (RYVO PATCH V5 03) that MapLibre's
+    // internal TileJSON fetch for this source silently never settles (neither the 'load' event nor
+    // an 'error' event ever fires) in this Capacitor/Android WebView build, while a plain fetch()
+    // to the exact same URL -- from the main thread, from a bare Worker, and with an AbortSignal --
+    // reliably succeeds every time, as does fetching an actual .pbf tile directly. Whatever the
+    // discrepancy is inside MapLibre's own request path, resolving the TileJSON ourselves with the
+    // already-proven-reliable fetch() and only handing MapLibre the resulting tile URL template
+    // sidesteps it entirely, while MapLibre's own (independently verified working) per-tile
+    // fetching still handles every actual .pbf request from here on.
+    fetch(OPENMAPTILES_TILEJSON_URL)
+      .then((res) => {
+        if (!res.ok) throw new Error(`TileJSON HTTP ${res.status}`);
+        return res.json();
       })
-    );
-    mapRef.current = map;
+      .then((tileJson: any) => {
+        if (cancelled || !containerRef.current) return;
+        const tiles: string[] = Array.isArray(tileJson?.tiles) ? tileJson.tiles : [];
+        if (tiles.length === 0) throw new Error('TileJSON response has no tiles[] entries');
 
-    const updateBbox = () => {
-      const b = map.getBounds();
-      setBbox({ north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() });
-      renderVisibleMarkers();
-    };
-    map.on('moveend', () => {
-      if (moveTimerRef.current) clearTimeout(moveTimerRef.current);
-      moveTimerRef.current = setTimeout(updateBbox, MOVE_DEBOUNCE_MS);
-    });
-    map.on('zoomend', () => setZoomLevel(map.getZoom()));
+        const tileSource: ResolvedTileSource = {
+          tiles,
+          minzoom: typeof tileJson.minzoom === 'number' ? tileJson.minzoom : undefined,
+          maxzoom: typeof tileJson.maxzoom === 'number' ? tileJson.maxzoom : undefined,
+          bounds: Array.isArray(tileJson.bounds) ? tileJson.bounds : undefined,
+        };
+        tileSourceRef.current = tileSource;
 
-    // Guards against measuring a not-yet-laid-out container on route mount, which otherwise
-    // renders as a blank canvas until the next manual interaction.
-    const raf = requestAnimationFrame(() => map.resize());
+        map = new MapLibreMap({
+          container: containerRef.current,
+          style: buildRyvoMapStyle(isDark ? 'dark' : 'light', {
+            tileSource,
+            spriteUrl: OPENMAPTILES_SPRITE_URL,
+            glyphsUrl: OPENMAPTILES_GLYPHS_URL,
+          }),
+          center: DEFAULT_CENTER,
+          zoom: DEFAULT_ZOOM,
+          minZoom: MIN_ZOOM,
+          maxZoom: MAX_ZOOM,
+          attributionControl: false,
+          dragRotate: false,
+          pitchWithRotate: false,
+          touchPitch: false,
+          // Bounds how many off-screen vector tiles MapLibre keeps decoded in memory -- the same
+          // Android memory-conservation intent the old Leaflet raster setup's `keepBuffer: 1`
+          // served, just MapLibre's own equivalent knob (no literal keepBuffer option here).
+          maxTileCacheSize: 50,
+        });
+        map.addControl(
+          new AttributionControl({
+            compact: true,
+            // Exact format OpenFreeMap's operator requests (openfreemap.org) -- the tile source
+            // this build points at by default, see ryvoMapConfig.ts.
+            customAttribution: 'OpenFreeMap © OpenMapTiles Data from OpenStreetMap',
+          })
+        );
+        mapRef.current = map;
+        map.on('error', (e) => console.error(`[SocialMapScreen] MapLibre error: ${e?.error?.message || e}`));
 
-    map.once('load', () => {
-      // Populate the initial viewport once the style/source has actually resolved, rather than
-      // waiting on the first user pan.
-      updateBbox();
-    });
+        const updateBbox = () => {
+          const b = map!.getBounds();
+          setBbox({ north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() });
+          renderVisibleMarkers();
+        };
+        map.on('moveend', () => {
+          if (moveTimerRef.current) clearTimeout(moveTimerRef.current);
+          moveTimerRef.current = setTimeout(updateBbox, MOVE_DEBOUNCE_MS);
+        });
+        map.on('zoomend', () => setZoomLevel(map!.getZoom()));
+
+        // Guards against measuring a not-yet-laid-out container on route mount, which otherwise
+        // renders as a blank canvas until the next manual interaction. The ResizeObserver is a
+        // defensive backstop beyond that single frame (e.g. the container resizing later for any
+        // other reason -- a keyboard opening/closing, an orientation change) -- it is NOT a fix
+        // for the actual blank-map bug this screen had (see SocialMapScreen.css's own comment on
+        // `.ryvo-map-root.maplibregl-map`): that turned out to be MapLibre's own stylesheet
+        // silently overriding this container's `absolute` positioning with `relative`, collapsing
+        // it to its own empty content height (0px) regardless of how many frames anyone waited.
+        raf = requestAnimationFrame(() => map?.resize());
+        const resizeObserver = new ResizeObserver(() => map?.resize());
+        resizeObserver.observe(container);
+        resizeObserverRef.current = resizeObserver;
+
+        map.once('load', () => {
+          // Populate the initial viewport once the style/source has actually resolved, rather
+          // than waiting on the first user pan.
+          updateBbox();
+        });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error(`[SocialMapScreen] Failed to resolve OpenMapTiles TileJSON: ${err?.message || err}`);
+      });
 
     const markersOnScreen = onScreenMarkersRef.current;
     return () => {
+      cancelled = true;
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      if (!map) return;
       cancelAnimationFrame(raf);
       if (moveTimerRef.current) clearTimeout(moveTimerRef.current);
       // Detach image sources before destroying the map/markers. Chromium otherwise keeps decoded
@@ -467,6 +536,7 @@ export const SocialMapScreen: React.FC = () => {
       container?.replaceChildren();
       mapRef.current = null;
       selfMarkerRef.current = null;
+      tileSourceRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -477,10 +547,11 @@ export const SocialMapScreen: React.FC = () => {
   // re-added.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    const tileSource = tileSourceRef.current;
+    if (!map || !tileSource) return;
     map.setStyle(
       buildRyvoMapStyle(isDark ? 'dark' : 'light', {
-        tileJsonUrl: OPENMAPTILES_TILEJSON_URL,
+        tileSource,
         spriteUrl: OPENMAPTILES_SPRITE_URL,
         glyphsUrl: OPENMAPTILES_GLYPHS_URL,
       })
@@ -844,9 +915,9 @@ export const SocialMapScreen: React.FC = () => {
                     {selectedUser.distance?.label ? ` • ${selectedUser.distance.label}` : ''}
                   </p>
 
-                  {getRelationshipGoalLabels(selectedUserDetail?.relationshipGoals || selectedUserDetail?.relationshipGoal).length > 0 && (
+                  {getRelationshipGoalLabels(selectedUserDetail?.relationshipGoals || selectedUserDetail?.relationshipGoal, locale).length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {getRelationshipGoalLabels(selectedUserDetail?.relationshipGoals || selectedUserDetail?.relationshipGoal).map((label) => (
+                      {getRelationshipGoalLabels(selectedUserDetail?.relationshipGoals || selectedUserDetail?.relationshipGoal, locale).map((label) => (
                         <span key={label} className="text-caption font-semibold px-3 py-1 rounded-full bg-surface-elevated border border-app text-app">
                           {label}
                         </span>

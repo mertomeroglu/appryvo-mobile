@@ -69,3 +69,8 @@ android/app/src/main/assets/capacitor.plugins.json
 # Test Coverage
 coverage/
 *.lcov
+
+# Copied verbatim from node_modules/maplibre-gl/dist by scripts/copy-maplibre-worker-assets.mjs
+# (predev/prebuild) -- generated, not source; see that script's own comment for why.
+public/maplibre-gl-worker.mjs
+public/maplibre-gl-shared.mjs

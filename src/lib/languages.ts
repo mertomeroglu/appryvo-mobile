@@ -134,6 +134,25 @@ export const getLocalizedLanguageName = (lang: LanguageOption, appLocale: string
   return lang.englishName || formatLanguageName(lang.name);
 };
 
+// Display-time localization for an ALREADY-STORED language value (e.g. a saved profile's
+// "languages I speak" chips) -- distinct from getLocalizedLanguageName, which only localizes
+// picker search results. The wire/stored value stays the Turkish-cased string from
+// formatLanguageName; this resolves it back to a WORLD_LANGUAGES entry (case-insensitive
+// Turkish-locale match, since stored names may be any case from older writes) and re-renders
+// it in the viewer's app locale. Unknown/legacy values (not in WORLD_LANGUAGES) fall back to
+// the formatted raw string, same as before this existed.
+export const getLocalizedStoredLanguageName = (value: string, appLocale: string): string => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const upper = raw.toLocaleUpperCase('tr-TR');
+  const match = WORLD_LANGUAGES.find(
+    (lang) => lang.name.toLocaleUpperCase('tr-TR') === upper || lang.englishName.toLowerCase() === raw.toLowerCase()
+  );
+  if (!match) return formatLanguageName(raw);
+  if (appLocale === 'tr') return formatLanguageName(match.name);
+  return getLocalizedLanguageName(match, appLocale);
+};
+
 export const normalizeLanguageNames = (values: unknown): string[] => {
   if (!Array.isArray(values)) return [];
   return [...new Set(values.filter((value): value is string => typeof value === 'string').map(formatLanguageName).filter(Boolean))]

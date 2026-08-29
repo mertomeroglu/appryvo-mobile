@@ -3,6 +3,7 @@ import { formatDisplayAge } from '../../lib/profileLabels';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
+  Briefcase,
   Cigarette,
   Crown,
   Flag,
@@ -40,7 +41,7 @@ import {
   getFamilyPlansLabel,
   getZodiacLabel,
 } from '../../lib/profileLabels';
-import { formatLanguageName } from '../../lib/languages';
+import { getLocalizedStoredLanguageName } from '../../lib/languages';
 import { getLocalizedInterestLabel } from '../../lib/interestLabels';
 import { useAppTranslation } from '../../i18n/appLocale';
 
@@ -288,6 +289,16 @@ export const FullProfileScreen: React.FC = () => {
           </div>
         )}
 
+        {user.job && (
+          <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('fullProfileBasicInfoLabel')}</h4>
+            <p className="flex items-center gap-2 text-body text-app">
+              <Briefcase className="w-4 h-4 text-app-muted" />
+              {user.job}
+            </p>
+          </div>
+        )}
+
         {(user.zodiac || user.heightCm || (getSmokingLabel(user.smokingStatus, locale) || getDrinkingLabel(user.drinkingStatus, locale)) ||
           getChildrenStatusLabel(user.childrenStatus, locale) || getFamilyPlansLabel(user.familyPlans, locale)) && (
           <div className="space-y-2">
@@ -341,7 +352,7 @@ export const FullProfileScreen: React.FC = () => {
                   className="flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium"
                 >
                   <Languages className="w-3.5 h-3.5 text-teal-400" />
-                  {formatLanguageName(lang)}
+                  {getLocalizedStoredLanguageName(lang, locale)}
                 </span>
               ))}
             </div>

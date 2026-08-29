@@ -1,15 +1,24 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, MapPin, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Briefcase, Cigarette, Languages, MapPin, Ruler, ShieldCheck, Volume2, Wine } from 'lucide-react';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { normalizeMediaUrl, getPhotoUrl } from '../../services/media/mediaService';
 import { IconButton } from '../../components/ui/IconButton';
 import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
 import { ZodiacIcon } from '../../components/ui/ZodiacIcon';
 import { normalizeCountryCode } from '../../lib/countryFlags';
-import { getRelationshipGoalLabels, getZodiacLabel, formatDisplayAge } from '../../lib/profileLabels';
+import {
+  getRelationshipGoalLabels,
+  getZodiacLabel,
+  formatDisplayAge,
+  getSmokingLabel,
+  getDrinkingLabel,
+  getChildrenStatusLabel,
+  getFamilyPlansLabel,
+} from '../../lib/profileLabels';
 import { useAppTranslation } from '../../i18n/appLocale';
 import { getLocalizedInterestLabel } from '../../lib/interestLabels';
+import { getLocalizedStoredLanguageName } from '../../lib/languages';
 
 function normalizePhotos(user: any): string[] {
   if (Array.isArray(user?.photos) && user.photos.length > 0) {
@@ -112,13 +121,85 @@ export const ProfilePreviewScreen: React.FC = () => {
           </div>
         )}
 
-        {user?.zodiac && getZodiacLabel(user.zodiac, locale) && (
+        {user?.job && (
           <div className="bg-surface border border-app p-4 rounded-2xl space-y-1">
-            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('zodiacSectionLabel')}</h4>
-            <p className="flex items-center gap-2 text-heading text-app">
-              <ZodiacIcon sign={user.zodiac} size={20} className="text-purple-400" />
-              {getZodiacLabel(user.zodiac, locale)}
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('fullProfileBasicInfoLabel')}</h4>
+            <p className="flex items-center gap-2 text-body text-app">
+              <Briefcase className="w-4 h-4 text-app-muted" />
+              {user.job}
             </p>
+          </div>
+        )}
+
+        {(user?.zodiac || user?.heightCm || getSmokingLabel(user?.smokingStatus, locale) || getDrinkingLabel(user?.drinkingStatus, locale) ||
+          getChildrenStatusLabel(user?.childrenStatus, locale) || getFamilyPlansLabel(user?.familyPlans, locale)) && (
+          <div className="space-y-2">
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('lifestyleSectionLabel')}</h4>
+            <div className="flex flex-wrap gap-2">
+              {user?.zodiac && getZodiacLabel(user.zodiac, locale) && (
+                <span className="flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
+                  <ZodiacIcon sign={user.zodiac} className="text-purple-400" />
+                  {getZodiacLabel(user.zodiac, locale)}
+                </span>
+              )}
+              {user?.heightCm && (
+                <span className="flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
+                  <Ruler className="w-3.5 h-3.5 text-indigo-400" />
+                  {user.heightCm} cm
+                </span>
+              )}
+              {getSmokingLabel(user?.smokingStatus, locale) && (
+                <span className="flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
+                  <Cigarette className="w-3.5 h-3.5 text-app-muted" />
+                  {getSmokingLabel(user?.smokingStatus, locale)}
+                </span>
+              )}
+              {getDrinkingLabel(user?.drinkingStatus, locale) && (
+                <span className="flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
+                  <Wine className="w-3.5 h-3.5 text-app-muted" />
+                  {getDrinkingLabel(user?.drinkingStatus, locale)}
+                </span>
+              )}
+              {getChildrenStatusLabel(user?.childrenStatus, locale) && (
+                <span className="text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
+                  {getChildrenStatusLabel(user?.childrenStatus, locale)}
+                </span>
+              )}
+              {getFamilyPlansLabel(user?.familyPlans, locale) && (
+                <span className="text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium">
+                  {getFamilyPlansLabel(user?.familyPlans, locale)}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {Array.isArray(user?.languages) && user.languages.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('fullProfileSpokenLanguagesLabel')}</h4>
+            <div className="flex flex-wrap gap-2">
+              {user.languages.map((lang: string, idx: number) => (
+                <span
+                  key={idx}
+                  className="flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-surface border border-app text-app font-medium"
+                >
+                  <Languages className="w-3.5 h-3.5 text-teal-400" />
+                  {getLocalizedStoredLanguageName(lang, locale)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {user?.voicePrompt?.url && (
+          <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20 p-4 rounded-2xl space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-full bg-pink-500 text-white">
+                <Volume2 className="w-5 h-5" />
+              </div>
+              <h4 className="text-caption font-bold text-app">{t('fullProfileVoiceIntroLabel')}</h4>
+            </div>
+            <audio src={normalizeMediaUrl(user.voicePrompt.url)} controls className="w-full h-9" />
           </div>
         )}
 
@@ -135,6 +216,23 @@ export const ProfilePreviewScreen: React.FC = () => {
                 </span>
               ))}
             </div>
+          </div>
+        )}
+
+        {Array.isArray(user?.prompts) && user.prompts.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-micro text-app-muted uppercase tracking-wider">{t('fullProfilePromptsLabel')}</h4>
+            {user.prompts.map((prompt: any, idx: number) => {
+              const question = prompt?.question || prompt?.prompt;
+              const answer = prompt?.answer;
+              if (!question || !answer) return null;
+              return (
+                <div key={idx} className="bg-surface border border-app p-4 rounded-2xl space-y-1">
+                  <h5 className="text-micro text-app-muted">{question}</h5>
+                  <p className="text-body text-app">{answer}</p>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

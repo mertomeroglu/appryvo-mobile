@@ -30,9 +30,11 @@ export const FloatingNavBar: React.FC = () => {
   if (isHidden) return null;
 
   const navItems = [
+    // World/Social Discovery is the primary tab (Apple 4.3(b) remediation) -- Discover
+    // (swipe) is kept as a secondary tab, not the app's leading experience.
+    { path: '/map', label: t('map'), icon: Globe2 },
     { path: '/discover', label: t('discover'), icon: Flame },
     { path: '/likes', label: t('likes'), icon: Heart, badge: unreadLikesCount },
-    { path: '/map', label: t('map'), icon: Globe2 },
     {
       // Messages count only, never folded together with the unrelated generic in-app
       // notifications count (admin campaigns, lifecycle events, etc.) -- that count belongs on

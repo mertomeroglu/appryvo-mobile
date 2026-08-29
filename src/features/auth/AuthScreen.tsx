@@ -64,8 +64,8 @@ export const AuthScreen: React.FC = () => {
 
   // SessionGate stashes the route an unauthenticated user was actually trying to reach (e.g. a
   // shared-profile or match deep link) as router state before bouncing here -- resume it after
-  // a successful login/registration instead of always dropping the user on /discover.
-  const resumeDestination = (location.state as { from?: string } | null)?.from || '/discover';
+  // a successful login/registration instead of always dropping the user on /map.
+  const resumeDestination = (location.state as { from?: string } | null)?.from || '/map';
 
   const goTo = (next: Mode) => {
     void nativeKeyboard.hide();

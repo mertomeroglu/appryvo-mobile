@@ -6,13 +6,14 @@ import { loadOwnProfileScreen } from './routePreload';
 import { measureProfileMilestone } from '../services/performance/profilePerformance';
 import { translateSync } from '../i18n/appLocale';
 
-// Critical routes loaded directly
+// Critical routes loaded directly -- World/Social Discovery is the default authenticated
+// landing experience (Apple 4.3(b) remediation: reviewers must not land on a swipe deck).
 import { AuthScreen } from '../features/auth/AuthScreen';
-import { DiscoverScreen } from '../features/discovery/DiscoverScreen';
+import { SocialMapScreen } from '../features/map/SocialMapScreen';
 
 // Heavy feature routes lazy loaded
 const FullProfileScreen = lazy(() => import('../features/discovery/FullProfileScreen').then((m) => ({ default: m.FullProfileScreen })));
-const SocialMapScreen = lazy(() => import('../features/map/SocialMapScreen').then((m) => ({ default: m.SocialMapScreen })));
+const DiscoverScreen = lazy(() => import('../features/discovery/DiscoverScreen').then((m) => ({ default: m.DiscoverScreen })));
 const LikesScreen = lazy(() => import('../features/likes/LikesScreen').then((m) => ({ default: m.LikesScreen })));
 const NotificationsScreen = lazy(() => import('../features/notifications/NotificationsScreen').then((m) => ({ default: m.NotificationsScreen })));
 const MessagesScreen = lazy(() => import('../features/chat/MessagesScreen').then((m) => ({ default: m.MessagesScreen })));
@@ -56,13 +57,21 @@ const router = createBrowserRouter([
       {
         // SessionGate enforces: no session -> /auth, authenticated -> app. All onboarding
         // Required registration fields and photos are collected inside the registration
-        // wizard. Device location is requested later, on Discover — see
-        // src/features/auth/RegistrationWizard.tsx. See src/app/SessionGate.tsx.
+        // wizard. Device location is opt-in, requested later on World/Map (check-in) or
+        // Discover (distance sorting) — see src/features/auth/RegistrationWizard.tsx and
+        // src/app/SessionGate.tsx. World/Map is the default landing route (Apple 4.3(b)).
         element: <SessionGate />,
         children: [
-          { index: true, element: <Navigate to="/discover" replace /> },
+          { index: true, element: <Navigate to="/map" replace /> },
           { path: 'auth', element: <AuthScreen /> },
-          { path: 'discover', element: <DiscoverScreen /> },
+          {
+            path: 'discover',
+            element: (
+              <Suspense fallback={SuspenseFallback}>
+                <DiscoverScreen />
+              </Suspense>
+            ),
+          },
           {
             path: 'discover/:userId',
             element: (
@@ -71,14 +80,7 @@ const router = createBrowserRouter([
               </Suspense>
             ),
           },
-          {
-            path: 'map',
-            element: (
-              <Suspense fallback={SuspenseFallback}>
-                <SocialMapScreen />
-              </Suspense>
-            ),
-          },
+          { path: 'map', element: <SocialMapScreen /> },
           {
             path: 'likes',
             element: (

@@ -13,6 +13,9 @@ const SRC_ROOT = join(__dirname, '../src');
 // bug. Also excludes appLocale.ts itself (the translation dictionary IS Turkish text by design).
 const EXCLUDED_FILES = new Set([
   'i18n/appLocale.ts',
+  // Community Rooms owns a scoped, fully locale-aware Record<AppLocale, ...> dictionary so the
+  // nine-locale feature can ship independently without inflating appLocale's already-large map.
+  'features/rooms/roomsLocale.ts',
   'lib/profileLabels.ts',
   'lib/languages.ts',
   'lib/interests.ts',

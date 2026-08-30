@@ -25,6 +25,7 @@ export const FloatingNavBar: React.FC = () => {
     '/verification',
     '/profile/preview',
     '/notifications',
+    '/rooms/',
   ].some((p) => location.pathname.startsWith(p));
 
   if (isHidden) return null;

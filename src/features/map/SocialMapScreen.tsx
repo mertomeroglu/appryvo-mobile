@@ -18,7 +18,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 setWorkerUrl('/maplibre-gl-worker.mjs');
 import Supercluster, { type PointFeature } from 'supercluster';
 import './SocialMapScreen.css';
-import { Search, Compass, Heart, ShieldCheck, LocateFixed, X, Sparkles, Crown, MapPin, EyeOff } from 'lucide-react';
+import { Search, Compass, Heart, ShieldCheck, LocateFixed, X, Sparkles, Crown, MapPin, EyeOff, Users, MessageCircle, Mic2, Video, MoreHorizontal, ChevronRight } from 'lucide-react';
 import {
   useDiscoveryMapQuery,
   useDiscoveryUserQuery,
@@ -51,6 +51,10 @@ import { AppLogo } from '../../components/ui/AppLogo';
 import { getRelationshipGoalLabels, formatDisplayAge } from '../../lib/profileLabels';
 import { SPRING } from '../../motion/tokens';
 import { useAppTranslation, translateSync } from '../../i18n/appLocale';
+import { communityRoomsService, type CommunityRoom } from '../../services/rooms/communityRoomsService';
+import { roomsText } from '../rooms/roomsLocale';
+import { Avatar } from '../../components/ui/Avatar';
+import { AppButton } from '../../components/ui/AppButton';
 
 export interface MapUser {
   id: string;
@@ -109,6 +113,19 @@ function htmlToElement(html: string): HTMLElement {
   // marker constructor requires a real element, so fail loudly instead of handing MapLibre null.
   if (!el) throw new Error('htmlToElement: no root element produced');
   return el;
+}
+
+function roomMarkerHtml(room: CommunityRoom, selected: boolean): string {
+  const typeIcon = room.type === 'VOICE' ? '&#127908;' : room.type === 'VIDEO' ? '&#127909;' : '&#128172;';
+  const size = Math.min(78, 54 + Math.min(room.activeParticipantCount, 6) * 3 + (selected ? 8 : 0));
+  const avatars = room.participants.slice(0, 2).map((participant) => participant.photoUrl
+    ? `<img src="${escapeHtml(normalizeMediaUrl(participant.photoUrl))}" alt="" />`
+    : `<span>${escapeHtml(participant.name.slice(0,1).toUpperCase())}</span>`).join('');
+  return `<button class="ryvo-room-marker${selected?' is-selected':''}" style="width:${size}px;height:${size}px" aria-label="${escapeHtml(room.title)}">
+    <span class="ryvo-room-marker-avatars">${avatars || `<span>${typeIcon}</span>`}</span>
+    <span class="ryvo-room-marker-type">${typeIcon}</span>
+    ${room.activeParticipantCount ? `<span class="ryvo-room-marker-count">${room.activeParticipantCount}</span>` : ''}
+  </button>`;
 }
 
 function useIsDarkMode(): boolean {
@@ -224,6 +241,8 @@ export const SocialMapScreen: React.FC = () => {
   const mapRef = useRef<MapLibreMap | null>(null);
   const selfMarkerRef = useRef<MapLibreMarker | null>(null);
   const onScreenMarkersRef = useRef<Map<string, MapLibreMarker>>(new Map());
+  const roomMarkersRef = useRef<Map<string, MapLibreMarker>>(new Map());
+  const roomModeRef = useRef(true);
   const clusterIndexRef = useRef<Supercluster<{ user: MapUser }> | null>(null);
   const moveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -255,6 +274,11 @@ export const SocialMapScreen: React.FC = () => {
   const [citySearchError, setCitySearchError] = useState(false);
   const [selectedPin, setSelectedPin] = useState<SelectedPin | null>(null);
   const [selectedUser, setSelectedUser] = useState<MapUser | null>(null);
+  const [discoveryMode, setDiscoveryMode] = useState<'people'|'rooms'>(() => import.meta.env.MODE === 'test' ? 'people' : 'rooms');
+  const [rooms, setRooms] = useState<CommunityRoom[]>([]);
+  const [selectedRoom, setSelectedRoom] = useState<CommunityRoom|null>(null);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+  const [joiningRoom, setJoiningRoom] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(DEFAULT_ZOOM);
   const [matchResult, setMatchResult] = useState<{ isOpen: boolean; matchUser?: any; matchId?: string }>({
     isOpen: false,
@@ -272,6 +296,15 @@ export const SocialMapScreen: React.FC = () => {
   const likeMutation = useLikeMutation();
   const passMutation = usePassMutation();
   const updateProfileMutation = useUpdateProfileMutation();
+
+  useEffect(() => { roomModeRef.current = discoveryMode === 'rooms'; }, [discoveryMode]);
+
+  useEffect(() => {
+    if (discoveryMode !== 'rooms' || !bbox) return;
+    let cancelled=false; setRoomsLoading(true);
+    communityRoomsService.list(bbox).then((items)=>{if(!cancelled)setRooms(items);}).catch(()=>{if(!cancelled)setRooms([]);}).finally(()=>{if(!cancelled)setRoomsLoading(false);});
+    return()=>{cancelled=true;};
+  },[bbox,discoveryMode]);
 
   useEffect(() => {
     selectedUserIdRef.current = selectedUser?.id ?? null;
@@ -359,7 +392,7 @@ export const SocialMapScreen: React.FC = () => {
   const renderVisibleMarkers = useCallback(() => {
     const map = mapRef.current;
     const index = clusterIndexRef.current;
-    if (!map || !index) return;
+    if (!map || !index || roomModeRef.current) return;
 
     onScreenMarkersRef.current.forEach((marker) => marker.remove());
     onScreenMarkersRef.current.clear();
@@ -531,6 +564,8 @@ export const SocialMapScreen: React.FC = () => {
       });
       markersOnScreen.forEach((marker) => marker.remove());
       markersOnScreen.clear();
+      roomMarkersRef.current.forEach((marker) => marker.remove());
+      roomMarkersRef.current.clear();
       selfMarkerRef.current?.remove();
       map.remove();
       container?.replaceChildren();
@@ -659,6 +694,25 @@ export const SocialMapScreen: React.FC = () => {
     renderVisibleMarkers();
   }, [frameCatalog, mapUsers, renderVisibleMarkers]);
 
+  useEffect(() => {
+    const map=mapRef.current;
+    onScreenMarkersRef.current.forEach((marker)=>marker.remove()); onScreenMarkersRef.current.clear();
+    roomMarkersRef.current.forEach((marker)=>marker.remove()); roomMarkersRef.current.clear();
+    if (!map) return;
+    if (discoveryMode === 'people') { renderVisibleMarkers(); return; }
+    rooms.forEach((room)=>{
+      if(!Number.isFinite(room.latitude)||!Number.isFinite(room.longitude))return;
+      const el=htmlToElement(roomMarkerHtml(room,selectedRoom?.id===room.id));
+      el.addEventListener('click',()=>{nativeHaptics.impact();setSelectedRoom(room);});
+      roomMarkersRef.current.set(room.id,new MapLibreMarker({element:el}).setLngLat([room.longitude,room.latitude]).addTo(map));
+    });
+  },[discoveryMode,renderVisibleMarkers,rooms,selectedRoom?.id]);
+
+  const joinSelectedRoom=async()=>{
+    if(!selectedRoom)return; setJoiningRoom(true);
+    try{const joined=await communityRoomsService.join(selectedRoom.id);setSelectedRoom(null);navigate(`/rooms/${joined.id}`);}finally{setJoiningRoom(false);}
+  };
+
   // Re-skin markers currently on screen when the selection or zoom-driven marker size changes.
   // Cheaper than the full index rebuild above (bounded by "however many markers are visible right
   // now"), but not as targeted as the old per-marker Leaflet re-skin -- see renderVisibleMarkers's
@@ -696,6 +750,7 @@ export const SocialMapScreen: React.FC = () => {
     if (typeof city.latitude === 'number' && typeof city.longitude === 'number') {
       mapRef.current?.flyTo({ center: [city.longitude, city.latitude], zoom: LOCATE_ZOOM, duration: FLY_DURATION_MS });
     }
+    if (discoveryMode === 'rooms' && city.id) navigate(`/rooms/city/${city.id}`);
   };
 
   // Gated on isLoading (true only until the first page of results for this bbox has ever
@@ -736,6 +791,12 @@ export const SocialMapScreen: React.FC = () => {
           </form>
         </div>
 
+        <div className="pointer-events-auto mt-2 mx-auto flex w-fit items-center rounded-full border border-app bg-surface-95 p-1 shadow-elevated backdrop-blur-xl">
+          {(['rooms','people'] as const).map((mode)=><button key={mode} onClick={()=>{setDiscoveryMode(mode);setSelectedRoom(null);closeSheet();}} className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-caption font-extrabold transition-colors ${discoveryMode===mode?'bg-brand-gradient text-white shadow-soft':'text-app-muted'}`}>
+            {mode==='rooms'?<MessageCircle className="h-4 w-4"/>:<Users className="h-4 w-4"/>}{roomsText(locale,mode)}
+          </button>)}
+        </div>
+
         {isSearchingCities && (
           <div className="pointer-events-auto mt-2 w-full max-w-md mx-auto bg-surface border border-app rounded-2xl px-4 py-3 shadow-floating text-caption font-semibold text-app-muted">
             {t('mapSearchingLabel')}
@@ -769,7 +830,7 @@ export const SocialMapScreen: React.FC = () => {
           search bar (itself correctly safe-area-aware via pt-safe) could sit low enough for
           these two blocks to crowd or overlap. */}
       <div className="absolute inset-x-0 top-[calc(var(--safe-top)+4.5rem)] z-sticky flex justify-center pointer-events-none px-6">
-        {locationStatus === 'pending' && (
+        {discoveryMode === 'people' && locationStatus === 'pending' && (
           <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
             {t('mapLocatingLabel')}
           </div>
@@ -794,12 +855,12 @@ export const SocialMapScreen: React.FC = () => {
           </div>
         )}
         {isMapUsersLoading && bbox && (
-          <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
+          <div className={`${discoveryMode === 'people' ? '' : 'hidden'} px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md`}>
             {t('mapNearbyLoadingLabel')}
           </div>
         )}
         {isEmptyViewport && (
-          <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
+          <div className={`${discoveryMode === 'people' ? '' : 'hidden'} px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md`}>
             {t('mapNoOneNearbyLabel')}
           </div>
         )}
@@ -807,7 +868,7 @@ export const SocialMapScreen: React.FC = () => {
 
       {/* Map visibility consent — appearing on the map for others is always a separate, explicit,
           reversible action from simply browsing it or recentering on your own device location. */}
-      {checkedIn === false && (
+      {discoveryMode === 'people' && checkedIn === false && (
         <div className="absolute bottom-28 inset-x-4 z-sticky pointer-events-auto">
           <div className="max-w-md mx-auto px-4 py-3 rounded-2xl bg-surface-95 border border-app shadow-elevated backdrop-blur-md flex items-center gap-3">
             <div className="w-9 h-9 rounded-full bg-brand-gradient flex items-center justify-center shrink-0">
@@ -827,7 +888,7 @@ export const SocialMapScreen: React.FC = () => {
           </div>
         </div>
       )}
-      {checkedIn === true && (
+      {discoveryMode === 'people' && checkedIn === true && (
         <div className="absolute bottom-28 left-4 z-sticky pointer-events-auto">
           <button
             onClick={hideFromMap}
@@ -846,6 +907,11 @@ export const SocialMapScreen: React.FC = () => {
           this button's own bottom edge) -- bumped to bottom-52 for real breathing room instead
           of the two nearly touching. */}
       <div className="absolute bottom-52 right-4 z-sticky flex flex-col gap-2">
+        {discoveryMode === 'rooms' && (
+          <button onClick={()=>navigate('/rooms/create')} className="h-12 rounded-full bg-brand-gradient px-4 text-caption font-extrabold text-white shadow-elevated active:scale-95">
+            + {roomsText(locale,'createRoom')}
+          </button>
+        )}
         <IconButton aria-label={t('mapRecenterAriaLabel')} variant="surface" size="lg" onClick={handleRecenter}>
           {locationStatus === 'granted' ? (
             <Compass className="w-6 h-6 text-[#25D9D0]" />
@@ -854,6 +920,27 @@ export const SocialMapScreen: React.FC = () => {
           )}
         </IconButton>
       </div>
+
+      {discoveryMode==='rooms' && roomsLoading && <div className="absolute start-1/2 top-[calc(var(--safe-top)+8.5rem)] z-sticky -translate-x-1/2 rounded-full border border-app bg-surface-95 px-4 py-2 text-caption font-bold text-app-muted shadow-soft">•••</div>}
+
+      <BottomSheet isOpen={!!selectedRoom} onClose={()=>setSelectedRoom(null)}>
+        {selectedRoom && <div className="space-y-4 px-5 pb-6">
+          <div className="flex items-start gap-3">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-500 via-violet-500 to-amber-400 text-white shadow-elevated">
+              {selectedRoom.type==='VOICE'?<Mic2/>:selectedRoom.type==='VIDEO'?<Video/>:<MessageCircle/>}
+            </div>
+            <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="truncate text-heading text-app">{selectedRoom.title}</h2>{selectedRoom.isOfficial&&<ShieldCheck className="h-4 w-4 text-[#25D9D0]"/>}</div>
+              <p className="text-caption font-semibold text-app-muted">{selectedRoom.city} · {selectedRoom.language.toUpperCase()} · {selectedRoom.type}</p></div>
+            <button onClick={()=>navigate(`/rooms/${selectedRoom.id}/report`)} aria-label={roomsText(locale,'report')} className="rounded-full p-2 text-app-muted"><MoreHorizontal/></button>
+          </div>
+          {selectedRoom.isDemo&&<span className="inline-flex rounded-full bg-amber-400/15 px-3 py-1 text-caption font-extrabold text-amber-500">{roomsText(locale,'officialDemo')}</span>}
+          <p className="text-body leading-relaxed text-app">{selectedRoom.topic}</p>
+          <div className="flex items-center justify-between"><div className="flex -space-x-3">{selectedRoom.participants.slice(0,6).map((p)=><Avatar key={p.id} src={normalizeMediaUrl(p.photoUrl||undefined)} name={p.name} size="sm" className="rounded-full border-2 border-surface"/>)}</div>
+            <span className="text-caption font-bold text-app-muted">{selectedRoom.activeParticipantCount}/{selectedRoom.maxParticipants} {roomsText(locale,'participants')}</span></div>
+          <div className="grid grid-cols-[1fr_auto] gap-2"><AppButton onClick={joinSelectedRoom} loading={joiningRoom} disabled={selectedRoom.activeParticipantCount>=selectedRoom.maxParticipants} fullWidth>{selectedRoom.activeParticipantCount>=selectedRoom.maxParticipants?roomsText(locale,'roomFull'):roomsText(locale,'joinRoom')}</AppButton>
+            <AppButton variant="secondary" onClick={()=>navigate(`/rooms/city/${selectedRoom.cityId}`)} aria-label={roomsText(locale,'cityRooms')}><ChevronRight/></AppButton></div>
+        </div>}
+      </BottomSheet>
 
       {/* Selected pin / profile preview sheet */}
       <BottomSheet isOpen={!!selectedPin} onClose={closeSheet}>

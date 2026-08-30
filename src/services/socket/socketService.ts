@@ -12,6 +12,7 @@ export class SocketService {
   private listeners: EventListenerMap = new Map();
   private isConnecting = false;
   private conversationRooms = new Set<string>();
+  private communityRooms = new Set<string>();
 
   private constructor() {}
 
@@ -106,6 +107,7 @@ export class SocketService {
       this.conversationRooms.forEach((matchId) => {
         this.socket?.emit('join:conversation', matchId);
       });
+      this.communityRooms.forEach((roomId) => this.socket?.emit('room:subscribe', { roomId }));
       // Request persisted offline deliveries only after this physical socket has connected.
       // This removes the race where the server could emit its recovery batch before the root
       // RealtimeSync listener had been attached on a cold start/token refresh.
@@ -249,6 +251,9 @@ export class SocketService {
   public reactToMessage(matchId: string, messageId: string, reaction?: string) {
     this.emit('message:reaction', { matchId, messageId, reaction });
   }
+
+  public subscribeRoom(roomId:string){this.communityRooms.add(roomId);this.emit('room:subscribe',{roomId});}
+  public unsubscribeRoom(roomId:string){this.communityRooms.delete(roomId);this.emit('room:unsubscribe',{roomId});}
 
   public startCall(payload: { callId: string; calleeUid: string; matchId: string; type: 'voice' | 'video'; offer: any }) {
     this.emit('call:start', payload);

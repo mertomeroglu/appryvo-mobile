@@ -8,6 +8,7 @@
 import { apiClient } from '../api/apiClient';
 
 export interface GeoCityResult {
+  id?: number;
   city: string;
   country?: string;
   latitude?: number;
@@ -28,6 +29,7 @@ export async function searchCities(query: string): Promise<GeoCityResult[]> {
       const city = entry?.city || entry?.name;
       if (!city) return null;
       return {
+        id: typeof entry?.id === 'number' ? entry.id : (typeof entry?.cityId === 'number' ? entry.cityId : undefined),
         city,
         country: entry?.country,
         latitude: typeof entry?.latitude === 'number' ? entry.latitude : undefined,

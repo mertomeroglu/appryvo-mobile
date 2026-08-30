@@ -54,7 +54,8 @@
       "Skeleton",
       "SplashScreen",
       "Surface",
-      "Toast"
+      "Toast",
+      "ZodiacIcon"
     ],
     "preferredPrimitives": [],
     "patterns": []
@@ -74,13 +75,15 @@
   "decisions": [
     {
       "id": "ryvo-coins-gifts-2026-08",
-      "decision": "Use compact three-column gift tiles, an existing BottomSheet hierarchy, a gold balance surface, and separate branded gift cards instead of ordinary text bubbles.",
-      "reason": "Matches Ryvo's established mobile density and tokens while keeping selection, balance, and send actions legible in one-handed chat use."
+      "decision": "Use compact three-column gift tiles, an existing BottomSheet hierarchy, a gold balance surface, and separate branded gift cards instead of ordinary text bubbles."
     },
     {
       "id": "ryvo-modern-messaging-2026-08",
-      "decision": "Adapt the 21st Messaging Conversation structure into Ryvo's full-screen ChatScreen using grouped content-width bubbles, mobile ActionSheets, embedded reply previews, and the same read-only bubble renderer for the official Ryvo thread.",
-      "reason": "Keeps the selected 21st conversation rhythm while preserving Ryvo tokens, realtime/media/gift behavior, one-handed actions, and Android scrolling performance without retaining demo primitives or a second color system."
+      "decision": "Adapt the 21st Messaging Conversation structure into Ryvo's full-screen ChatScreen using grouped content-width bubbles, mobile ActionSheets, embedded reply previews, and the same read-only bubble renderer for the official Ryvo thread."
+    },
+    {
+      "id": "ryvo-map-community-rooms-2026-08",
+      "decision": "Make Rooms the production-default World-map discovery mode, using city-level social bubbles, the existing BottomSheet for instant room previews, and avatar-first bounded-mesh live room surfaces in Ryvo pink, violet, and gold."
     }
   ],
   "evidence": [
@@ -101,5 +104,5 @@
       "source": "package.json"
     }
   ],
-  "generatedAt": "2026-08-22T21:39:59.036Z"
+  "generatedAt": "2026-08-30T15:40:48.107Z"
 }

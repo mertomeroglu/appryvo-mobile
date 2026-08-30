@@ -36,7 +36,7 @@ describe('RYVO PATCH V4 / PROMPT 02: map/geo/search', () => {
     expect(screen).toMatch(/const MIN_ZOOM = 3;/);
     expect(screen).toMatch(/const MAX_ZOOM = 15;/);
     expect(screen).toMatch(/minZoom: MIN_ZOOM,\s*\n\s*maxZoom: MAX_ZOOM,/);
-    expect(screen).toContain('maxZoom: MAX_ZOOM,\n    });\n    index.load(points);');
+    expect(screen).toMatch(/maxZoom: MAX_ZOOM,\s*\r?\n\s*\}\);\s*\r?\n\s*index\.load\(points\);/);
   });
 
   it('A -- light and dark map both get a real vector style treatment, not a CSS filter over raster tiles', () => {

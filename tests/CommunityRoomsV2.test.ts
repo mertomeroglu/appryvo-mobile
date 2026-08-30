@@ -9,6 +9,7 @@ describe('Community Rooms V2 mobile contracts',()=>{
  it('implements swipe reply and parent reference',()=>{const page=src('features/rooms/RoomScreen.tsx');expect(page).toContain('clientX-touch.current.x>55');expect(page).toContain('replyToMessageId')});
  it('implements double tap reaction and per-user toggle',()=>{const page=src('features/rooms/RoomScreen.tsx');expect(page).toContain('<360');expect(page).toContain("userId===me?.id")});
  it('persists messages via REST reload',()=>expect(src('features/rooms/RoomScreen.tsx')).toContain('communityRoomsService.messages(roomId)'));
+ it('reconciles realtime message events from the authoritative REST representation',()=>{const page=src('features/rooms/RoomScreen.tsx');expect(page).toContain("socketService.on('room:message'");expect(page).toContain('void refreshMessages()');expect(page).not.toContain("setMessages(v=>v.some(x=>x.id===m.id)?v:[...v,m])")});
  it('uses no one-to-one receipt semantics',()=>expect(src('features/rooms/RoomScreen.tsx')).not.toMatch(/deliveredAt|readAt|blue.?tick/i));
  it('creates one mesh peer connection per remote peer',()=>expect(src('services/call/roomWebrtcService.ts')).toContain("new Map<string,RTCPeerConnection>()"));
  it('stops all media tracks during cleanup',()=>expect(src('services/call/roomWebrtcService.ts')).toContain("this.local?.getTracks().forEach(t=>t.stop())"));

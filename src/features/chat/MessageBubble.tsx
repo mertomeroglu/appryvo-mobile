@@ -38,6 +38,14 @@ export interface StoryReplyPreview {
   caption?: string | null;
 }
 
+export interface ReplyMessagePreview {
+  id: string;
+  senderId?: string;
+  text?: string | null;
+  messageType?: string | null;
+  unavailable?: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   matchId: string;
@@ -50,6 +58,7 @@ export interface ChatMessage {
   durationSeconds?: number;
   thumbnailUrl?: string;
   replyToMessageId?: string;
+  replyToMessagePreview?: ReplyMessagePreview | null;
   replyToStoryId?: string | null;
   replyToStoryPreview?: StoryReplyPreview | null;
   reactions?: { userId: string; reaction: string }[];
@@ -71,7 +80,7 @@ const REPLY_SWIPE_MAX = 84;
 interface MessageBubbleProps {
   message: ChatMessage;
   isMe: boolean;
-  replySource?: ChatMessage;
+  replySource?: ChatMessage | ReplyMessagePreview;
   viewOnceRevealed?: boolean;
   isTranslating?: boolean;
   onRevealViewOnce?: (message: ChatMessage) => void;
@@ -199,6 +208,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const resolvedStoryPreviewUrl = message.replyToStoryPreview?.mediaUrl
     ? normalizeMediaUrl(message.replyToStoryPreview.mediaUrl)
     : undefined;
+  const resolvedReplyPreview = replySource || message.replyToMessagePreview;
   const reactionCounts = (message.reactions || []).reduce<Record<string, number>>((acc, r) => {
     acc[r.reaction] = (acc[r.reaction] || 0) + 1;
     return acc;
@@ -380,11 +390,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 </div>
               )}
               {message.title && <p className={`mb-1 text-micro font-extrabold normal-case ${isMe ? 'text-white/85' : 'text-pink-500'}`}>{message.title}</p>}
-              {replySource && (
+              {message.replyToMessageId && (
                 <div className={`mb-1.5 flex max-w-full items-stretch overflow-hidden rounded-xl ${isMe ? 'bg-white/[0.12]' : 'bg-app'}`}>
                   <span className={`w-0.5 shrink-0 ${isMe ? 'bg-white/70' : 'bg-pink-500'}`} />
                   <p className={`truncate px-2.5 py-1.5 text-micro normal-case ${isMe ? 'text-white/85' : 'text-app-muted'}`}>
-                    {replySource.text || (replySource.messageType ? t('bubbleTypedMessageTemplate').replace('{type}', replySource.messageType) : t('chatMessagePlaceholder'))}
+                    {resolvedReplyPreview?.unavailable
+                      ? t('chatMessageDeletedFallback')
+                      : resolvedReplyPreview?.text || (resolvedReplyPreview?.messageType
+                        ? t('bubbleTypedMessageTemplate').replace('{type}', resolvedReplyPreview.messageType)
+                        : t('chatMessageDeletedFallback'))}
                   </p>
                 </div>
               )}

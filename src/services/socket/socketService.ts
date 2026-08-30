@@ -106,6 +106,10 @@ export class SocketService {
       this.conversationRooms.forEach((matchId) => {
         this.socket?.emit('join:conversation', matchId);
       });
+      // Request persisted offline deliveries only after this physical socket has connected.
+      // This removes the race where the server could emit its recovery batch before the root
+      // RealtimeSync listener had been attached on a cold start/token refresh.
+      this.socket?.emit('delivery:sync');
     });
 
     this.socket.on('disconnect', (reason) => {

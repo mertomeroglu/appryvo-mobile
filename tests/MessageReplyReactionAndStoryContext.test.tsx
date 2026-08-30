@@ -77,4 +77,33 @@ describe('RYVO PATCH 02 issues 4/5/1 — reply swipe, double-tap reaction, story
     render(<MessageBubble message={baseMessage()} isMe={false} />);
     expect(screen.queryByText(/Hikayene yanıt verdi/)).toBeFalsy();
   });
+
+  it('persists a normal reply quote from its immutable snapshot when the parent page is not loaded', () => {
+    render(
+      <MessageBubble
+        message={baseMessage({
+          id: 'reply-1',
+          text: 'Yanıt',
+          replyToMessageId: 'old-parent',
+          replyToMessagePreview: { id: 'old-parent', senderId: 'partner-1', text: 'Kalıcı alıntı', messageType: 'TEXT' },
+        })}
+        isMe={false}
+      />
+    );
+    expect(screen.getByText('Kalıcı alıntı')).toBeTruthy();
+  });
+
+  it('renders a graceful fallback when a reply parent is deleted or unavailable', () => {
+    render(
+      <MessageBubble
+        message={baseMessage({
+          id: 'reply-2',
+          replyToMessageId: 'deleted-parent',
+          replyToMessagePreview: { id: 'deleted-parent', unavailable: true },
+        })}
+        isMe={false}
+      />
+    );
+    expect(screen.getByText(/deleted|silindi/i)).toBeTruthy();
+  });
 });

@@ -83,6 +83,9 @@ describe('RYVO PATCH V2 01/05 issue 1 — real sent/delivered/read chat ticks, n
     const source = readSource('src/components/RealtimeSync.tsx');
     expect(source).toMatch(/socketService\.on\('message:new'/);
     expect(source).toMatch(/socketService\.acknowledgeDelivered/);
+    expect(source).toMatch(/socketService\.on\('messages:pending-delivery'/);
+    const socketServiceSource = readSource('src/services/socket/socketService.ts');
+    expect(socketServiceSource).toMatch(/emit\('delivery:sync'\)/);
   });
 
   it('socketService exposes acknowledgeDelivered emitting message:delivered', () => {

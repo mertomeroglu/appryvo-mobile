@@ -31,6 +31,7 @@ export const StoryComposer: React.FC<StoryComposerProps> = ({ isOpen, onClose, o
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const nativePickerLaunchingRef = useRef(false);
   const createStory = useCreateStoryMutation();
 
   useEffect(() => {
@@ -61,11 +62,16 @@ export const StoryComposer: React.FC<StoryComposerProps> = ({ isOpen, onClose, o
 
   const openFromCamera = async () => {
     if (Capacitor.isNativePlatform()) {
-      const uri = await nativeCamera.takePhoto();
-      if (!uri) return handleClose();
-      const blob = await fetch(uri).then((r) => r.blob()).catch(() => null);
-      if (blob) setCropSource(URL.createObjectURL(blob));
-      else handleClose();
+      nativePickerLaunchingRef.current = true;
+      try {
+        const uri = await nativeCamera.takePhoto();
+        if (!uri) return handleClose();
+        const blob = await fetch(uri).then((r) => r.blob()).catch(() => null);
+        if (blob) setCropSource(URL.createObjectURL(blob));
+        else handleClose();
+      } finally {
+        nativePickerLaunchingRef.current = false;
+      }
     } else {
       fileInputRef.current?.click();
     }
@@ -73,14 +79,29 @@ export const StoryComposer: React.FC<StoryComposerProps> = ({ isOpen, onClose, o
 
   const openFromGallery = async () => {
     if (Capacitor.isNativePlatform()) {
-      const uris = await nativeCamera.pickImages();
-      if (!uris[0]) return handleClose();
-      const blob = await fetch(uris[0]).then((r) => r.blob()).catch(() => null);
-      if (blob) setCropSource(URL.createObjectURL(blob));
-      else handleClose();
+      nativePickerLaunchingRef.current = true;
+      try {
+        const uris = await nativeCamera.pickImages();
+        if (!uris[0]) return handleClose();
+        const blob = await fetch(uris[0]).then((r) => r.blob()).catch(() => null);
+        if (blob) setCropSource(URL.createObjectURL(blob));
+        else handleClose();
+      } finally {
+        nativePickerLaunchingRef.current = false;
+      }
     } else {
       fileInputRef.current?.click();
     }
+  };
+
+  const closePicker = () => {
+    // ActionSheet closes synchronously after invoking an action. Keep the
+    // composer mounted while the native activity is returning its media URI.
+    if (nativePickerLaunchingRef.current) {
+      setPickerOpen(false);
+      return;
+    }
+    handleClose();
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -126,7 +147,7 @@ export const StoryComposer: React.FC<StoryComposerProps> = ({ isOpen, onClose, o
     <>
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileInputChange} />
 
-      <ActionSheet isOpen={pickerOpen && !cropSource && !previewUrl} onClose={handleClose} title={t('storyAddLabel')} actions={pickerActions} />
+      <ActionSheet isOpen={pickerOpen && !cropSource && !previewUrl} onClose={closePicker} title={t('storyAddLabel')} actions={pickerActions} />
 
       {cropSource && (
         <PhotoCropScreen imageSrc={cropSource} aspect={STORY_ASPECT} onConfirm={handleCropConfirm} onCancel={handleClose} />
@@ -153,7 +174,7 @@ export const StoryComposer: React.FC<StoryComposerProps> = ({ isOpen, onClose, o
               value={caption}
               onChange={(e) => setCaption(e.target.value.slice(0, 220))}
               placeholder={t('captionOptionalPlaceholder')}
-              className="h-11 min-w-0 flex-1 rounded-full bg-white/10 border border-white/15 px-4 text-caption text-white placeholder:text-white/50 focus:outline-none focus:border-pink-500"
+              className="h-11 min-w-0 flex-1 rounded-full bg-white/10 border border-white/15 px-4 text-caption text-white placeholder:text-white/50 focus:outline-none focus:border-pink-500 focus-visible:ring-2 focus-visible:ring-pink-500/60"
             />
             <AppButton type="button" variant="primary" size="md" loading={isUploading} onClick={publish} className="shrink-0 px-5">
               {t('shareLabel')}

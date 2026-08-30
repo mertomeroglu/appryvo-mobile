@@ -47,6 +47,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories, startIndex, s
   const [replySending, setReplySending] = useState(false);
   const rafRef = useRef<number>();
   const lastTickRef = useRef(performance.now());
+  const pendingReplyRef = useRef<{ storyId: string; text: string; clientMessageId: string } | null>(null);
 
   const story = stories[index];
   const isOwn = !!selfId && story?.userId === selfId;
@@ -121,14 +122,20 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories, startIndex, s
   const sendReply = async () => {
     const text = replyText.trim();
     if (!text || !existingMatch || replySending) return;
+    const pending = pendingReplyRef.current;
+    const clientMessageId = pending?.storyId === story.id && pending.text === text
+      ? pending.clientMessageId
+      : `story-reply-${story.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    pendingReplyRef.current = { storyId: story.id, text, clientMessageId };
     setReplySending(true);
     socketService.sendMessage(
-      { matchId: existingMatch.id, text, replyToStoryId: story.id, clientMessageId: `story-reply-${Date.now()}` },
+      { matchId: existingMatch.id, text, replyToStoryId: story.id, clientMessageId },
       (res) => {
         setReplySending(false);
         if (res?.status === 'error') {
           toast.error(res?.message || t('storyReplyFailedToast'));
         } else {
+          pendingReplyRef.current = null;
           setReplyText('');
           toast.success(t('storyReplySentToast'));
         }
@@ -291,7 +298,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories, startIndex, s
                 onFocus={() => setPaused(true)}
                 onBlur={() => setPaused(false)}
                 placeholder={t('storyReply')}
-                className="flex-1 bg-transparent px-3 py-2 text-body text-white placeholder:text-white/60 focus:outline-none"
+                className="flex-1 rounded-full bg-transparent px-3 py-2 text-body text-white placeholder:text-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
               />
               <button
                 type="submit"
@@ -317,10 +324,15 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories, startIndex, s
       <ActionSheet title={t('storyOptionsTitle')} isOpen={menuOpen} onClose={() => setMenuOpen(false)} actions={menuActions} />
 
       {viewersOpen && (
-        <div className="fixed inset-0 z-modal bg-black/60 flex items-end" onClick={() => setViewersOpen(false)}>
+        <div className="fixed inset-0 z-modal flex items-end">
+          <button
+            type="button"
+            aria-label={t('close')}
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setViewersOpen(false)}
+          />
           <div
-            className="w-full max-h-[60vh] overflow-y-auto no-scrollbar bg-app rounded-t-3xl p-4 pb-safe"
-            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-h-[60vh] overflow-y-auto no-scrollbar bg-app rounded-t-3xl p-4 pb-safe"
           >
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-app-secondary" />
             <h4 className="text-heading text-app mb-3">{t('viewCountHeadingTemplate').replace('{count}', String(Array.isArray(viewers) ? viewers.length : 0))}</h4>

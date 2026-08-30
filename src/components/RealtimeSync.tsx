@@ -147,6 +147,17 @@ export const RealtimeSync: React.FC = () => {
       socketService.acknowledgeDelivered(payload.matchId, [payload.id]);
     });
 
+    // A socket can miss message:new while the app is offline. The server replays persisted,
+    // still-undelivered ids on every physical reconnect; ACK in conversation-sized batches.
+    const offPendingDelivery = socketService.on('messages:pending-delivery', (payload: {
+      conversations?: { matchId?: string; messageIds?: string[] }[];
+    }) => {
+      for (const conversation of payload?.conversations || []) {
+        if (!conversation?.matchId || !Array.isArray(conversation.messageIds) || conversation.messageIds.length === 0) continue;
+        socketService.acknowledgeDelivered(conversation.matchId, conversation.messageIds);
+      }
+    });
+
     // Match creation used to rely on the liker screen's local mutation invalidation. That left
     // the other person with a stale Messages list until a resume/manual refresh. The server now
     // emits match:new to both user rooms; keep the root cache current even when Messages is not
@@ -258,6 +269,7 @@ export const RealtimeSync: React.FC = () => {
       offAccountStatus();
       offUnreadCount();
       offMessageNew();
+      offPendingDelivery();
       offCallAnswered();
       offCallIceCandidate();
       offCallRenegotiateOffer();

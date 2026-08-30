@@ -202,6 +202,7 @@ export const ChatScreen: React.FC = () => {
 
     const unsubRead = socketService.on('message:read', (data) => {
       if (data.matchId !== matchId || data.readBy === currentUserId) return;
+      const readIds = Array.isArray(data.messageIds) ? new Set<string>(data.messageIds) : null;
       // Real per-message state, not a last-message-only guess: mark every one of MY messages the
       // partner has now read (server bulk-marks everything up to this point, mirrored here).
       // deliveredAt is backfilled too since a read message was necessarily delivered first.
@@ -210,7 +211,7 @@ export const ChatScreen: React.FC = () => {
         return {
           ...current,
           messages: current.messages.map((message: ChatMessage) => (
-            message.senderId === currentUserId && !message.isRead
+            message.senderId === currentUserId && !message.isRead && (!readIds || readIds.has(message.id))
               ? { ...message, isRead: true, readAt: data.readAt, deliveredAt: message.deliveredAt || data.readAt }
               : message
           )),
@@ -474,6 +475,7 @@ export const ChatScreen: React.FC = () => {
           mediaUrl: uploadRes.data.url,
           messageType,
           replyToMessageId: replyTarget?.id,
+          clientMessageId: `mobile-media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         });
         setReplyTarget(null);
         refetch();
@@ -528,6 +530,7 @@ export const ChatScreen: React.FC = () => {
             messageType: 'AUDIO',
             durationSeconds: duration,
             replyToMessageId: replyTarget?.id,
+            clientMessageId: `mobile-audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           });
           setReplyTarget(null);
           refetch();
@@ -564,7 +567,11 @@ export const ChatScreen: React.FC = () => {
 
   const handleReact = (message: ChatMessage, reaction: string) => {
     if (!matchId) return;
-    socketService.reactToMessage(matchId, message.id, reaction);
+    // Send desired state, not a server-side "toggle" command. If Socket.IO retries/duplicates the
+    // packet, setting the same desired value twice is idempotent; the UI still toggles/remove on a
+    // deliberate second gesture by sending undefined.
+    const currentReaction = message.reactions?.find((item) => item.userId === currentUserId)?.reaction;
+    socketService.reactToMessage(matchId, message.id, currentReaction === reaction ? undefined : reaction);
   };
 
   const handleManualTranslate = async (message: ChatMessage) => {
@@ -741,7 +748,7 @@ export const ChatScreen: React.FC = () => {
                 <MessageBubble
                   message={msg}
                   isMe={msg.senderId === currentUserId}
-                  replySource={msg.replyToMessageId ? messagesById.get(msg.replyToMessageId) : undefined}
+                  replySource={msg.replyToMessageId ? (messagesById.get(msg.replyToMessageId) || msg.replyToMessagePreview || undefined) : undefined}
                   viewOnceRevealed={revealedViewOnce.has(msg.id)}
                   isTranslating={translatingIds.has(msg.id)}
                   onRevealViewOnce={handleRevealViewOnce}
@@ -781,7 +788,11 @@ export const ChatScreen: React.FC = () => {
       {(replyTarget || editingMessage) && (
         <div className="px-4 py-2 border-t border-app bg-surface-elevated flex items-center justify-between">
           <div className="min-w-0">
-            <p className="text-micro font-bold text-pink-500">{editingMessage ? t('chatEditingLabel') : t('chatReplyingLabel')}</p>
+              <p className="text-micro font-bold text-pink-500">
+                {editingMessage
+                  ? t('chatEditingLabel')
+                  : `${t('chatReplyingLabel')} · ${replyTarget?.senderId === currentUserId ? t('youFallback') : (partner?.name || t('matchedUserFallback'))}`}
+              </p>
             <p className="text-caption text-app-muted truncate normal-case">
               {(editingMessage || replyTarget)?.text || t('chatMediaMessageFallback')}
             </p>

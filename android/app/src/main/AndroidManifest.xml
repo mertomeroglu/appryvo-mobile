@@ -63,14 +63,10 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- CONFIG REQUIRED for production: this is Google's own published TEST AdMob App ID
-             (ca-app-pub-3940256099942544~3347511713), safe to ship in a debug/dev build. Replace
-             with the real Ryvo AdMob App ID from the AdMob console before any release build.
-             See mobile/src/native/admob.ts for the matching TEST ad unit IDs that also need
-             swapping to production ad unit IDs at that time. -->
+        <!-- Production AdMob Application ID -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
+            android:value="ca-app-pub-5522488293762480~4542877638" />
     </application>
 
 </manifest>

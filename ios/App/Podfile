@@ -14,6 +14,7 @@ def capacitor_pods
   pod 'AparajitaCapacitorSecureStorage', :path => '../../node_modules/@aparajita/capacitor-secure-storage'
   pod 'CapacitorCommunityAdmob', :path => '../../node_modules/@capacitor-community/admob'
   pod 'CapacitorFirebaseCrashlytics', :path => '../../node_modules/@capacitor-firebase/crashlytics'
+  pod 'CapacitorFirebaseMessaging', :path => '../../node_modules/@capacitor-firebase/messaging'
   pod 'CapacitorApp', :path => '../../node_modules/@capacitor/app'
   pod 'CapacitorCamera', :path => '../../node_modules/@capacitor/camera'
   pod 'CapacitorGeolocation', :path => '../../node_modules/@capacitor/geolocation'
@@ -21,14 +22,6 @@ def capacitor_pods
   pod 'CapacitorKeyboard', :path => '../../node_modules/@capacitor/keyboard'
   pod 'CapacitorNetwork', :path => '../../node_modules/@capacitor/network'
   pod 'CapacitorPreferences', :path => '../../node_modules/@capacitor/preferences'
-  # RYVO PATCH V2 03: replaces the old Capacitor push-notifications pod. That plugin only ever
-  # produced a raw APNs device token on iOS -- it has zero Firebase dependency (see its podspec)
-  # -- while the backend sends every platform through Firebase Admin SDK's FCM API, which rejects
-  # a raw APNs token outright (wrong token format/namespace). Every iOS push failed
-  # unconditionally as a result. This pod performs the real APNs-token -> FCM-token exchange via
-  # Firebase's native SDK, giving a real, send-able FCM token on both platforms. See
-  # native/push.ts and the Patch V2 03 report for the rest of this fix.
-  pod 'CapacitorFirebaseMessaging', :path => '../../node_modules/@capacitor-firebase/messaging'
   pod 'CapacitorShare', :path => '../../node_modules/@capacitor/share'
   pod 'CapacitorStatusBar', :path => '../../node_modules/@capacitor/status-bar'
   pod 'CapgoNativePurchases', :path => '../../node_modules/@capgo/native-purchases'

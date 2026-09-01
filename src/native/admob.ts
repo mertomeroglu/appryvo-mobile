@@ -2,21 +2,29 @@ import { Capacitor } from '@capacitor/core';
 import { AdMob, AdmobConsentStatus, type AdMobRewardItem } from '@capacitor-community/admob';
 import { translateSync } from '../i18n/appLocale';
 
-// Google's own published TEST ad unit IDs (https://developers.google.com/admob/android/test-ads
-// / .../ios/test-ads) -- safe to ship in debug/dev builds. See AndroidManifest.xml's
-// com.google.android.gms.ads.APPLICATION_ID and Info.plist's GADApplicationIdentifier for the
-// matching TEST app IDs. CONFIG REQUIRED before any release build: swap all four (2 app IDs, 2
-// ad unit IDs below) for the real values from the AdMob console -- there is no existing secure
-// config source for them yet, and this app-side code must never invent production identifiers.
-const TEST_REWARDED_AD_UNIT_ID = {
+// Production AdMob Rewarded Ad Unit IDs
+export const PRODUCTION_REWARDED_AD_UNIT_ID = {
+  android: 'ca-app-pub-5522488293762480/8194082104',
+  ios: 'ca-app-pub-5522488293762480/8245338986',
+} as const;
+
+// Google Published Sample Test Ad Unit IDs (used exclusively in dev/test mode)
+export const TEST_REWARDED_AD_UNIT_ID = {
   android: 'ca-app-pub-3940256099942544/5224354917',
   ios: 'ca-app-pub-3940256099942544/1712485313',
-};
+} as const;
 
 let initPromise: Promise<void> | null = null;
 
-function rewardedAdUnitId(): string {
-  return Capacitor.getPlatform() === 'ios' ? TEST_REWARDED_AD_UNIT_ID.ios : TEST_REWARDED_AD_UNIT_ID.android;
+export function isDevEnvironment(): boolean {
+  return import.meta.env.DEV === true || import.meta.env.MODE === 'development';
+}
+
+export function rewardedAdUnitId(): string {
+  const isDev = isDevEnvironment();
+  const platform = Capacitor.getPlatform();
+  const adUnitMap = isDev ? TEST_REWARDED_AD_UNIT_ID : PRODUCTION_REWARDED_AD_UNIT_ID;
+  return platform === 'ios' ? adUnitMap.ios : adUnitMap.android;
 }
 
 export const nativeAdMob = {
@@ -25,7 +33,8 @@ export const nativeAdMob = {
     if (!Capacitor.isNativePlatform()) return;
     if (!initPromise) {
       initPromise = (async () => {
-        await AdMob.initialize({ initializeForTesting: import.meta.env.DEV === true });
+        const isDev = isDevEnvironment();
+        await AdMob.initialize({ initializeForTesting: isDev });
         try {
           // CMP (Google UMP) consent flow -- required before ad requests for EEA/UK users.
           // A failure here must never block the rest of the app; it only means ads stay
@@ -35,7 +44,7 @@ export const nativeAdMob = {
             await AdMob.showConsentForm();
           }
         } catch (err) {
-          if (import.meta.env.DEV) console.warn('[ADMOB CONSENT]', err);
+          if (isDev) console.warn('[ADMOB CONSENT]', err);
         }
       })();
     }
@@ -55,9 +64,10 @@ export const nativeAdMob = {
       throw new Error(translateSync('admobRewardedAdNativeOnlyError'));
     }
     await this.initialize();
+    const isDev = isDevEnvironment();
     await AdMob.prepareRewardVideoAd({
       adId: rewardedAdUnitId(),
-      isTesting: import.meta.env.DEV === true,
+      isTesting: isDev,
       ssv: { userId, customData: ssvCustomData },
     });
     return await AdMob.showRewardVideoAd();

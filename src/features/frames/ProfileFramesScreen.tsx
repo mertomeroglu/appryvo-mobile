@@ -3,11 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, Frame as FrameIcon } from 'lucide-react';
-import { Capacitor } from '@capacitor/core';
-import type { Product } from '@capgo/native-purchases';
 import { QUERY_KEYS, useFrameOwnershipQuery, useFramesQuery } from '../../hooks/useQueries';
 import { apiClient } from '../../services/api/apiClient';
-import { nativeIap } from '../../native/iap';
 import { getPhotoUrl } from '../../services/media/mediaService';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -31,7 +28,6 @@ export const ProfileFramesScreen: React.FC = () => {
   const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<string | null>(null);
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
-  const [storeProducts, setStoreProducts] = useState<Record<string, Product>>({});
   const openedAtRef = useRef(typeof performance !== 'undefined'
     ? performance.getEntriesByName('ryvo:frames:navigation-start').at(-1)?.startTime ?? performance.now()
     : 0);
@@ -44,27 +40,22 @@ export const ProfileFramesScreen: React.FC = () => {
 
   const handlePurchaseFrame = async (frame: any) => {
     if (isPurchasing) return;
-    if (!Capacitor.isNativePlatform()) {
-      toast.show(t('frameNativeOnlyMessage'), 'neutral');
-      return;
-    }
-    if (!frame.productId) {
+    if (!Number.isInteger(frame.coinPrice) || frame.coinPrice <= 0) {
       toast.show(t('frameNotPurchasableMessage'), 'neutral');
       return;
     }
     setIsPurchasing(frame.id);
     try {
-      const response: any = await nativeIap.purchaseFrame(frame.productId);
+      const response: any = await apiClient.post(`/api/profile/frames/${encodeURIComponent(frame.id)}/purchase/coin`);
       const ownedFrameIds = response?.data?.ownedFrameIds;
       if (Array.isArray(ownedFrameIds)) {
         queryClient.setQueryData(QUERY_KEYS.frameOwnership, (current: any) => current ? { ...current, ownedFrameIds } : current);
       }
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.wallet });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.frames });
       toast.success(t('framePurchasedToast'));
     } catch (err: any) {
-      // Store cancellations resolve/reject without a useful message -- only surface real errors.
-      if (err?.message && !/cancel/i.test(err.message)) {
-        toast.error(err.message || t('framePurchaseFailedMessage'));
-      }
+      toast.error(err?.message || t('framePurchaseFailedMessage'));
     } finally {
       setIsPurchasing(null);
     }
@@ -92,18 +83,6 @@ export const ProfileFramesScreen: React.FC = () => {
   };
 
   const frameList: any[] = Array.isArray(frames?.frames) ? frames.frames : [];
-
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform() || frameList.length === 0) return;
-    let cancelled = false;
-    void Promise.all(frameList.filter((frame) => frame.productId && frame.id !== 'standard').map(async (frame) => {
-      const product = await nativeIap.getFrameProduct(frame.productId).catch(() => null);
-      return [frame.productId, product] as const;
-    })).then((entries) => {
-      if (!cancelled) setStoreProducts(Object.fromEntries(entries.filter((entry): entry is readonly [string, Product] => Boolean(entry[1]))));
-    });
-    return () => { cancelled = true; };
-  }, [frames]);
 
   useEffect(() => {
     if (shellReadyRef.current || typeof performance === 'undefined') return;
@@ -205,8 +184,8 @@ export const ProfileFramesScreen: React.FC = () => {
                     <Badge tone="neutral">
                       {isPurchasing === f.id
                         ? t('purchasingLabel')
-                        : storeProducts[f.productId]?.priceString
-                          ? storeProducts[f.productId].priceString
+                        : Number.isInteger(f.coinPrice) && f.coinPrice > 0
+                          ? `${f.coinPrice} Coin`
                           : t('lockedLabel')}
                     </Badge>
                   )}

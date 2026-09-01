@@ -27,6 +27,9 @@ import { GiftMessageCard } from '../gifts/GiftMessageCard';
 import type { GiftSnapshot } from '../gifts/types';
 import { useAppTranslation } from '../../i18n/appLocale';
 import { nativeHaptics } from '../../native/haptics';
+import { MEETING_REQUEST_LABELS, type AppLocale } from '../../i18n/appLocale';
+
+export const meetingCopy = (locale: AppLocale) => MEETING_REQUEST_LABELS[locale];
 
 export interface MessageTranslation {
   translatedText: string;
@@ -72,6 +75,7 @@ export interface ChatMessage {
   isRead?: boolean;
   deliveredAt?: string | null;
   readAt?: string | null;
+  metadata?: { status?: 'PENDING' | 'ACCEPTED' | 'REJECTED' };
 }
 
 const DOUBLE_TAP_REACTION = '❤️';
@@ -98,6 +102,7 @@ interface MessageBubbleProps {
   isLastInGroup?: boolean;
   readOnly?: boolean;
   senderAvatar?: React.ReactNode;
+  onMeetingDecision?: (message: ChatMessage, decision: 'ACCEPTED' | 'REJECTED') => void;
 }
 
 function VoicePlayer({ url, durationSeconds, isMe }: { url: string; durationSeconds?: number; isMe: boolean }) {
@@ -200,6 +205,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   isLastInGroup = true,
   readOnly = false,
   senderAvatar,
+  onMeetingDecision,
 }) => {
   const { t, locale } = useAppTranslation();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -314,6 +320,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         <GiftMessageCard gift={message.giftSnapshot} isMe={isMe} senderName={giftSenderName} animate={animateGift} />
       </div>
     );
+  }
+
+  if (String(message.messageType || '').toUpperCase() === 'MEETING_REQUEST') {
+    const copy = meetingCopy(locale);
+    const status = message.metadata?.status || 'PENDING';
+    return <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}><div className="my-1 max-w-[86%] rounded-3xl border border-pink-500/25 bg-surface p-4 shadow-soft"><p className="text-body font-extrabold text-app">{copy.title}</p><p className="mt-1 text-caption normal-case text-app-muted">{status === 'ACCEPTED' ? copy.accepted : status === 'REJECTED' ? copy.rejected : copy.pending}</p>{status === 'PENDING' && !isMe && <div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => onMeetingDecision?.(message, 'REJECTED')} className="rounded-xl border border-app px-3 py-2 text-caption font-bold text-app">{t('callDeclineAriaLabel')}</button><button type="button" onClick={() => onMeetingDecision?.(message, 'ACCEPTED')} className="rounded-xl bg-brand-gradient px-3 py-2 text-caption font-bold text-white">{t('callAcceptAriaLabel')}</button></div>}</div></div>;
   }
 
   return (

@@ -201,10 +201,10 @@ class WebRTCService {
   ): Promise<RTCSessionDescriptionInit> {
     try {
       const pc = await this.ensurePeerConnection(callId);
-      const stream = await this.acquireLocalStream(video);
-      this.addLocalTracks(pc, stream);
       await pc.setRemoteDescription(offer);
       await this.flushPendingIceCandidates();
+      const stream = await this.acquireLocalStream(video);
+      this.addLocalTracks(pc, stream);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       return answer;
@@ -338,6 +338,8 @@ class WebRTCService {
    */
   async acceptVideoUpgrade(offer: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit | null> {
     if (!this.pc || !this.localStream) return null;
+    await this.pc.setRemoteDescription(offer);
+    await this.flushPendingIceCandidates();
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: this.facingMode } });
@@ -350,8 +352,6 @@ class WebRTCService {
       this.localStream.addTrack(videoTrack);
       this.onLocalStream?.(this.localStream);
     }
-    await this.pc.setRemoteDescription(offer);
-    await this.flushPendingIceCandidates();
     const answer = await this.pc.createAnswer();
     await this.pc.setLocalDescription(answer);
     return answer;

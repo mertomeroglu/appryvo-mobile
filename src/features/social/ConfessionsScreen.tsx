@@ -1,16 +1,19 @@
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Crown, Flag, Heart, MessageCircle, MessageSquare, MoreVertical, Plus, Share2, ShieldCheck, Trash2 } from 'lucide-react';
+import { Crown, Flag, SmilePlus, MessageCircle, MessageSquare, MoreVertical, Plus, Share2, ShieldCheck, Trash2 } from 'lucide-react';
 import { nativeShare } from '../../native/share';
 import {
   type ConfessionItem,
   useConfessionsQuery,
   useCreateConfessionMutation,
   useDeleteConfessionMutation,
-  useLikeConfessionMutation,
+  useBoostConfessionMutation,
+  useReactToConfessionMutation,
   useReportConfessionMutation,
 } from '../../hooks/useQueries';
+import type { ConfessionReaction } from '../../hooks/useQueries';
+import { CoinIcon } from '../gifts/CoinIcon';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -35,11 +38,14 @@ export const ConfessionsScreen: React.FC<{ embedded?: boolean }> = ({ embedded =
   const [text, setText] = useState('');
   const [activeCommentsId, setActiveCommentsId] = useState<string | null>(null);
   const [menuTarget, setMenuTarget] = useState<ConfessionItem | null>(null);
+  const [boostTarget, setBoostTarget] = useState<ConfessionItem | null>(null);
+  const [reactionTargetId, setReactionTargetId] = useState<string | null>(null);
   const createInFlightRef = useRef(false);
 
   const { data: confessions, refetch, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useConfessionsQuery(10);
   const createConfession = useCreateConfessionMutation();
-  const likeConfession = useLikeConfessionMutation();
+  const boostConfession = useBoostConfessionMutation();
+  const reactToConfession = useReactToConfessionMutation();
   const deleteConfession = useDeleteConfessionMutation();
   const reportConfession = useReportConfessionMutation();
 
@@ -66,9 +72,15 @@ export const ConfessionsScreen: React.FC<{ embedded?: boolean }> = ({ embedded =
     }
   };
 
-  const handleLike = (id: string) => likeConfession.mutate(id, {
+  const handleReaction = (id: string, reaction: ConfessionReaction) => reactToConfession.mutate({ id, reaction }, {
+    onSuccess: () => setReactionTargetId(null),
     onError: () => toast.error(t('actionFailedToast')),
   });
+
+  const reactionOptions: Array<{ type: ConfessionReaction; emoji: string }> = [
+    { type: 'HEART', emoji: '❤️' }, { type: 'LAUGH', emoji: '😂' }, { type: 'WOW', emoji: '😮' },
+    { type: 'SAD', emoji: '😢' }, { type: 'FIRE', emoji: '🔥' }, { type: 'CLAP', emoji: '👏' },
+  ];
 
   const confessionsList = confessions?.pages.flatMap((page) => page.items) || [];
   const quotaExceeded = confessions?.pages.some((page) => page.isQuotaExceeded) === true;
@@ -201,10 +213,15 @@ export const ConfessionsScreen: React.FC<{ embedded?: boolean }> = ({ embedded =
                 <p className="text-body text-app font-medium leading-relaxed">{item.text}</p>
 
                 <div className="flex items-center gap-5 pt-2 border-t border-app text-caption text-app-muted">
-                  <button type="button" aria-label={item.isLikedByMe ? t('unlikeConfessionAriaLabel') : t('likeConfessionAriaLabel')} aria-pressed={item.isLikedByMe} onClick={() => handleLike(item.id)} disabled={likeConfession.isPending} className="flex items-center gap-1.5 hover:text-pink-500 disabled:opacity-60">
-                    <Heart className={`w-4 h-4 ${item.isLikedByMe ? 'fill-pink-500 text-pink-500' : ''}`} />
-                    <span>{item.likesCount || 0}</span>
-                  </button>
+                  <div className="relative">
+                    <button type="button" aria-label={t('likeConfessionAriaLabel')} aria-pressed={!!item.myReaction} onClick={() => setReactionTargetId(reactionTargetId === item.id ? null : item.id)} className="flex items-center gap-1.5 hover:text-pink-500 disabled:opacity-60">
+                      <SmilePlus className={`w-4 h-4 ${item.myReaction ? 'text-pink-500' : ''}`} />
+                      <span>{Object.values(item.reactionCounts || {}).reduce((sum, count) => sum + Number(count || 0), 0)}</span>
+                    </button>
+                    {reactionTargetId === item.id && <div className="absolute bottom-8 start-0 z-overlay flex gap-1 rounded-full border border-app bg-surface p-1.5 shadow-elevated">{reactionOptions.map((option) => <button key={option.type} type="button" aria-pressed={item.myReaction === option.type} onClick={() => handleReaction(item.id, option.type)} className={`grid h-9 w-9 place-items-center rounded-full text-xl ${item.myReaction === option.type ? 'bg-pink-500/15' : 'hover:bg-app-secondary'}`}>{option.emoji}</button>)}</div>}
+                  </div>
+
+                  <button type="button" onClick={() => setBoostTarget(item)} className="flex items-center gap-1.5 font-bold text-[#A86E08]"><CoinIcon className="h-4 w-4" /><span>{item.totalCoins || 0}</span><span>{t('support')}</span></button>
 
                   <button
                     type="button"
@@ -264,6 +281,10 @@ export const ConfessionsScreen: React.FC<{ embedded?: boolean }> = ({ embedded =
       </Modal>
 
       <CommentsSheet confessionId={activeCommentsId} onClose={() => setActiveCommentsId(null)} />
+
+      <Modal isOpen={!!boostTarget} onClose={() => !boostConfession.isPending && setBoostTarget(null)}>
+        <div className="space-y-4"><div className="flex items-center gap-2"><CoinIcon className="h-7 w-7" /><h3 className="text-heading text-app">{t('support')}</h3></div><div className="grid grid-cols-5 gap-2">{([5, 10, 25, 50, 100] as const).map((amount) => <button key={amount} type="button" disabled={boostConfession.isPending} onClick={() => boostTarget && boostConfession.mutate({ id: boostTarget.id, amount }, { onSuccess: () => setBoostTarget(null), onError: (error: any) => toast.error(error?.message || t('actionFailedToast')) })} className="rounded-2xl border border-[#F5B942]/40 bg-[#F5B942]/10 px-2 py-3 text-caption font-black text-[#9A6508] disabled:opacity-50">{amount}</button>)}</div></div>
+      </Modal>
 
       <ActionSheet title={t('confessionOptionsAriaLabel')} isOpen={!!menuTarget} onClose={() => setMenuTarget(null)} actions={menuActions} />
     </div>

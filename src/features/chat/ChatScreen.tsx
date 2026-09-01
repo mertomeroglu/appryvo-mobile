@@ -25,7 +25,7 @@ import { IconButton } from '../../components/ui/IconButton';
 import { ActionSheet, type ActionSheetAction } from '../../components/ui/ActionSheet';
 import { Modal } from '../../components/ui/Modal';
 import { AppButton } from '../../components/ui/AppButton';
-import { MessageBubble, type ChatMessage, type MessageTranslation } from './MessageBubble';
+import { MessageBubble, meetingCopy, type ChatMessage, type MessageTranslation } from './MessageBubble';
 import { SafetyReportModal } from '../../components/SafetyReportModal';
 import { MeetingFeedbackModal } from '../../components/MeetingFeedbackModal';
 import { ChatTranslationSettingsModal } from '../../components/ChatTranslationSettingsModal';
@@ -46,7 +46,7 @@ export const ChatScreen: React.FC = () => {
   const { matchId } = useParams<{ matchId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const currentUserId = useAuthStore((s) => s.user?.id);
 
   const [text, setText] = useState('');
@@ -291,6 +291,14 @@ export const ChatScreen: React.FC = () => {
       setReactionsMap((prev) => ({ ...prev, [data.messageId]: data.reactions || [] }));
     });
 
+    const unsubMeeting = socketService.on('meeting:request-updated', (data: ChatMessage) => {
+      if (data.matchId !== matchId) return;
+      queryClient.setQueryData<any>(QUERY_KEYS.messages(matchId), (current: any) => current && Array.isArray(current.messages) ? {
+        ...current,
+        messages: current.messages.map((message: ChatMessage) => message.id === data.id ? { ...message, metadata: data.metadata } : message),
+      } : current);
+    });
+
     // Realtime translation: patch just this one message, never a refetch/full reload.
     const unsubTranslated = socketService.on('message:translated', (data) => {
       if (data.matchId !== matchId) return;
@@ -316,6 +324,7 @@ export const ChatScreen: React.FC = () => {
       unsubEdit();
       unsubDelete();
       unsubReaction();
+      unsubMeeting();
       unsubTranslated();
     };
   }, [matchId, currentUserId, queryClient]);
@@ -635,6 +644,18 @@ export const ChatScreen: React.FC = () => {
 
   const conversationActions: ActionSheetAction[] = [
     {
+      label: meetingCopy(locale).request,
+      icon: <Handshake className="h-5 w-5" />,
+      onSelect: () => {
+        if (!matchId) return;
+        void apiClient.post(`/api/matches/${matchId}/meeting-request`).then((response) => {
+          const message = response?.data;
+          if (message?.id) queryClient.setQueryData<any>(QUERY_KEYS.messages(matchId), (current: any) => current && Array.isArray(current.messages) ? { ...current, messages: [...current.messages.filter((item: ChatMessage) => item.id !== message.id), message] } : current);
+          setIsConversationActionsOpen(false);
+        }).catch((error) => toast.error(error?.message || t('actionFailedToast')));
+      },
+    },
+    {
       label: t('giveFeedbackButton'),
       icon: <Handshake className="h-5 w-5" />,
       onSelect: () => setIsMeetingModalOpen(true),
@@ -765,6 +786,13 @@ export const ChatScreen: React.FC = () => {
                   onReact={handleReact}
                   onReport={() => { setReportedMessageId(message.id); setSafetyAction('report'); }}
                   onTranslate={handleManualTranslate}
+                  onMeetingDecision={(message, decision) => {
+                    if (!matchId) return;
+                    void apiClient.post(`/api/matches/${matchId}/meeting-request/${message.id}/decision`, { decision }).then((response) => {
+                      const updated = response?.data;
+                      queryClient.setQueryData<any>(QUERY_KEYS.messages(matchId), (current: any) => current && Array.isArray(current.messages) ? { ...current, messages: current.messages.map((item: ChatMessage) => item.id === message.id ? updated : item) } : current);
+                    }).catch((error) => toast.error(error?.message || t('actionFailedToast')));
+                  }}
                   animateGift={freshGiftIds.has(msg.id)}
                   giftSenderName={partner?.name}
                   isFirstInGroup={isFirstInGroup}

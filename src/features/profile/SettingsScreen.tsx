@@ -19,10 +19,11 @@ import {
   Sun,
   Trash2,
   UserX,
+  Coins,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useThemeStore, type ThemeMode } from '../../theme/themeStore';
-import { useMeQuery, useNotificationsPreferenceMutation, useUpdateProfileMutation } from '../../hooks/useQueries';
+import { useMeQuery, useNotificationsPreferenceMutation, useUpdateProfileMutation, useWalletQuery } from '../../hooks/useQueries';
 import { apiClient } from '../../services/api/apiClient';
 import { IconButton } from '../../components/ui/IconButton';
 import { AppLogo } from '../../components/ui/AppLogo';
@@ -33,6 +34,7 @@ import { SPRING } from '../../motion/tokens';
 import { toast } from '../../stores/useToastStore';
 import { CHAT_TRANSLATION_LANGUAGES, getLocalizedChatLanguageLabel } from '../../lib/chatTranslationLanguages';
 import { PRIVACY_POLICY, TERMS_OF_SERVICE, type LegalDocument } from '../../lib/legalContent';
+import { CoinStoreSheet } from '../coins/CoinStoreSheet';
 import {
   APP_LOCALE_LABELS,
   SUPPORTED_APP_LOCALES,
@@ -117,9 +119,11 @@ export const SettingsScreen: React.FC = () => {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isChatLanguageOpen, setIsChatLanguageOpen] = useState(false);
   const [isAppLanguageOpen, setIsAppLanguageOpen] = useState(false);
+  const [coinStoreOpen, setCoinStoreOpen] = useState(false);
   const [legalDoc, setLegalDoc] = useState<LegalDocument | null>(null);
   const notificationsMutation = useNotificationsPreferenceMutation();
   const { data: me } = useMeQuery();
+  const { data: wallet } = useWalletQuery();
   const updateProfileMutation = useUpdateProfileMutation();
   const locale = useAppLocaleStore((state) => state.locale);
   const setLocale = useAppLocaleStore((state) => state.setLocale);
@@ -215,6 +219,7 @@ export const SettingsScreen: React.FC = () => {
           <SectionLabel>{t('settingsAccountSectionLabel')}</SectionLabel>
           <div className="space-y-2.5">
             <ListRow icon={<Mail className="w-5 h-5" />} label={t('settingsEmailLabel')} value={user?.email} />
+            <ListRow icon={<Coins className="w-5 h-5" />} label={t('giftCoinBalanceLabel')} value={`${Number(wallet?.balance || 0).toLocaleString(locale)} · ${t('giftBuyCoinsAction')}`} onClick={() => setCoinStoreOpen(true)} />
             <ListRow
               icon={<ShieldCheck className="w-5 h-5" />}
               label={t('verificationScreenTitle')}
@@ -342,6 +347,7 @@ export const SettingsScreen: React.FC = () => {
       />
 
       <LegalModal document={legalDoc} onClose={() => setLegalDoc(null)} />
+      <CoinStoreSheet isOpen={coinStoreOpen} onClose={() => setCoinStoreOpen(false)} />
 
       <Modal isOpen={isAppLanguageOpen} onClose={() => setIsAppLanguageOpen(false)}>
         <div className="space-y-4">

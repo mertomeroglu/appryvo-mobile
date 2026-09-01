@@ -8,9 +8,11 @@ const read = (relative: string) => fs.readFileSync(path.join(root, relative), 'u
 describe('Ryvo Coins and chat gifts', () => {
   it('keeps store prices localized and opens native consumable billing', () => {
     const shop = read('src/features/gifts/GiftShopSheet.tsx');
+    const coinStore = read('src/features/coins/CoinStoreSheet.tsx');
     const iap = read('src/native/iap.ts');
-    expect(shop).toContain('product!.priceString');
-    expect(shop).not.toMatch(/[₺$]\s*\d/);
+    expect(shop).toContain('CoinStoreSheet');
+    expect(coinStore).toContain('product!.priceString');
+    expect(coinStore).not.toMatch(/[₺$]\s*\d/);
     expect(iap).toContain('PURCHASE_TYPE.INAPP');
     expect(iap).toContain('isConsumable: false');
     expect(iap).toContain('autoAcknowledgePurchases: false');

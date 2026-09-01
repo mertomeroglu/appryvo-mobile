@@ -2,15 +2,15 @@ import { FaceLandmarker, FilesetResolver, type NormalizedLandmark } from '@media
 
 export const FACE_LIVENESS_CONFIG = {
   inferenceIntervalMs: 80,
-  stableMs: 320,
+  stableMs: 250,
   centerYaw: 0.11,
-  turnStartYaw: 0.13,
-  turnMidYaw: 0.22,
-  turnEndYaw: 0.3,
+  turnStartYaw: 0.18,
+  turnMidYaw: 0.18,
+  turnEndYaw: 0.18,
   minFaceWidth: 0.28,
   maxFaceWidth: 0.78,
-  centerTolerance: 0.16,
-  maxRollSlope: 0.22,
+  centerTolerance: 0.28,
+  maxRollSlope: 0.35,
   yawWindow: 5,
 } as const;
 
@@ -32,7 +32,13 @@ export function smoothYaw(values: number[]): number {
 }
 
 export function expectedYawDirection(challenge: ActiveChallenge): 1 | -1 {
-  return challenge === 'TURN_LEFT' ? 1 : -1;
+  // MediaPipe receives the unmirrored camera buffer even though the user sees a mirrored
+  // preview. In source coordinates a physical left turn produces negative yaw.
+  return challenge === 'TURN_LEFT' ? -1 : 1;
+}
+
+export function interpretYawForPreview(yaw: number, mirroredPreview: boolean): number {
+  return mirroredPreview ? -yaw : yaw;
 }
 
 export function measureFace(faces: NormalizedLandmark[][]): FaceMeasurement {

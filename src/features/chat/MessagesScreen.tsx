@@ -2,7 +2,7 @@ import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { motion, type PanInfo } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { BadgeCheck, CheckCheck, MessageCircle, Search, UserPlus } from 'lucide-react';
+import { BadgeCheck, CheckCheck, MessageCircle, Phone, Search, UserPlus } from 'lucide-react';
 import { connectText } from '../connect/connectLocale';
 import { QUERY_KEYS, useInAppNotificationsQuery, useMatchesQuery } from '../../hooks/useQueries';
 import { getPhotoUrl } from '../../services/media/mediaService';
@@ -192,6 +192,7 @@ export const MessagesScreen: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button type="button" onClick={() => navigate('/calls')} aria-label={t('callHistoryLabel')} className="flex h-9 w-9 items-center justify-center rounded-full border border-app bg-surface text-app-muted"><Phone className="h-4 w-4" /></button>
             {mode === 'chats' && matchItems.length > 0 && (
               <span className="rounded-full border border-app bg-surface px-2.5 py-1 text-micro font-bold normal-case text-app-muted">
                 {t('msgsConversationCountTemplate').replace('{count}', String(matchItems.length))}

@@ -3,7 +3,19 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
+	<string>tr</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>tr</string>
+		<string>en</string>
+		<string>es</string>
+		<string>fr</string>
+		<string>pt</string>
+		<string>ru</string>
+		<string>ar</string>
+		<string>hi</string>
+		<string>zh</string>
+	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Ryvo</string>
 	<key>CFBundleExecutable</key>

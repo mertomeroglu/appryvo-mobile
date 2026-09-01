@@ -10,43 +10,41 @@ interface CallAudioPlugin {
 const CallAudio = registerPlugin<CallAudioPlugin>('CallAudio');
 
 /**
- * Earpiece/loudspeaker routing for an active call. Android-only native plugin (see
- * android/.../CallAudioPlugin.java) -- there is no web/WebView API for this, so every method
- * no-ops on web/iOS rather than throwing "not implemented".
+ * Earpiece/loudspeaker routing for an active call through the matching Android/iOS plugins.
  */
 export const nativeCallAudio = {
   async startCallAudioSession(speakerOn: boolean): Promise<boolean> {
-    if (Capacitor.getPlatform() !== 'android') return speakerOn;
+    if (!['android', 'ios'].includes(Capacitor.getPlatform())) return speakerOn;
     try {
       const res = await CallAudio.startCallAudioSession({ speakerOn });
       return res.speakerOn;
     } catch (error) {
-      console.warn('[CALL][Audio] Failed to start Android call audio session', error);
+      console.warn('[CALL][Audio] Failed to start native call audio session', error);
       return speakerOn;
     }
   },
 
   async setSpeakerOn(enabled: boolean): Promise<boolean> {
-    if (Capacitor.getPlatform() !== 'android') return enabled;
+    if (!['android', 'ios'].includes(Capacitor.getPlatform())) return enabled;
     try {
       const res = await CallAudio.setSpeakerOn({ enabled });
       return res.enabled;
     } catch (error) {
-      console.warn('[CALL][Audio] Failed to change Android speaker route', error);
+      console.warn('[CALL][Audio] Failed to change native speaker route', error);
       return enabled;
     }
   },
 
   async resetAudioMode(): Promise<void> {
-    if (Capacitor.getPlatform() !== 'android') return;
+    if (!['android', 'ios'].includes(Capacitor.getPlatform())) return;
     try {
       await CallAudio.resetAudioMode();
     } catch (error) {
-      console.warn('[CALL][Audio] Failed to restore Android audio mode', error);
+      console.warn('[CALL][Audio] Failed to restore native audio mode', error);
     }
   },
 
   isSupported(): boolean {
-    return Capacitor.getPlatform() === 'android';
+    return ['android', 'ios'].includes(Capacitor.getPlatform());
   },
 };

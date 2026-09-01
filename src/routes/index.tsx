@@ -17,6 +17,7 @@ const DiscoverScreen = lazy(() => import('../features/discovery/DiscoverScreen')
 const LikesScreen = lazy(() => import('../features/likes/LikesScreen').then((m) => ({ default: m.LikesScreen })));
 const NotificationsScreen = lazy(() => import('../features/notifications/NotificationsScreen').then((m) => ({ default: m.NotificationsScreen })));
 const MessagesScreen = lazy(() => import('../features/chat/MessagesScreen').then((m) => ({ default: m.MessagesScreen })));
+const CallHistoryScreen = lazy(() => import('../features/calls/CallHistoryScreen').then((m) => ({ default: m.CallHistoryScreen })));
 const OfficialRyvoThread = lazy(() => import('../features/chat/OfficialRyvoThread').then((m) => ({ default: m.OfficialRyvoThread })));
 const ChatScreen = lazy(() => import('../features/chat/ChatScreen').then((m) => ({ default: m.ChatScreen })));
 const OwnProfileScreen = lazy(() => loadOwnProfileScreen().then((m) => ({ default: m.OwnProfileScreen })));
@@ -122,6 +123,10 @@ const router = createBrowserRouter([
                 <ChatScreen />
               </Suspense>
             ),
+          },
+          {
+            path: 'calls',
+            element: <Suspense fallback={SuspenseFallback}><CallHistoryScreen /></Suspense>,
           },
           {
             path: 'messages/ryvo',

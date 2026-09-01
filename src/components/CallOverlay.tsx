@@ -22,6 +22,7 @@ import { Avatar } from './ui/Avatar';
 import { IconButton } from './ui/IconButton';
 import { AppButton } from './ui/AppButton';
 import { useAppTranslation } from '../i18n/appLocale';
+import { ringbackTone } from '../services/call/ringbackTone';
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -41,6 +42,9 @@ export const CallOverlay: React.FC = () => {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [pipExpanded, setPipExpanded] = useState(false);
+  const [pipPosition, setPipPosition] = useState({ x: Math.max(12, window.innerWidth - 112), y: 80 });
+  const pipDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -70,6 +74,26 @@ export const CallOverlay: React.FC = () => {
     setIsRequestingVideo(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when the session itself changes
   }, [activeCall?.callId]);
+
+  useEffect(() => {
+    const shouldRing = activeCall?.direction === 'outgoing' && activeCall.status === 'RINGING';
+    if (shouldRing) void ringbackTone.start(); else ringbackTone.stop();
+    return () => ringbackTone.stop();
+  }, [activeCall?.direction, activeCall?.status]);
+
+  useEffect(() => {
+    const keepInside = () => {
+      const width = pipExpanded ? 160 : 96;
+      const height = pipExpanded ? 220 : 144;
+      setPipPosition((position) => ({
+        x: Math.min(Math.max(12, position.x), Math.max(12, window.innerWidth - width - 12)),
+        y: Math.min(Math.max(72, position.y), Math.max(72, window.innerHeight - height - 190)),
+      }));
+    };
+    window.addEventListener('resize', keepInside);
+    keepInside();
+    return () => window.removeEventListener('resize', keepInside);
+  }, [pipExpanded]);
 
   useEffect(() => {
     if (activeCall?.status !== 'ACTIVE' || !activeCall.startedAt) return;
@@ -192,6 +216,30 @@ export const CallOverlay: React.FC = () => {
     }
   };
 
+  const movePip = (event: React.PointerEvent<HTMLVideoElement>) => {
+    const drag = pipDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const width = pipExpanded ? 160 : 96;
+    const height = pipExpanded ? 220 : 144;
+    setPipPosition({
+      x: Math.min(Math.max(12, drag.originX + event.clientX - drag.startX), Math.max(12, window.innerWidth - width - 12)),
+      y: Math.min(Math.max(72, drag.originY + event.clientY - drag.startY), Math.max(72, window.innerHeight - height - 190)),
+    });
+  };
+
+  const finishPipDrag = (event: React.PointerEvent<HTMLVideoElement>) => {
+    const drag = pipDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    pipDragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    const width = pipExpanded ? 160 : 96;
+    const height = pipExpanded ? 220 : 144;
+    setPipPosition((position) => ({
+      x: position.x + width / 2 < window.innerWidth / 2 ? 12 : window.innerWidth - width - 12,
+      y: position.y + height / 2 < (window.innerHeight - 95) / 2 ? 72 : window.innerHeight - height - 190,
+    }));
+  };
+
   const failureMessage =
     activeCall.error === 'PERMISSION_DENIED'
       ? t('callPermissionDeniedError')
@@ -243,7 +291,16 @@ export const CallOverlay: React.FC = () => {
           muted
           disablePictureInPicture
           controlsList="nodownload nofullscreen noremoteplayback"
-          className={`absolute top-20 right-4 w-24 h-36 rounded-2xl object-cover border-2 border-app shadow-elevated z-10 transition-opacity ${
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            pipDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: pipPosition.x, originY: pipPosition.y };
+          }}
+          onPointerMove={movePip}
+          onPointerUp={finishPipDrag}
+          onPointerCancel={finishPipDrag}
+          onDoubleClick={() => setPipExpanded((value) => !value)}
+          style={{ left: pipPosition.x, top: pipPosition.y, width: pipExpanded ? 160 : 96, height: pipExpanded ? 220 : 144, touchAction: 'none' }}
+          className={`absolute rounded-2xl object-cover border-2 border-app shadow-elevated z-10 transition-[opacity,width,height] ${
             showLocalVideo ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         />

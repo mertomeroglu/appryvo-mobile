@@ -26,6 +26,7 @@ export const QUERY_KEYS = {
   matches: ['matches'],
   messages: (matchId: string) => ['matches', matchId, 'messages'],
   confessions: ['social', 'confessions'],
+  wallet: ['coins', 'wallet'],
   frames: ['profile', 'frames'],
   frameOwnership: ['profile', 'frames', 'ownership'],
   callHistory: ['calls', 'history'],
@@ -77,7 +78,13 @@ export interface ConfessionItem {
   createdAt: string;
   isLikedByMe: boolean;
   isMyPost: boolean;
+  totalCoins: number;
+  myContribution: number;
+  myReaction: ConfessionReaction | null;
+  reactionCounts: Partial<Record<ConfessionReaction, number>>;
 }
+
+export type ConfessionReaction = 'HEART' | 'LAUGH' | 'WOW' | 'SAD' | 'FIRE' | 'CLAP';
 
 export interface ConfessionsPage {
   items: ConfessionItem[];
@@ -508,6 +515,22 @@ export function useMeetingStatusQuery(matchId?: string | null) {
   });
 }
 
+export function useWalletQuery() {
+  return useQuery({
+    queryKey: QUERY_KEYS.wallet,
+    queryFn: () => apiClient.get('/api/coins/wallet').then((res) => res?.data),
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useCallHistoryQuery() {
+  return useQuery({
+    queryKey: QUERY_KEYS.callHistory,
+    queryFn: () => apiClient.get('/api/calls/history').then((res) => Array.isArray(res?.data) ? res.data : []),
+    staleTime: 30 * 1000,
+  });
+}
+
 export function useConfirmMeetingMutation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -621,6 +644,10 @@ export function useLikeMutation() {
     // batch out from under the in-progress deck. The server already excludes interacted
     // users from future fetches, so eager refetch isn't needed to stay correct.
     onSuccess: (_data, variables) => {
+      queryClient.setQueriesData<any[]>({ queryKey: ['discovery', 'map'] }, (current) => (
+        Array.isArray(current) ? current.filter((user) => String(user?.id || user?.uid) !== String(variables.targetUserId)) : current
+      ));
+      queryClient.invalidateQueries({ queryKey: ['discovery', 'map'] });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
       // Liking someone who is already in "Seni Beğenenler" always creates a mutual match
       // (they already liked us -- see the reciprocal check in POST /discovery/like), so they
@@ -781,6 +808,27 @@ export function useLikeConfessionMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiClient.post(`/api/social/confessions/${id}/like`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.confessions }),
+  });
+}
+
+export function useBoostConfessionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, amount }: { id: string; amount: 5 | 10 | 25 | 50 | 100 }) =>
+      apiClient.post(`/api/social/confessions/${id}/boost`, { amount }).then((res) => res?.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.confessions });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.wallet });
+    },
+  });
+}
+
+export function useReactToConfessionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reaction }: { id: string; reaction: ConfessionReaction | null }) =>
+      apiClient.post(`/api/social/confessions/${id}/react`, { reaction }).then((res) => res?.data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.confessions }),
   });
 }

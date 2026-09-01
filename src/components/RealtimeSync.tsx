@@ -162,7 +162,13 @@ export const RealtimeSync: React.FC = () => {
     // the other person with a stale Messages list until a resume/manual refresh. The server now
     // emits match:new to both user rooms; keep the root cache current even when Messages is not
     // mounted yet.
-    const offNewMatch = socketService.on('match:new', () => {
+    const offNewMatch = socketService.on('match:new', (payload: { matchedUserId?: string }) => {
+      if (payload?.matchedUserId) {
+        queryClient.setQueriesData<any[]>({ queryKey: ['discovery', 'map'] }, (current) => (
+          Array.isArray(current) ? current.filter((user) => String(user?.id || user?.uid) !== String(payload.matchedUserId)) : current
+        ));
+      }
+      queryClient.invalidateQueries({ queryKey: ['discovery', 'map'] });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.inboundLikes });
     });

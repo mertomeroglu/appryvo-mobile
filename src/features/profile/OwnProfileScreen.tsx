@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
-import { useFramesQuery, useFollowStatusQuery } from '../../hooks/useQueries';
+import { useFramesQuery, useFollowStatusQuery, useWalletQuery } from '../../hooks/useQueries';
 import { computeProfileCompletion } from '../../lib/profileCompletion';
 import { formatDisplayAge } from '../../lib/profileLabels';
 import { getPhotoUrl } from '../../services/media/mediaService';
@@ -29,6 +29,8 @@ import {
   Share2,
 } from 'lucide-react';
 import { nativeShare } from '../../native/share';
+import { CoinStoreSheet } from '../coins/CoinStoreSheet';
+import { CoinIcon } from '../gifts/CoinIcon';
 
 const EditProfileModal = lazy(() => preloadEditProfileModal().then((module) => ({ default: module.EditProfileModal })));
 
@@ -68,6 +70,7 @@ export const OwnProfileScreen: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editFocusSection, setEditFocusSection] = useState<string | undefined>(undefined);
   const [isCompletionOpen, setIsCompletionOpen] = useState(false);
+  const [coinStoreOpen, setCoinStoreOpen] = useState(false);
   const locale = useAppLocaleStore((state) => state.locale);
   const shellReadyRef = useRef(false);
   const dataReadyRef = useRef(false);
@@ -82,6 +85,7 @@ export const OwnProfileScreen: React.FC = () => {
 
   const { data: framesData } = useFramesQuery();
   const { data: followStatus } = useFollowStatusQuery(user?.id);
+  const { data: wallet } = useWalletQuery();
 
   const photoUrl = getPhotoUrl(user?.photos?.[0]) || user?.photoUrl;
   const { percent: completion, missing: missingFields } = useMemo(() => computeProfileCompletion(user), [user]);
@@ -149,6 +153,7 @@ export const OwnProfileScreen: React.FC = () => {
           verified={user?.verified}
           countryCode={user?.countryCode}
           showCountryFlag={showFlag}
+          online
           size="xl"
           eager
         />
@@ -257,6 +262,14 @@ export const OwnProfileScreen: React.FC = () => {
 
       {/* Grouped card: quick access */}
       <div className="mt-6">
+        <SectionLabel>{t('giftCoinBalanceLabel')}</SectionLabel>
+        <button type="button" onClick={() => setCoinStoreOpen(true)} className="w-full rounded-[24px] border border-[#F5B942]/40 bg-gradient-to-br from-[#FFF2B6]/65 via-surface to-pink-500/10 p-4 text-start shadow-premium active:scale-[0.99] dark:from-[#F5B942]/15">
+          <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-full bg-[#F5B942]/20"><CoinIcon className="h-7 w-7" /></span><div className="min-w-0 flex-1"><p className="text-micro normal-case text-app-muted">{t('giftCoinBalanceLabel')}</p><p className="text-heading tabular-nums text-app">{Number(wallet?.balance || 0).toLocaleString(locale)} Coin</p></div><span className="text-caption font-extrabold text-pink-500">{t('giftBuyCoinsAction')}</span></div>
+        </button>
+      </div>
+
+      {/* Grouped card: quick access */}
+      <div className="mt-6">
         <SectionLabel>{t('ownProfileMoreSectionLabel')}</SectionLabel>
         <div className="space-y-2.5">
           <ProfileRow icon={<Zap className="w-5 h-5" />} label={t('ownProfileBoostAction')} onClick={() => navigate('/boost')} />
@@ -298,6 +311,8 @@ export const OwnProfileScreen: React.FC = () => {
           </div>
         </section>
       </BottomSheet>
+
+      <CoinStoreSheet isOpen={coinStoreOpen} onClose={() => setCoinStoreOpen(false)} />
 
       {/* Edit Profile Modal */}
       {isEditModalOpen && (

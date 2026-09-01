@@ -78,6 +78,9 @@ export interface MapUser {
   photo?: string;
   photoThumbnailUrl?: string;
   activeFrameId?: string;
+  countryCode?: string | null;
+  online?: boolean;
+  activeNow?: boolean;
 }
 
 interface SelectedPin {
@@ -132,14 +135,18 @@ function htmlToElement(html: string): HTMLElement {
 function buildRoomClusterHtml(roomCount: number): string {
   return `<div style="position:relative;width:58px;height:58px;z-index:600;cursor:pointer">
     <div style="position:absolute;inset:0;border-radius:9999px;background:linear-gradient(135deg,#25D9D0,#7957ff);box-shadow:0 4px 14px rgba(37,217,208,.4);display:flex;align-items:center;justify-content:center;border:2.5px solid rgba(255,255,255,0.92)">
-      <span style="font-size:22px;line-height:1">&#128172;</span>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
     </div>
     <span style="position:absolute;right:-2px;bottom:-2px;display:flex;min-width:24px;height:22px;align-items:center;justify-content:center;border-radius:9999px;border:2px solid white;background:#ff4d8d;padding:0 5px;color:white;font-size:11px;font-weight:900;box-shadow:0 3px 9px rgba(0,0,0,.28)">${roomCount}</span>
   </div>`;
 }
 
 function roomMarkerHtml(room: CommunityRoom, selected: boolean): string {
-  const typeIcon = room.type === 'VOICE' ? '&#127908;' : room.type === 'VIDEO' ? '&#127909;' : '&#128172;';
+  const typeIcon = room.type === 'VOICE'
+    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8057ef" stroke-width="2.4"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>'
+    : room.type === 'VIDEO'
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8057ef" stroke-width="2.4"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="m17 10 4-2v8l-4-2z"/></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8057ef" stroke-width="2.4"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>';
   const size = Math.min(78, 54 + Math.min(room.activeParticipantCount, 6) * 3 + (selected ? 8 : 0));
   const avatars = room.participants.slice(0, 2).map((participant) => participant.photoUrl
     ? `<img src="${escapeHtml(normalizeMediaUrl(participant.photoUrl))}" alt="" />`
@@ -148,6 +155,7 @@ function roomMarkerHtml(room: CommunityRoom, selected: boolean): string {
     <span class="ryvo-room-marker-avatars">${avatars || `<span>${typeIcon}</span>`}</span>
     <span class="ryvo-room-marker-type">${typeIcon}</span>
     ${room.activeParticipantCount ? `<span class="ryvo-room-marker-count">${room.activeParticipantCount}</span>` : ''}
+    ${room.isOfficial ? '<span class="ryvo-room-marker-official">✓</span>' : ''}
   </button></div>`;
 }
 
@@ -365,6 +373,15 @@ export const SocialMapScreen: React.FC = () => {
       socketService.emit('map:unsubscribe');
     };
   }, [queryClient]);
+
+  useEffect(() => socketService.on('match:new', (payload: { matchedUserId?: string }) => {
+    if (payload?.matchedUserId) {
+      queryClient.setQueriesData<MapUser[]>({ queryKey: ['discovery', 'map'] }, (current) => (
+        Array.isArray(current) ? current.filter((user) => user.id !== payload.matchedUserId) : current
+      ));
+    }
+    queryClient.invalidateQueries({ queryKey: ['discovery', 'map'] });
+  }), [queryClient]);
 
   const openPin = useCallback((users: MapUser[]) => {
     nativeHaptics.impact();

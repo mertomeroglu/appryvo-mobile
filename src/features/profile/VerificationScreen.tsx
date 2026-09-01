@@ -122,7 +122,9 @@ export const VerificationScreen: React.FC = () => {
         const started = performance.now();
         const measured = measureFace(landmarker.detectForVideo(video, now).faceLandmarks); setGuidance(measured.guidance);
         if (import.meta.env.DEV) console.debug(`[VERIFY][MediaPipe] inferenceMs=${(performance.now() - started).toFixed(1)}`);
-        if (measured.guidance !== 'READY') { stableSinceRef.current = null; return; }
+        // One imperfect/jitter frame must not erase an otherwise stable turn. The median yaw
+        // window plus the directed-threshold hysteresis below owns reset behavior.
+        if (measured.guidance !== 'READY') return;
         yawsRef.current.push(measured.yaw); const yaw = smoothYaw(yawsRef.current); const delta = yaw - neutralYawRef.current;
         const centered = Math.abs(stage === 'CENTER_BASELINE' ? yaw : delta) <= FACE_LIVENESS_CONFIG.centerYaw;
         if (stage === 'CENTER_BASELINE' || stage === 'FINAL') {
@@ -131,10 +133,14 @@ export const VerificationScreen: React.FC = () => {
         } else {
           const directed = delta * expectedYawDirection(stage);
           if (!activeBurstRef.current.length && centered) { const shot = await grab(yaw); if (shot) activeBurstRef.current.push(shot); }
-          else if (activeBurstRef.current.length === 1 && directed >= FACE_LIVENESS_CONFIG.turnStartYaw) { const shot = await grab(yaw); if (shot) activeBurstRef.current.push(shot); }
-          else if (activeBurstRef.current.length === 2 && directed >= FACE_LIVENESS_CONFIG.turnMidYaw) { const shot = await grab(yaw); if (shot) activeBurstRef.current.push(shot); }
-          stableSinceRef.current = directed >= FACE_LIVENESS_CONFIG.turnEndYaw ? (stableSinceRef.current ?? now) : null;
-          if (activeBurstRef.current.length >= 3 && stableSinceRef.current && now - stableSinceRef.current >= FACE_LIVENESS_CONFIG.stableMs) await completeStage(yaw);
+          if (directed >= FACE_LIVENESS_CONFIG.turnStartYaw) {
+            stableSinceRef.current ??= now;
+            if (activeBurstRef.current.length === 1) { const shot = await grab(yaw); if (shot) activeBurstRef.current.push(shot); }
+          } else if (directed < FACE_LIVENESS_CONFIG.turnStartYaw - 0.05) {
+            stableSinceRef.current = null;
+          }
+          // completeStage captures the third audit frame after a single robust 250ms turn hold.
+          if (activeBurstRef.current.length >= 2 && stableSinceRef.current && now - stableSinceRef.current >= FACE_LIVENESS_CONFIG.stableMs) await completeStage(yaw);
         }
       } catch (reason) { console.warn('[VERIFY][MediaPipe] inference failed', reason); }
       finally { inferBusyRef.current = false; }

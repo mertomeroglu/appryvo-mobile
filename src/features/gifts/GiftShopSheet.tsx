@@ -9,6 +9,7 @@ import { IconButton } from '../../components/ui/IconButton';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { toast } from '../../stores/useToastStore';
 import { nativeIap } from '../../native/iap';
+import { COIN_PRODUCTS } from '../../services/billing/catalog';
 import { ApiException } from '../../services/api/apiClient';
 import { coinService, type GiftSendResult } from '../../services/coins/coinService';
 import { CoinIcon } from './CoinIcon';
@@ -25,7 +26,9 @@ function requestId() {
 }
 
 function storeProductId(pack: CoinPack) {
-  return Capacitor.getPlatform() === 'ios' ? pack.iosProductId : pack.androidProductId;
+  const product = COIN_PRODUCTS.find((item) => item.coinAmount === pack.coinAmount);
+  if (!product) return '';
+  return Capacitor.getPlatform() === 'ios' ? product.appleProductId : product.googleProductId;
 }
 
 function findStoreProduct(products: Product[], pack: CoinPack) {

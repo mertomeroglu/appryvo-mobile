@@ -36,7 +36,7 @@ describe('public premium product system', () => {
 
   it('keeps Android and iOS storefront IDs explicit without developer fallback prices', () => {
     expect(SUBSCRIPTION_PRODUCTS).toHaveLength(8);
-    expect(SUBSCRIPTION_PRODUCTS.every((product) => product.androidProductId && product.iosProductId)).toBe(true);
+    expect(SUBSCRIPTION_PRODUCTS.every((product) => Boolean(product.googleProductId && product.appleProductId))).toBe(true);
     expect(SUBSCRIPTION_PRODUCTS.some((product) => 'fallbackTry' in product)).toBe(false);
   });
 });

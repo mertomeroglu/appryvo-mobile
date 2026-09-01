@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import type { Product } from '@capgo/native-purchases';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Check, Compass, Crown, Eye, Heart, RotateCcw, ShieldOff, SlidersHorizontal, Sparkles, Star, TrendingUp, Zap } from 'lucide-react';
-import { nativeIap } from '../../native/iap';
+import { findSubscriptionStoreProduct, nativeIap } from '../../native/iap';
 import { apiClient } from '../../services/api/apiClient';
 import { useEntitlementsQuery } from '../../hooks/useQueries';
 import { AppButton } from '../../components/ui/AppButton';
@@ -27,14 +27,6 @@ interface SubscriptionCatalogItem {
   productId: string;
   androidProductId: string;
   iosProductId: string;
-}
-
-function findStoreProduct(products: Product[], productId: string) {
-  const normalizedId = productId.trim().toLowerCase();
-  return products.find((product) =>
-    product.planIdentifier?.trim().toLowerCase() === normalizedId
-    || product.identifier?.trim().toLowerCase() === normalizedId
-  );
 }
 
 function hasStorePrice(product?: Product): product is Product {
@@ -92,10 +84,7 @@ export const PremiumScreen: React.FC = () => {
         // A transient API failure must not prevent the native store from using the
         // compiled mapping. The server catalog wins whenever it is reachable.
       }
-      const compiledIds = SUBSCRIPTION_PRODUCTS.map((product) => getStoreProductId(product, storePlatform));
-      const catalogIds = catalog.map((product) => storePlatform === 'ios' ? product.iosProductId : product.androidProductId);
-      const productIds = [...new Set([...compiledIds, ...catalogIds].filter(Boolean))];
-      const products = await nativeIap.getSubscriptionProducts(productIds);
+      const products = await nativeIap.getSubscriptionProducts();
       setStoreProducts((current) => products.length > 0 ? products : current);
     } catch (error) {
       setStoreLoadIssue(error instanceof Error ? error.message : 'STORE_LOAD_FAILED');
@@ -109,9 +98,8 @@ export const PremiumScreen: React.FC = () => {
 
   const periodConfig = PERIODS.find((period) => period.id === selectedPeriod)!;
   const selectedProduct = getSubscriptionProduct(selectedTier, selectedPeriod);
-  const selectedCatalogProduct = catalogProductFor(selectedTier, selectedPeriod);
   const selectedStoreProductId = storefrontIdFor(selectedTier, selectedPeriod);
-  const storeProduct = findStoreProduct(storeProducts, selectedStoreProductId);
+  const storeProduct = findSubscriptionStoreProduct(storeProducts, selectedTier, selectedPeriod);
   const priceAvailable = hasStorePrice(storeProduct);
   const missingPriceCopy = !Capacitor.isNativePlatform()
     ? t('missingStorePriceNonNative')
@@ -124,7 +112,7 @@ export const PremiumScreen: React.FC = () => {
         ? t('missingStorePriceLoading')
         : t('missingStorePriceReconnecting');
   const offer = useMemo(() => {
-    const weeklyStore = findStoreProduct(storeProducts, storefrontIdFor(selectedTier, 'WEEKLY'));
+    const weeklyStore = findSubscriptionStoreProduct(storeProducts, selectedTier, 'WEEKLY');
     if (hasStorePrice(weeklyStore) && hasStorePrice(storeProduct) && weeklyStore.currencyCode === storeProduct.currencyCode) {
       return {
         discount: calculateStoreDiscount(weeklyStore.price, storeProduct.price, selectedProduct.weeks),
@@ -136,8 +124,8 @@ export const PremiumScreen: React.FC = () => {
 
   const periodOffers = useMemo(() => PERIODS.map((period) => {
     const config = getSubscriptionProduct(selectedTier, period.id);
-    const product = findStoreProduct(storeProducts, storefrontIdFor(selectedTier, period.id));
-    const weekly = findStoreProduct(storeProducts, storefrontIdFor(selectedTier, 'WEEKLY'));
+    const product = findSubscriptionStoreProduct(storeProducts, selectedTier, period.id);
+    const weekly = findSubscriptionStoreProduct(storeProducts, selectedTier, 'WEEKLY');
     const discount = hasStorePrice(product) && hasStorePrice(weekly) && product.currencyCode === weekly.currencyCode
       ? calculateStoreDiscount(weekly.price, product.price, config.weeks)
       : 0;
@@ -189,7 +177,7 @@ export const PremiumScreen: React.FC = () => {
     }
     setIsPurchasing(true);
     try {
-      await nativeIap.purchaseSubscription(selectedCatalogProduct?.productId || selectedProduct.productId, selectedStoreProductId, storeProduct);
+      await nativeIap.purchaseSubscription(selectedTier, selectedPeriod, storeProduct!);
       await refetch();
       toast.success(t('purchaseVerifiedToast'));
     } catch (err: any) {

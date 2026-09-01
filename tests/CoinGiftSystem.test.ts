@@ -12,8 +12,10 @@ describe('Ryvo Coins and chat gifts', () => {
     expect(shop).toContain('product!.priceString');
     expect(shop).not.toMatch(/[₺$]\s*\d/);
     expect(iap).toContain('PURCHASE_TYPE.INAPP');
-    expect(iap).toContain('isConsumable: true');
+    expect(iap).toContain('isConsumable: false');
+    expect(iap).toContain('autoAcknowledgePurchases: false');
     expect(iap).toContain("'/api/coins/purchases/verify'");
+    expect(iap).toMatch(/async function verifyCoinTransaction[\s\S]*?apiClient\.post\('\/api\/coins\/purchases\/verify'[\s\S]*?markCompleted/);
   });
 
   it('uses catalogue-driven assets and isolates future Lottie rendering', () => {
@@ -39,4 +41,3 @@ describe('Ryvo Coins and chat gifts', () => {
     expect(overlay).toContain('pointer-events-none');
   });
 });
-

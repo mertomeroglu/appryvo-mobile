@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, Frame as FrameIcon } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
+import type { Product } from '@capgo/native-purchases';
 import { QUERY_KEYS, useFrameOwnershipQuery, useFramesQuery } from '../../hooks/useQueries';
 import { apiClient } from '../../services/api/apiClient';
 import { nativeIap } from '../../native/iap';
@@ -20,7 +21,7 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { useAppTranslation } from '../../i18n/appLocale';
 
 export const ProfileFramesScreen: React.FC = () => {
-  const { t, locale } = useAppTranslation();
+  const { t } = useAppTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
@@ -30,6 +31,7 @@ export const ProfileFramesScreen: React.FC = () => {
   const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<string | null>(null);
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
+  const [storeProducts, setStoreProducts] = useState<Record<string, Product>>({});
   const openedAtRef = useRef(typeof performance !== 'undefined'
     ? performance.getEntriesByName('ryvo:frames:navigation-start').at(-1)?.startTime ?? performance.now()
     : 0);
@@ -90,6 +92,18 @@ export const ProfileFramesScreen: React.FC = () => {
   };
 
   const frameList: any[] = Array.isArray(frames?.frames) ? frames.frames : [];
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || frameList.length === 0) return;
+    let cancelled = false;
+    void Promise.all(frameList.filter((frame) => frame.productId && frame.id !== 'standard').map(async (frame) => {
+      const product = await nativeIap.getFrameProduct(frame.productId).catch(() => null);
+      return [frame.productId, product] as const;
+    })).then((entries) => {
+      if (!cancelled) setStoreProducts(Object.fromEntries(entries.filter((entry): entry is readonly [string, Product] => Boolean(entry[1]))));
+    });
+    return () => { cancelled = true; };
+  }, [frames]);
 
   useEffect(() => {
     if (shellReadyRef.current || typeof performance === 'undefined') return;
@@ -191,8 +205,8 @@ export const ProfileFramesScreen: React.FC = () => {
                     <Badge tone="neutral">
                       {isPurchasing === f.id
                         ? t('purchasingLabel')
-                        : typeof f.price === 'number' && f.price > 0
-                          ? `${f.price.toLocaleString(locale)} ${f.currency || 'TRY'}`
+                        : storeProducts[f.productId]?.priceString
+                          ? storeProducts[f.productId].priceString
                           : t('lockedLabel')}
                     </Badge>
                   )}

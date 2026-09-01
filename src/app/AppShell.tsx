@@ -14,6 +14,7 @@ import { ProfileFrameCatalogProvider } from '../components/ui/FramedAvatar';
 import { VpnAccessGuard } from '../components/VpnAccessGuard';
 import { preloadProfileExperience } from '../routes/routePreload';
 import { nativeAdMob } from '../native/admob';
+import { BillingService } from '../native/iap';
 
 // Lazy-loaded: pulls in the WebRTC media layer (webrtcService/callService)
 const CallOverlay = lazy(() => import('../components/CallOverlay').then((m) => ({ default: m.CallOverlay })));
@@ -55,6 +56,20 @@ export const AppShell: React.FC = () => {
     // Rewarded ads (Discover's daily-like exhaustion path) need the SDK + consent flow ready
     // before the first ad request; init is idempotent and never blocks app usage on failure.
     if (isAuthenticated) void nativeAdMob.initialize();
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+    void BillingService.initialize().then((removeListeners) => {
+      if (cancelled) removeListeners();
+      else cleanup = removeListeners;
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -105,6 +120,5 @@ export const AppShell: React.FC = () => {
     </ProfileFrameCatalogProvider>
   );
 };
-
 
 

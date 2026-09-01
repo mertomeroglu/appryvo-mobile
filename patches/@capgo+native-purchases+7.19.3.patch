@@ -1,0 +1,129 @@
+diff --git a/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java b/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java
+index dfb6cca..051f951 100644
+--- a/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java
++++ b/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java
+@@ -202,7 +202,7 @@ public class NativePurchasesPlugin extends Plugin {
+         Log.i(NativePurchasesPlugin.TAG, "handlePurchase" + purchase);
+         Log.i(NativePurchasesPlugin.TAG, "getPurchaseState" + purchase.getPurchaseState());
+         Log.d(TAG, "Purchase state: " + purchase.getPurchaseState());
+-        Log.d(TAG, "Purchase token: " + purchase.getPurchaseToken());
++        Log.d(TAG, "Purchase token received: [REDACTED]");
+         Log.d(TAG, "Is acknowledged: " + purchase.isAcknowledged());
+ 
+         if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
+@@ -297,7 +297,7 @@ public class NativePurchasesPlugin extends Plugin {
+     }
+ 
+     private void acknowledgePurchase(String purchaseToken) {
+-        Log.d(TAG, "acknowledgePurchase() called with token: " + purchaseToken);
++        Log.d(TAG, "acknowledgePurchase() called with token: [REDACTED]");
+         AcknowledgePurchaseParams acknowledgePurchaseParams = AcknowledgePurchaseParams.newBuilder()
+             .setPurchaseToken(purchaseToken)
+             .build();
+@@ -461,6 +461,9 @@ public class NativePurchasesPlugin extends Plugin {
+         Log.d(TAG, "purchaseProduct() called");
+         String productIdentifier = call.getString("productIdentifier");
+         String planIdentifier = call.getString("planIdentifier");
++        String requestedOfferToken = call.getString("offerToken");
++        String oldPurchaseToken = call.getString("oldPurchaseToken");
++        Integer replacementMode = call.getInt("replacementMode");
+         String productType = call.getString("productType", "inapp");
+         Number quantity = call.getInt("quantity", 1);
+         String appAccountToken = call.getString("appAccountToken");
+@@ -560,21 +563,24 @@ public class NativePurchasesPlugin extends Plugin {
+                                 BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(productDetailsItem);
+                             if (productType.equals("subs")) {
+                                 Log.d(TAG, "Processing subscription product");
+-                                // list the SubscriptionOfferDetails and find the one who match the planIdentifier if not found get the first one
++                                // Select only the exact active offer returned to JavaScript. Falling
++                                // back to the first offer can silently buy the wrong billing period.
+                                 ProductDetails.SubscriptionOfferDetails selectedOfferDetails = null;
+                                 assert productDetailsItem.getSubscriptionOfferDetails() != null;
+                                 Log.d(TAG, "Available offer details count: " + productDetailsItem.getSubscriptionOfferDetails().size());
+                                 for (ProductDetails.SubscriptionOfferDetails offerDetails : productDetailsItem.getSubscriptionOfferDetails()) {
+                                     Log.d(TAG, "Checking offer: " + offerDetails.getBasePlanId());
+-                                    if (offerDetails.getBasePlanId().equals(planIdentifier)) {
++                                    if (offerDetails.getBasePlanId().equals(planIdentifier) &&
++                                        (requestedOfferToken == null || requestedOfferToken.equals(offerDetails.getOfferToken()))) {
+                                         selectedOfferDetails = offerDetails;
+                                         Log.d(TAG, "Found matching plan: " + planIdentifier);
+                                         break;
+                                     }
+                                 }
+                                 if (selectedOfferDetails == null) {
+-                                    selectedOfferDetails = productDetailsItem.getSubscriptionOfferDetails().get(0);
+-                                    Log.d(TAG, "Using first available offer: " + selectedOfferDetails.getBasePlanId());
++                                    closeBillingClient();
++                                    call.reject("Selected subscription offer is no longer available");
++                                    return;
+                                 }
+                                 productDetailsParams.setOfferToken(selectedOfferDetails.getOfferToken());
+                                 Log.d(TAG, "Set offer token: " + selectedOfferDetails.getOfferToken());
+@@ -584,6 +590,14 @@ public class NativePurchasesPlugin extends Plugin {
+                         BillingFlowParams.Builder billingFlowBuilder = BillingFlowParams.newBuilder().setProductDetailsParamsList(
+                             productDetailsParamsList
+                         );
++                        if (oldPurchaseToken != null && !oldPurchaseToken.isEmpty()) {
++                            BillingFlowParams.SubscriptionUpdateParams.Builder updateBuilder =
++                                BillingFlowParams.SubscriptionUpdateParams.newBuilder().setOldPurchaseToken(oldPurchaseToken);
++                            if (replacementMode != null && replacementMode > 0) {
++                                updateBuilder.setSubscriptionReplacementMode(replacementMode);
++                            }
++                            billingFlowBuilder.setSubscriptionUpdateParams(updateBuilder.build());
++                        }
+                         if (accountIdentifier != null && !accountIdentifier.isEmpty()) {
+                             billingFlowBuilder.setObfuscatedAccountId(accountIdentifier);
+                         }
+@@ -649,17 +663,17 @@ public class NativePurchasesPlugin extends Plugin {
+     private void onConsumeResponse(BillingResult billingResult, String purchaseToken) {
+         Log.d(TAG, "onConsumeResponse() called");
+         Log.d(TAG, "Consume result: " + billingResult.getResponseCode() + " - " + billingResult.getDebugMessage());
+-        Log.d(TAG, "Purchase token: " + purchaseToken);
++        Log.d(TAG, "Purchase token: [REDACTED]");
+ 
+         if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+             // Handle the success of the consume operation.
+             // For example, you can update the UI to reflect that the item has been consumed.
+             Log.d(TAG, "Consume operation successful");
+-            Log.i(NativePurchasesPlugin.TAG, "onConsumeResponse OK " + billingResult + purchaseToken);
++            Log.i(NativePurchasesPlugin.TAG, "onConsumeResponse OK " + billingResult + " [REDACTED]");
+         } else {
+             // Handle error responses.
+             Log.d(TAG, "Consume operation failed");
+-            Log.i(NativePurchasesPlugin.TAG, "onConsumeResponse OTHER " + billingResult + purchaseToken);
++            Log.i(NativePurchasesPlugin.TAG, "onConsumeResponse OTHER " + billingResult + " [REDACTED]");
+         }
+     }
+ 
+@@ -1207,7 +1221,7 @@ public class NativePurchasesPlugin extends Plugin {
+             return;
+         }
+ 
+-        Log.d(TAG, "Manually acknowledging purchase with token: " + purchaseToken);
++        Log.d(TAG, "Manually acknowledging purchase with token: [REDACTED]");
+         try {
+             this.initBillingClient(call);
+         } catch (RuntimeException e) {
+@@ -1260,7 +1274,7 @@ public class NativePurchasesPlugin extends Plugin {
+             return;
+         }
+ 
+-        Log.d(TAG, "Consuming purchase with token: " + purchaseToken);
++        Log.d(TAG, "Consuming purchase with token: [REDACTED]");
+         try {
+             this.initBillingClient(call);
+         } catch (RuntimeException e) {
+diff --git a/node_modules/@capgo/native-purchases/dist/esm/definitions.d.ts b/node_modules/@capgo/native-purchases/dist/esm/definitions.d.ts
+index 98ae3aa..4fa1ba4 100644
+--- a/node_modules/@capgo/native-purchases/dist/esm/definitions.d.ts
++++ b/node_modules/@capgo/native-purchases/dist/esm/definitions.d.ts
+@@ -820,6 +820,9 @@ export interface NativePurchasesPlugin {
+     purchaseProduct(options: {
+         productIdentifier: string;
+         planIdentifier?: string;
++        offerToken?: string;
++        oldPurchaseToken?: string;
++        replacementMode?: PRORATION_MODE;
+         productType?: PURCHASE_TYPE;
+         quantity?: number;
+         appAccountToken?: string;

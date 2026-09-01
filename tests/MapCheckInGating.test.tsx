@@ -64,11 +64,12 @@ vi.mock('@capacitor/core', () => ({
   Capacitor: { isNativePlatform: () => true, getPlatform: () => 'ios' },
 }));
 
-const getCurrentPositionMock = vi.fn(async () => ({ coords: { latitude: 41.0, longitude: 29.0, accuracy: 8 } }));
+const getCurrentPositionMock = vi.fn(async () => ({ timestamp: Date.now(), coords: { latitude: 41.0, longitude: 29.0, accuracy: 8 } }));
 vi.mock('../src/native/location', () => ({
   nativeLocation: {
     getCurrentPosition: (...args: unknown[]) => getCurrentPositionMock(...args),
     watchPosition: vi.fn(),
+    clearWatch: vi.fn(),
   },
 }));
 

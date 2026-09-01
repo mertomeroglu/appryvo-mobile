@@ -58,7 +58,7 @@ describe('Android performance contracts', () => {
     expect(map).toContain('container?.replaceChildren()');
     expect(map).toContain('maxTileCacheSize: 50');
     expect(chat).toContain("recorder.state !== 'inactive'");
-    expect(chat).toContain('recorder.stream.getTracks().forEach((track) => track.stop())');
+    expect(chat).toContain('stopMediaStream(recorder.stream)');
     expect(call).toContain('webrtcService.hangup()');
     expect(realtimeSync).toContain("socketService.on('disconnect'");
     expect(realtimeSync).toContain('webrtcService.hangup()');

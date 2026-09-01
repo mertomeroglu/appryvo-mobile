@@ -15,6 +15,7 @@ import {
 import { socketService } from '../../services/socket/socketService';
 import { apiClient } from '../../services/api/apiClient';
 import { getPhotoUrl, mediaService } from '../../services/media/mediaService';
+import { createAudioRecorder, recorderBlob, stopMediaStream } from '../../services/media/audioRecorder';
 import { callService } from '../../services/call/callService';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { toast } from '../../stores/useToastStore';
@@ -63,6 +64,7 @@ export const ChatScreen: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [safetyAction, setSafetyAction] = useState<'report' | 'block' | null>(null);
+  const [reportedMessageId, setReportedMessageId] = useState<string | null>(null);
   const [isConversationActionsOpen, setIsConversationActionsOpen] = useState(false);
   const [isUnmatchConfirmOpen, setIsUnmatchConfirmOpen] = useState(false);
   const [isMeetingModalOpen, setIsMeetingModalOpen] = useState(false);
@@ -494,7 +496,7 @@ export const ChatScreen: React.FC = () => {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
-      const recorder = new MediaRecorder(stream);
+      const recorder = createAudioRecorder(stream);
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
@@ -516,11 +518,12 @@ export const ChatScreen: React.FC = () => {
     const duration = recordSeconds;
 
     recorder.onstop = async () => {
-      recorder.stream.getTracks().forEach((t) => t.stop());
+      stopMediaStream(recorder.stream);
+      mediaRecorderRef.current = null;
       setIsRecording(false);
       if (!send || chunksRef.current.length === 0 || !matchId) return;
 
-      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+      const blob = recorderBlob(chunksRef.current, recorder);
       try {
         const res = await mediaService.uploadMedia(blob, 'chat');
         if (res?.data?.url) {
@@ -536,11 +539,12 @@ export const ChatScreen: React.FC = () => {
           refetch();
           window.setTimeout(() => scrollToBottom(), 100);
         }
-      } catch {
+      } catch (error) {
+        console.error('[CHAT AUDIO] upload/send failed', error);
         toast.error(t('chatVoiceMessageFailedToast'));
       }
     };
-    recorder.stop();
+    if (recorder.state !== 'inactive') recorder.stop();
   };
 
   useEffect(() => () => {
@@ -554,7 +558,7 @@ export const ChatScreen: React.FC = () => {
       recorder.ondataavailable = null;
       recorder.onstop = null;
       if (recorder.state !== 'inactive') recorder.stop();
-      recorder.stream.getTracks().forEach((track) => track.stop());
+      stopMediaStream(recorder.stream);
       mediaRecorderRef.current = null;
     }
     chunksRef.current = [];
@@ -644,7 +648,7 @@ export const ChatScreen: React.FC = () => {
     {
       label: t('reportUser'),
       icon: <Flag className="h-5 w-5" />,
-      onSelect: () => setSafetyAction('report'),
+      onSelect: () => { setReportedMessageId(null); setSafetyAction('report'); },
     },
     {
       label: t('blockUser'),
@@ -759,7 +763,7 @@ export const ChatScreen: React.FC = () => {
                   }}
                   onDelete={handleDelete}
                   onReact={handleReact}
-                  onReport={() => setSafetyAction('report')}
+                  onReport={() => { setReportedMessageId(message.id); setSafetyAction('report'); }}
                   onTranslate={handleManualTranslate}
                   animateGift={freshGiftIds.has(msg.id)}
                   giftSenderName={partner?.name}
@@ -884,6 +888,8 @@ export const ChatScreen: React.FC = () => {
         onClose={() => setSafetyAction(null)}
         targetUserId={partnerId}
         targetUserName={partner?.name}
+        targetType={reportedMessageId ? 'MESSAGE' : 'USER'}
+        targetId={reportedMessageId || partnerId}
         type={safetyAction || 'report'}
         onSuccess={() => {
           if (safetyAction !== 'block') return;

@@ -40,7 +40,7 @@ import { BottomSheet } from '../../components/ui/BottomSheet';
 import { RewardedAdSheet } from '../../components/RewardedAdSheet';
 import { useAppTranslation } from '../../i18n/appLocale';
 import { nativeHaptics } from '../../native/haptics';
-import { nativeLocation } from '../../native/location';
+import { acquireBestLocation } from '../../services/geo/locationQuality';
 import { nativeApp } from '../../native/app';
 import { nativeAppSettings } from '../../native/nativeSettings';
 import { nativeNetwork } from '../../native/network';
@@ -209,11 +209,7 @@ export const DiscoverScreen: React.FC = () => {
 
       let position: any;
       try {
-        position = await nativeLocation.getCurrentPosition({
-          enableHighAccuracy: false,
-          maximumAge: 5 * 60 * 1000,
-          timeout: 15000,
-        });
+        position = await acquireBestLocation();
       } catch (error) {
         setLocationGate(isLocationServicesDisabled(error) ? 'servicesDisabled' : 'unavailable');
         return;
@@ -234,6 +230,7 @@ export const DiscoverScreen: React.FC = () => {
           latitude: lat,
           longitude: lng,
           accuracy: Number.isFinite(position?.coords?.accuracy) ? position.coords.accuracy : undefined,
+          observedAt: new Date(position.timestamp).toISOString(),
         });
       } catch {
         setLocationGate('syncFailed');

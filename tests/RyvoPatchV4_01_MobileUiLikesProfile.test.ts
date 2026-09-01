@@ -80,7 +80,7 @@ describe('RYVO PATCH V4 / PROMPT 01: mobile UI/UX core fixes', () => {
   it('A -- locked (non-premium) cards still get a real blurred photo, and canReveal still gates the full name/photo', () => {
     const screen = source('features/likes/LikesScreen.tsx');
     expect(screen).toContain("const isBlurred = item.canReveal === false;");
-    expect(screen).toContain('blur-xl scale-110 opacity-70');
+    expect(screen).toContain("blurred ? 'scale-105 saturate-75 brightness-90' : ''");
     expect(screen).toContain("navigate('/premium')");
   });
 

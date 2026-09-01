@@ -34,6 +34,7 @@ const RoomDirectoryScreen = lazy(() => import('../features/rooms/RoomDirectorySc
 const CreateRoomScreen = lazy(() => import('../features/rooms/CreateRoomScreen').then((m) => ({ default: m.CreateRoomScreen })));
 const RoomScreen = lazy(() => import('../features/rooms/RoomScreen').then((m) => ({ default: m.RoomScreen })));
 const ReportRoomScreen = lazy(() => import('../features/rooms/ReportRoomScreen').then((m) => ({ default: m.ReportRoomScreen })));
+const ConnectRequestInboxScreen = lazy(() => import('../features/connect/ConnectRequestInboxScreen').then((m) => ({ default: m.ConnectRequestInboxScreen })));
 
 const SuspenseFallback = (
   <div className="flex items-center justify-center h-full w-full bg-app" />
@@ -89,6 +90,7 @@ const router = createBrowserRouter([
           { path: 'rooms/create', element: <Suspense fallback={SuspenseFallback}><CreateRoomScreen /></Suspense> },
           { path: 'rooms/:roomId/report', element: <Suspense fallback={SuspenseFallback}><ReportRoomScreen /></Suspense> },
           { path: 'rooms/:roomId', element: <Suspense fallback={SuspenseFallback}><RoomScreen /></Suspense> },
+          { path: 'connect/inbox', element: <Suspense fallback={SuspenseFallback}><ConnectRequestInboxScreen /></Suspense> },
           {
             path: 'likes',
             element: (

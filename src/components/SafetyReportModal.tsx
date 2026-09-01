@@ -11,6 +11,8 @@ interface SafetyReportModalProps {
   onClose: () => void;
   targetUserId?: string;
   targetUserName?: string;
+  targetType?: 'USER' | 'PROFILE' | 'MESSAGE' | 'CONFESSION' | 'STORY' | 'ROOM' | 'ROOM_MESSAGE';
+  targetId?: string;
   type?: 'report' | 'block' | 'delete_account';
   /** Called after the action succeeds (e.g. so a caller can navigate away or refetch a list). */
   onSuccess?: () => void;
@@ -30,6 +32,8 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
   onClose,
   targetUserId,
   targetUserName,
+  targetType = 'USER',
+  targetId,
   type = 'report',
   onSuccess,
 }) => {
@@ -61,6 +65,8 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
       if (type === 'report' && targetUserId) {
         await apiClient.post('/api/reports', {
           targetUserId,
+          targetType,
+          targetId: targetId || targetUserId,
           category: reason,
           reason,
           details: details || undefined,

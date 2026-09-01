@@ -283,7 +283,7 @@ const SwipeCardComponent = React.forwardRef<SwipeCardHandle, SwipeCardProps>(fun
           <div className="flex items-center gap-1.5 text-xs text-gray-300 mb-2 flex-wrap">
             <span className="flex items-center gap-1.5">
               <MapPin className="w-4 h-4 text-pink-500" />
-              <span>{profile.city}</span>
+              <span>{t('profileResidenceOtherLabel')}: {profile.city}</span>
               {typeof profile.distanceKm === 'number' && <span>• {t('fullProfileDistanceAwayTemplate').replace('{distance}', String(profile.distanceKm))}</span>}
             </span>
           </div>

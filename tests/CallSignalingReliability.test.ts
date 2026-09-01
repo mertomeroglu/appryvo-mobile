@@ -33,12 +33,39 @@ describe('RYVO PATCH 03 — call signaling reaches audio/video, not just the rin
     }
   });
 
-  it('a fresh call session and hangup both clear any leftover queued candidates', () => {
+  it('creating the callee peer preserves pre-accept candidates and hangup clears them', () => {
     const source = read('src/services/call/webrtcService.ts');
     const ensureBody = source.slice(source.indexOf('private async ensurePeerConnection('), source.indexOf('private async acquireLocalStream('));
     const hangupBody = source.slice(source.indexOf('hangup() {'));
-    expect(ensureBody).toContain('this.pendingRemoteIceCandidates = []');
+    expect(ensureBody).not.toContain('this.pendingRemoteIceCandidates = []');
     expect(hangupBody).toContain('this.pendingRemoteIceCandidates = []');
+  });
+
+  it('aggregates split Unified Plan track events and emits a fresh stream wrapper', () => {
+    const source = read('src/services/call/webrtcService.ts');
+    const trackBody = source.slice(source.indexOf('pc.ontrack ='), source.indexOf('pc.onconnectionstatechange'));
+    expect(trackBody).toContain("track.id === event.track.id");
+    expect(trackBody).toContain('this.remoteStream.addTrack(event.track)');
+    expect(trackBody).toContain('event.track.onended');
+    expect(source).toContain('new MediaStream(this.remoteStream.getTracks())');
+  });
+
+  it('adds local tracks duplicate-safely and keeps voice capture camera-free', () => {
+    const source = read('src/services/call/webrtcService.ts');
+    expect(source).toContain("sender.track?.id === track.id");
+    expect(source).toContain('if (!alreadyAdded) pc.addTrack(track, stream)');
+    expect(source).toMatch(/video: video[\s\S]*: false/);
+  });
+
+  it('does not report ACTIVE until the peer connection reaches connected', () => {
+    const callService = read('src/services/call/callService.ts');
+    const realtimeSync = read('src/components/RealtimeSync.tsx');
+    expect(callService).toContain("state === 'connected'");
+    expect(callService).toContain("setCallStatus('ACTIVE')");
+    expect(realtimeSync).toContain("setCallStatus('CONNECTING')");
+    expect(realtimeSync.slice(realtimeSync.indexOf("call:answered"), realtimeSync.indexOf("call:ice-candidate"))).not.toContain(
+      "setCallStatus('ACTIVE')"
+    );
   });
 
   it('call signaling responses are registered in RealtimeSync (mounted eagerly at app start), not inside the lazy-loaded CallOverlay', () => {

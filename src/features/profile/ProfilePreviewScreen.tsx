@@ -93,7 +93,7 @@ export const ProfilePreviewScreen: React.FC = () => {
               {user?.city && (
                 <div className="flex items-center gap-1.5 text-xs text-gray-300 mt-1">
                   <MapPin className="w-4 h-4 text-pink-500" />
-                  <span>{user.city}</span>
+                  <span>{t('profileResidenceOtherLabel')}: {user.city}</span>
                 </div>
               )}
             </div>

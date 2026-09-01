@@ -28,6 +28,7 @@ import { INTEREST_MAX, INTEREST_MIN } from '../lib/interests';
 import { getLocalizedInterestLabel } from '../lib/interestLabels';
 import { normalizeLanguageNames } from '../lib/languages';
 import { useAppTranslation } from '../i18n/appLocale';
+import { ProfileCreativeEditor } from './ProfileCreativeEditor';
 
 // Enum key order only -- the display TEXT is resolved per-locale at render time via the
 // getXLabel() functions above, never read as a fixed object here.
@@ -91,6 +92,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
   const [photos, setPhotos] = useState<PhotoSlot[]>(() => normalizeInitialPhotos(user?.photos));
   const [bio, setBio] = useState(user?.bio || '');
   const [job, setJob] = useState(user?.job || '');
+  const [city, setCity] = useState(user?.city || '');
+  const [cityId, setCityId] = useState<number | undefined>(undefined);
   const [relationshipGoals, setRelationshipGoals] = useState<string[]>(() => {
     if (Array.isArray(user?.relationshipGoals) && user.relationshipGoals.length > 0) {
       return user.relationshipGoals.slice(0, 2);
@@ -124,6 +127,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     photoKeys: string[];
     bio: string;
     job: string;
+    city: string;
     relationshipGoals: string[];
     interests: string[];
     heightCm: string;
@@ -139,6 +143,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       photoKeys: normalizeInitialPhotos(user?.photos).map((p) => p.url),
       bio: user?.bio || '',
       job: user?.job || '',
+      city: user?.city || '',
       relationshipGoals:
         Array.isArray(user?.relationshipGoals) && user.relationshipGoals.length > 0
           ? user.relationshipGoals.slice(0, 2)
@@ -181,6 +186,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       JSON.stringify(currentPhotoKeys) !== JSON.stringify(snap.photoKeys) ||
       bio !== snap.bio ||
       job !== snap.job ||
+      city !== snap.city ||
       JSON.stringify(relationshipGoals) !== JSON.stringify(snap.relationshipGoals) ||
       JSON.stringify(interests) !== JSON.stringify(snap.interests) ||
       heightCm !== snap.heightCm ||
@@ -192,7 +198,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       JSON.stringify(languages) !== JSON.stringify(snap.languages)
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPhotoKeys.join('|'), bio, job, relationshipGoals, interests, heightCm, zodiac, smokingStatus, drinkingStatus, childrenStatus, familyPlans, languages]);
+  }, [currentPhotoKeys.join('|'), bio, job, city, relationshipGoals, interests, heightCm, zodiac, smokingStatus, drinkingStatus, childrenStatus, familyPlans, languages]);
 
   if (!isOpen) return null;
 
@@ -329,6 +335,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       const payload: Record<string, unknown> = {
         bio,
         job: job.trim(),
+        ...(city !== initialSnapshotRef.current!.city ? { city, cityId } : {}),
         interests,
         relationshipGoal: relationshipGoals[0],
         relationshipGoals,
@@ -355,6 +362,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
           ...user,
           bio,
           job: job.trim(),
+          city,
           interests,
           relationshipGoal: relationshipGoals[0],
           relationshipGoals,
@@ -693,6 +701,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
               <ChevronRight className="w-5 h-5 text-app-muted" />
             </button>
           </div>
+
+          <ProfileCreativeEditor city={city} onCityChange={(next, id) => { setCity(next); setCityId(id); }} initialPrompts={user?.prompts} initialVoice={user?.voicePrompt} />
 
           {errorMsg && (
             <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-caption font-bold text-center">

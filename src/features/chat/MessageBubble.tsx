@@ -16,6 +16,8 @@ import {
   Reply,
   ThumbsUp,
   Trash2,
+  X,
+  RefreshCw,
 } from 'lucide-react';
 import { mediaService, normalizeMediaUrl } from '../../services/media/mediaService';
 import { ActionSheet, type ActionSheetAction } from '../../components/ui/ActionSheet';
@@ -204,6 +206,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   // Local to this bubble on purpose -- "show original" is a per-message glance, not app state
   // worth persisting or lifting; it resets naturally if the message scrolls out and back in.
   const [showOriginal, setShowOriginal] = useState(false);
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [imageRetryKey, setImageRetryKey] = useState(0);
   const resolvedMediaUrl = useAuthorizedMediaUrl(message.mediaUrl);
   const resolvedStoryPreviewUrl = message.replyToStoryPreview?.mediaUrl
     ? normalizeMediaUrl(message.replyToStoryPreview.mediaUrl)
@@ -427,13 +432,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 )}
                 {resolvedMediaUrl &&
                   (message.messageType === 'IMAGE' || message.messageType === 'GIF' || !message.messageType) && (
-                    <img
-                      src={resolvedMediaUrl}
-                      alt={t('bubbleMediaAlt')}
-                      loading="lazy"
-                      decoding="async"
-                      className="mb-1.5 max-h-60 w-full rounded-[14px] object-cover"
-                    />
+                    <button type="button" className="mb-1.5 block w-full overflow-hidden rounded-[14px] bg-black/10" onClick={(event) => { event.stopPropagation(); setImageViewerOpen(true); }}>
+                      {imageLoadFailed ? (
+                        <span className="flex min-h-32 items-center justify-center gap-2 text-micro"><RefreshCw className="h-4 w-4" />{t('retry')}</span>
+                      ) : (
+                        <img key={imageRetryKey} src={resolvedMediaUrl} alt={t('bubbleMediaAlt')} loading="lazy" decoding="async" onError={() => setImageLoadFailed(true)} className="max-h-60 w-full object-cover" />
+                      )}
+                    </button>
                   )}
                 {displayText && <p className="whitespace-pre-wrap leading-[1.42]">{displayText}</p>}
                 {!message.translation && isTranslating && (
@@ -493,6 +498,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         </div>
       </div>
 
+      <AnimatePresence>
+        {imageViewerOpen && resolvedMediaUrl && (
+          <motion.div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 px-3 pb-[var(--safe-bottom)] pt-[var(--safe-top)]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setImageViewerOpen(false)}>
+            <button type="button" aria-label={t('close')} className="absolute right-4 top-[calc(var(--safe-top)+12px)] z-10 rounded-full bg-white/15 p-2 text-white" onClick={() => setImageViewerOpen(false)}><X className="h-6 w-6" /></button>
+            {imageLoadFailed ? (
+              <button type="button" className="flex items-center gap-2 rounded-xl bg-white/10 px-4 py-3 text-white" onClick={(event) => { event.stopPropagation(); setImageLoadFailed(false); setImageRetryKey((value) => value + 1); }}><RefreshCw className="h-5 w-5" />{t('retry')}</button>
+            ) : (
+              <img key={`viewer-${imageRetryKey}`} src={resolvedMediaUrl} alt={t('bubbleMediaAlt')} onError={() => setImageLoadFailed(true)} onClick={(event) => event.stopPropagation()} className="max-h-full max-w-full object-contain" />
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
       {actions.length > 0 && <ActionSheet isOpen={isSheetOpen} onClose={() => setIsSheetOpen(false)} title={t('bubbleActionsTitle')} actions={actions} />}
     </div>
   );

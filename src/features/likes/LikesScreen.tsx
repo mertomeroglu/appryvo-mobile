@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, Lock, Star } from 'lucide-react';
+import { Heart, Lock, Star, UserRound } from 'lucide-react';
 import { useInboundLikesQuery, useEntitlementsQuery, useMarkLikesSeenMutation } from '../../hooks/useQueries';
 import { normalizeMediaUrl, getPhotoUrl } from '../../services/media/mediaService';
 import { formatDisplayAge } from '../../lib/profileLabels';
@@ -28,11 +28,9 @@ const LikeCardImage: React.FC<{ src?: string; name?: string; blurred: boolean }>
   if (!src || failed) {
     return (
       <div
-        className={`w-full h-full flex items-center justify-center font-bold text-white text-title bg-brand-gradient ${
-          blurred ? 'blur-md scale-110' : ''
-        }`}
+        className="w-full h-full flex items-center justify-center font-bold text-white text-title bg-brand-gradient"
       >
-        {initialsFrom(name)}
+        {blurred ? <UserRound className="h-20 w-20 text-white/75" /> : initialsFrom(name)}
       </div>
     );
   }
@@ -44,7 +42,7 @@ const LikeCardImage: React.FC<{ src?: string; name?: string; blurred: boolean }>
       loading="lazy"
       decoding="async"
       onError={() => setFailed(true)}
-      className={`w-full h-full object-cover transition-all ${blurred ? 'blur-xl scale-110 opacity-70' : ''}`}
+      className={`w-full h-full object-cover transition-all ${blurred ? 'scale-105 saturate-75 brightness-90' : ''}`}
     />
   );
 };
@@ -160,7 +158,7 @@ export const LikesScreen: React.FC = () => {
                 {isBlurred ? (
                   <button
                     onClick={() => navigate('/premium')}
-                    className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 p-4 text-center"
+                    className="absolute inset-0 flex flex-col items-center justify-center bg-black/25 p-4 text-center"
                   >
                     <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white mb-2 shadow-elevated">
                       <Lock className="w-5 h-5" />

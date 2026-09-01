@@ -2,7 +2,8 @@ import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { motion, type PanInfo } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { BadgeCheck, CheckCheck, MessageCircle, Search } from 'lucide-react';
+import { BadgeCheck, CheckCheck, MessageCircle, Search, UserPlus } from 'lucide-react';
+import { connectText } from '../connect/connectLocale';
 import { QUERY_KEYS, useInAppNotificationsQuery, useMatchesQuery } from '../../hooks/useQueries';
 import { getPhotoUrl } from '../../services/media/mediaService';
 import { socketService } from '../../services/socket/socketService';
@@ -126,7 +127,7 @@ export const ConversationRow: React.FC<ConversationRowProps> = ({ match, online,
 };
 
 export const MessagesScreen: React.FC = () => {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const { data: matches, isLoading } = useMatchesQuery();
   const { data: notificationData } = useInAppNotificationsQuery();
   const queryClient = useQueryClient();
@@ -190,11 +191,23 @@ export const MessagesScreen: React.FC = () => {
               <h1 className="text-title text-app">{t('messages')}</h1>
             </div>
           </div>
-          {mode === 'chats' && matchItems.length > 0 && (
-            <span className="rounded-full border border-app bg-surface px-2.5 py-1 text-micro font-bold normal-case text-app-muted">
-              {t('msgsConversationCountTemplate').replace('{count}', String(matchItems.length))}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {mode === 'chats' && matchItems.length > 0 && (
+              <span className="rounded-full border border-app bg-surface px-2.5 py-1 text-micro font-bold normal-case text-app-muted">
+                {t('msgsConversationCountTemplate').replace('{count}', String(matchItems.length))}
+              </span>
+            )}
+            {/* Connect Pass inbox entry point -- deliberately not a third tab next to
+                Chats/Confessions (Confessions must stay unchanged), just a discoverable icon. */}
+            <button
+              type="button"
+              onClick={() => navigate('/connect/inbox')}
+              aria-label={connectText(locale, 'connectInboxTitle')}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-app bg-surface text-app-muted"
+            >
+              <UserPlus className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-1 rounded-2xl border border-app bg-surface p-1 shadow-soft" role="tablist" aria-label={t('msgsSectionAriaLabel')}>

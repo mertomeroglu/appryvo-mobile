@@ -492,7 +492,7 @@ export function useTrustProfileQuery(userId?: string | null) {
 
 export interface MeetingStatus {
   meetingId: string | null;
-  status: 'PENDING' | 'CONFIRMED';
+  status: 'NOT_STARTED' | 'I_CONFIRMED' | 'THEY_CONFIRMED' | 'MUTUALLY_CONFIRMED';
   selfConfirmed: boolean;
   otherConfirmed: boolean;
   feedbackSubmitted: boolean;
@@ -504,6 +504,7 @@ export function useMeetingStatusQuery(matchId?: string | null) {
     queryFn: () => apiClient.get(`/api/trust/meetings/${matchId}/status`).then((res) => res?.data as MeetingStatus),
     enabled: !!matchId,
     staleTime: 15 * 1000,
+    refetchInterval: matchId ? 5000 : false,
   });
 }
 

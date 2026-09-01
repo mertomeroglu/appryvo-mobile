@@ -59,14 +59,23 @@ export const nativeLocation = {
     }
   },
 
-  async watchPosition(callback: (pos: any) => void) {
+  async watchPosition(callback: (pos: any, err?: any) => void, options?: PositionOptions) {
     if (Capacitor.isNativePlatform()) {
-      return await Geolocation.watchPosition({}, callback);
+      return await Geolocation.watchPosition(options || {}, callback);
     }
     if ('geolocation' in navigator) {
-      const id = navigator.geolocation.watchPosition(callback);
+      const id = navigator.geolocation.watchPosition((pos) => callback(pos), (err) => callback(null, err), options);
       return id.toString();
     }
     return null;
+  },
+
+  async clearWatch(id: string | null) {
+    if (!id) return;
+    if (Capacitor.isNativePlatform()) {
+      await Geolocation.clearWatch({ id });
+    } else if ('geolocation' in navigator) {
+      navigator.geolocation.clearWatch(Number(id));
+    }
   },
 };

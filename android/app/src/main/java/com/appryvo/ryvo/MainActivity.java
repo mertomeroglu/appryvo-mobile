@@ -23,5 +23,10 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CallAudioPlugin.class);
 
         super.onCreate(savedInstanceState);
+
+        // Capacitor 7 already maps WebView capture requests to Android runtime permissions.
+        // Keep that implementation, but put an origin/resource allow-list in front of it so an
+        // unexpected navigated origin or unknown WebView resource can never be granted.
+        bridge.getWebView().setWebChromeClient(new CallWebChromeClient(bridge));
     }
 }

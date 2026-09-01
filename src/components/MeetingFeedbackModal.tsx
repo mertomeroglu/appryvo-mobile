@@ -68,9 +68,9 @@ export const MeetingFeedbackModal: React.FC<MeetingFeedbackModalProps> = ({ isOp
 
         {isLoading ? (
           <div className="h-24 rounded-2xl bg-app-secondary animate-pulse" />
-        ) : status?.status === 'CONFIRMED' && feedbackDone ? (
+        ) : status?.status === 'MUTUALLY_CONFIRMED' && feedbackDone ? (
           <p className="text-body text-app-muted">{t('feedbackSubmittedToast')}</p>
-        ) : status?.status === 'CONFIRMED' ? (
+        ) : status?.status === 'MUTUALLY_CONFIRMED' ? (
           <div className="space-y-4">
             <p className="text-caption font-bold text-app">{t('meetingConfirmedBothTitle')}</p>
             <div className="space-y-3">

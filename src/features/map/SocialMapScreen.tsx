@@ -18,7 +18,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 setWorkerUrl('/maplibre-gl-worker.mjs');
 import Supercluster, { type PointFeature } from 'supercluster';
 import './SocialMapScreen.css';
-import { Search, Compass, Heart, ShieldCheck, LocateFixed, X, Sparkles, Crown, MapPin, EyeOff, Users, MessageCircle, Mic2, Video, MoreHorizontal, ChevronRight } from 'lucide-react';
+import { Search, Compass, ShieldCheck, LocateFixed, Sparkles, Crown, MapPin, EyeOff, Users, MessageCircle, MoreHorizontal, ChevronRight } from 'lucide-react';
 import {
   useDiscoveryMapQuery,
   useDiscoveryUserQuery,
@@ -35,6 +35,7 @@ import { nativeLocation } from '../../native/location';
 import { nativeHaptics } from '../../native/haptics';
 import { socketService } from '../../services/socket/socketService';
 import { searchCities, type GeoCityResult } from '../../services/geo/cityService';
+import { acquireBestLocation } from '../../services/geo/locationQuality';
 import { buildRyvoMapStyle, type ResolvedTileSource } from './ryvoMapStyle';
 import { OPENMAPTILES_SPRITE_URL, OPENMAPTILES_GLYPHS_URL, OPENMAPTILES_TILEJSON_URL, isRyvoMapConfigured } from './ryvoMapConfig';
 import { BottomSheet } from '../../components/ui/BottomSheet';
@@ -51,7 +52,15 @@ import { AppLogo } from '../../components/ui/AppLogo';
 import { getRelationshipGoalLabels, formatDisplayAge } from '../../lib/profileLabels';
 import { SPRING } from '../../motion/tokens';
 import { useAppTranslation, translateSync } from '../../i18n/appLocale';
-import { communityRoomsService, type CommunityRoom } from '../../services/rooms/communityRoomsService';
+import { communityRoomsService, type CommunityRoom, type RoomCategory } from '../../services/rooms/communityRoomsService';
+import { FollowButton } from '../../components/FollowButton';
+import { ConnectButton } from '../connect/ConnectButton';
+
+const ROOM_CATEGORY_KEY: Record<RoomCategory, Parameters<typeof roomsText>[1]> = {
+  GENERAL: 'categoryGeneral', TRAVEL: 'categoryTravel', FOOD_CAFE: 'categoryFoodCafe', MUSIC: 'categoryMusic',
+  MOVIES: 'categoryMovies', GAMING: 'categoryGaming', TECHNOLOGY: 'categoryTechnology', LOCAL: 'categoryLocal',
+  LANGUAGE: 'categoryLanguage', OTHER: 'categoryOther',
+};
 import { roomsText } from '../rooms/roomsLocale';
 import { Avatar } from '../../components/ui/Avatar';
 import { AppButton } from '../../components/ui/AppButton';
@@ -115,17 +124,31 @@ function htmlToElement(html: string): HTMLElement {
   return el;
 }
 
+// V3: room clusters -- every room in the same city shares that city's exact centroid
+// coordinates (no precise room-owner GPS is ever stored), so without clustering every room in a
+// city renders as fully-overlapping pins. Mirrors buildSocialClusterHtml's shape (a bubble +
+// count badge) but visually distinct (message-bubble icon, teal instead of pink/violet) so a
+// room cluster is never mistaken for a people cluster at a glance.
+function buildRoomClusterHtml(roomCount: number): string {
+  return `<div style="position:relative;width:58px;height:58px;z-index:600;cursor:pointer">
+    <div style="position:absolute;inset:0;border-radius:9999px;background:linear-gradient(135deg,#25D9D0,#7957ff);box-shadow:0 4px 14px rgba(37,217,208,.4);display:flex;align-items:center;justify-content:center;border:2.5px solid rgba(255,255,255,0.92)">
+      <span style="font-size:22px;line-height:1">&#128172;</span>
+    </div>
+    <span style="position:absolute;right:-2px;bottom:-2px;display:flex;min-width:24px;height:22px;align-items:center;justify-content:center;border-radius:9999px;border:2px solid white;background:#ff4d8d;padding:0 5px;color:white;font-size:11px;font-weight:900;box-shadow:0 3px 9px rgba(0,0,0,.28)">${roomCount}</span>
+  </div>`;
+}
+
 function roomMarkerHtml(room: CommunityRoom, selected: boolean): string {
   const typeIcon = room.type === 'VOICE' ? '&#127908;' : room.type === 'VIDEO' ? '&#127909;' : '&#128172;';
   const size = Math.min(78, 54 + Math.min(room.activeParticipantCount, 6) * 3 + (selected ? 8 : 0));
   const avatars = room.participants.slice(0, 2).map((participant) => participant.photoUrl
     ? `<img src="${escapeHtml(normalizeMediaUrl(participant.photoUrl))}" alt="" />`
     : `<span>${escapeHtml(participant.name.slice(0,1).toUpperCase())}</span>`).join('');
-  return `<button class="ryvo-room-marker${selected?' is-selected':''}" style="width:${size}px;height:${size}px" aria-label="${escapeHtml(room.title)}">
+  return `<div class="ryvo-room-marker-root" style="width:${size}px;height:${size}px"><button class="ryvo-room-marker${selected?' is-selected':''}" style="width:${size}px;height:${size}px" aria-label="${escapeHtml(room.title)}">
     <span class="ryvo-room-marker-avatars">${avatars || `<span>${typeIcon}</span>`}</span>
     <span class="ryvo-room-marker-type">${typeIcon}</span>
     ${room.activeParticipantCount ? `<span class="ryvo-room-marker-count">${room.activeParticipantCount}</span>` : ''}
-  </button>`;
+  </button></div>`;
 }
 
 function useIsDarkMode(): boolean {
@@ -242,6 +265,7 @@ export const SocialMapScreen: React.FC = () => {
   const selfMarkerRef = useRef<MapLibreMarker | null>(null);
   const onScreenMarkersRef = useRef<Map<string, MapLibreMarker>>(new Map());
   const roomMarkersRef = useRef<Map<string, MapLibreMarker>>(new Map());
+  const roomClusterIndexRef = useRef<Supercluster<{ room: CommunityRoom }> | null>(null);
   const roomModeRef = useRef(true);
   const clusterIndexRef = useRef<Supercluster<{ user: MapUser }> | null>(null);
   const moveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -276,6 +300,7 @@ export const SocialMapScreen: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<MapUser | null>(null);
   const [discoveryMode, setDiscoveryMode] = useState<'people'|'rooms'>(() => import.meta.env.MODE === 'test' ? 'people' : 'rooms');
   const [rooms, setRooms] = useState<CommunityRoom[]>([]);
+  const [roomFilter, setRoomFilter] = useState<'ALL' | 'OFFICIAL' | RoomCategory>('ALL');
   const [selectedRoom, setSelectedRoom] = useState<CommunityRoom|null>(null);
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [joiningRoom, setJoiningRoom] = useState(false);
@@ -293,8 +318,6 @@ export const SocialMapScreen: React.FC = () => {
     () => Array.isArray(framesData?.frames) ? framesData.frames : [],
     [framesData?.frames]
   );
-  const likeMutation = useLikeMutation();
-  const passMutation = usePassMutation();
   const updateProfileMutation = useUpdateProfileMutation();
 
   useEffect(() => { roomModeRef.current = discoveryMode === 'rooms'; }, [discoveryMode]);
@@ -302,9 +325,12 @@ export const SocialMapScreen: React.FC = () => {
   useEffect(() => {
     if (discoveryMode !== 'rooms' || !bbox) return;
     let cancelled=false; setRoomsLoading(true);
-    communityRoomsService.list(bbox).then((items)=>{if(!cancelled)setRooms(items);}).catch(()=>{if(!cancelled)setRooms([]);}).finally(()=>{if(!cancelled)setRoomsLoading(false);});
+    const params: Record<string,string|number|undefined> = { ...bbox };
+    if (roomFilter === 'OFFICIAL') params.official = 'true';
+    else if (roomFilter !== 'ALL') params.category = roomFilter;
+    communityRoomsService.list(params).then((items)=>{if(!cancelled)setRooms(items);}).catch(()=>{if(!cancelled)setRooms([]);}).finally(()=>{if(!cancelled)setRoomsLoading(false);});
     return()=>{cancelled=true;};
-  },[bbox,discoveryMode]);
+  },[bbox,discoveryMode,roomFilter]);
 
   useEffect(() => {
     selectedUserIdRef.current = selectedUser?.id ?? null;
@@ -354,33 +380,9 @@ export const SocialMapScreen: React.FC = () => {
     setSelectedUser(null);
   };
 
-  const handleSheetLike = async (isSuperLike: boolean) => {
-    if (!selectedUser) return;
-    nativeHaptics.impact();
-    const targetId = selectedUser.id;
-    const targetProfile = selectedUserDetail || selectedUser;
-    try {
-      const res: any = await likeMutation.mutateAsync({ targetUserId: targetId, isSuperLike });
-      closeSheet();
-      if (res?.isMatch) {
-        setMatchResult({ isOpen: true, matchUser: targetProfile, matchId: res.matchId });
-      }
-    } catch (err) {
-      console.error('[MAP LIKE ERROR]', err);
-    }
-  };
-
-  const handleSheetPass = async () => {
-    if (!selectedUser) return;
-    nativeHaptics.impact();
-    const targetId = selectedUser.id;
-    closeSheet();
-    try {
-      await passMutation.mutateAsync(targetId);
-    } catch (err) {
-      console.error('[MAP PASS ERROR]', err);
-    }
-  };
+  // V3: the map's user-preview sheet no longer offers Like/SuperLike/Pass (see the
+  // FollowButton/ConnectButton block in the sheet JSX below) -- Discover's own swipe screen is
+  // where that flow still lives, untouched.
 
   // Re-derives on-screen markers (individual avatars + clusters) from the supercluster index for
   // whatever the map's current viewport/zoom is. Deliberately clears and rebuilds every on-screen
@@ -602,7 +604,7 @@ export const SocialMapScreen: React.FC = () => {
   const acquireLocalLocation = useCallback((recenter: boolean): Promise<{ latitude: number; longitude: number; accuracy?: number }> => {
     setLocationStatus((s) => (s === 'granted' ? s : 'pending'));
     return nativeLocation
-      .getCurrentPosition()
+      .getCurrentPosition({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 })
       .then((pos: any) => {
         const { latitude, longitude, accuracy } = pos.coords;
         setCoords({ lat: latitude, lng: longitude });
@@ -622,11 +624,17 @@ export const SocialMapScreen: React.FC = () => {
   const checkInToMap = useCallback(async () => {
     setCheckingIn(true);
     try {
-      const pos = await acquireLocalLocation(true);
+      const fix = await acquireBestLocation();
+      const { latitude, longitude, accuracy } = fix.coords;
+      const pos = { latitude, longitude, accuracy };
+      setCoords({ lat: latitude, lng: longitude });
+      setLocationStatus('granted');
+      mapRef.current?.flyTo({ center: [longitude, latitude], zoom: LOCATE_ZOOM, duration: FLY_DURATION_MS });
       await apiClient.post('/api/user/location', {
         latitude: pos.latitude,
         longitude: pos.longitude,
         accuracy: pos.accuracy,
+        observedAt: new Date(fix.timestamp).toISOString(),
         mapVisible: true,
       });
       setCheckedIn(true);
@@ -694,19 +702,88 @@ export const SocialMapScreen: React.FC = () => {
     renderVisibleMarkers();
   }, [frameCatalog, mapUsers, renderVisibleMarkers]);
 
+  // Rebuild the room spatial index whenever the visible room set changes -- same rebuild-on-
+  // content-change idiom as the people index above (see its own comment for why: cheap to skip
+  // when nothing actually moved, and the moveend/zoomend-driven render below still re-renders on
+  // every pan/zoom independent of this).
+  useEffect(() => {
+    const points: PointFeature<{ room: CommunityRoom }>[] = rooms
+      // City-anchored coordinates only (see roomDto's own comment) -- never a room owner's
+      // precise device GPS.
+      .filter((room) => Number.isFinite(room.latitude) && Number.isFinite(room.longitude))
+      .map((room) => ({ type: 'Feature', properties: { room }, geometry: { type: 'Point', coordinates: [room.longitude, room.latitude] } }));
+    const index = new Supercluster<{ room: CommunityRoom }>({ radius: CLUSTER_RADIUS_PX, maxZoom: MAX_ZOOM });
+    index.load(points);
+    roomClusterIndexRef.current = index;
+  }, [rooms]);
+
+  const renderRoomMarkers = useCallback(() => {
+    const map = mapRef.current;
+    const index = roomClusterIndexRef.current;
+    roomMarkersRef.current.forEach((marker) => marker.remove());
+    roomMarkersRef.current.clear();
+    if (!map || !index) return;
+
+    const zoom = Math.round(map.getZoom());
+    const b = map.getBounds();
+    const bboxArr: [number, number, number, number] = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+    const clusters = index.getClusters(bboxArr, zoom);
+
+    clusters.forEach((feature) => {
+      const [lng, lat] = feature.geometry.coordinates;
+      const props = feature.properties as any;
+
+      if (props.cluster) {
+        const clusterId = props.cluster_id as number;
+        const el = htmlToElement(buildRoomClusterHtml(props.point_count));
+        el.addEventListener('click', () => {
+          nativeHaptics.impact();
+          const map2 = mapRef.current;
+          if (!map2) return;
+          const currentZoom = map2.getZoom();
+          const expansionZoom = index.getClusterExpansionZoom(clusterId);
+          // Every room in one city shares that exact centroid (no precise GPS is ever stored),
+          // so a cluster of same-city rooms can never spatially separate no matter how far in
+          // you zoom -- once expanding wouldn't actually move anything, fall back to the city
+          // room directory instead of a no-op/infinite re-cluster loop.
+          if (currentZoom < MAX_ZOOM && expansionZoom > currentZoom) {
+            map2.easeTo({ center: [lng, lat], zoom: Math.min(expansionZoom, MAX_ZOOM), duration: CLUSTER_EXPANSION_DURATION_MS });
+          } else {
+            const leaves = index.getLeaves(clusterId, 1) as PointFeature<{ room: CommunityRoom }>[];
+            const cityId = leaves[0]?.properties.room.cityId;
+            if (cityId) navigate(`/rooms/city/${cityId}`);
+          }
+        });
+        roomMarkersRef.current.set(`rc:${clusterId}`, new MapLibreMarker({ element: el }).setLngLat([lng, lat]).addTo(map));
+      } else {
+        const room = (props as { room: CommunityRoom }).room;
+        const el = htmlToElement(roomMarkerHtml(room, selectedRoom?.id === room.id));
+        el.addEventListener('click', () => { nativeHaptics.impact(); setSelectedRoom(room); });
+        roomMarkersRef.current.set(`r:${room.id}`, new MapLibreMarker({ element: el }).setLngLat([lng, lat]).addTo(map));
+      }
+    });
+  }, [navigate, selectedRoom?.id]);
+
   useEffect(() => {
     const map=mapRef.current;
     onScreenMarkersRef.current.forEach((marker)=>marker.remove()); onScreenMarkersRef.current.clear();
     roomMarkersRef.current.forEach((marker)=>marker.remove()); roomMarkersRef.current.clear();
     if (!map) return;
     if (discoveryMode === 'people') { renderVisibleMarkers(); return; }
-    rooms.forEach((room)=>{
-      if(!Number.isFinite(room.latitude)||!Number.isFinite(room.longitude))return;
-      const el=htmlToElement(roomMarkerHtml(room,selectedRoom?.id===room.id));
-      el.addEventListener('click',()=>{nativeHaptics.impact();setSelectedRoom(room);});
-      roomMarkersRef.current.set(room.id,new MapLibreMarker({element:el}).setLngLat([room.longitude,room.latitude]).addTo(map));
-    });
-  },[discoveryMode,renderVisibleMarkers,rooms,selectedRoom?.id]);
+    renderRoomMarkers();
+  },[discoveryMode,renderVisibleMarkers,renderRoomMarkers,rooms]);
+
+  // Rooms are also re-rendered on every pan/zoom (mirrors the people-marker moveend/zoomend
+  // wiring in the map-init effect), so panning into a new area or zooming into/out of a cluster
+  // reflects immediately rather than only on the next `rooms` data change.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || discoveryMode !== 'rooms') return;
+    const handler = () => renderRoomMarkers();
+    map.on('moveend', handler);
+    map.on('zoomend', handler);
+    return () => { map.off('moveend', handler); map.off('zoomend', handler); };
+  }, [discoveryMode, renderRoomMarkers]);
 
   const joinSelectedRoom=async()=>{
     if(!selectedRoom)return; setJoiningRoom(true);
@@ -796,6 +873,20 @@ export const SocialMapScreen: React.FC = () => {
             {mode==='rooms'?<MessageCircle className="h-4 w-4"/>:<Users className="h-4 w-4"/>}{roomsText(locale,mode)}
           </button>)}
         </div>
+
+        {discoveryMode === 'rooms' && (
+          <div className="pointer-events-auto mt-2 flex max-w-md gap-1.5 overflow-x-auto no-scrollbar mx-auto px-0.5">
+            {(['ALL','OFFICIAL','TRAVEL','LOCAL','LANGUAGE'] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setRoomFilter(f)}
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-extrabold transition-colors ${roomFilter===f?'border-transparent bg-brand-gradient text-white':'border-app bg-surface-95 text-app-muted'}`}
+              >
+                {f==='ALL'?roomsText(locale,'filterAll'):f==='OFFICIAL'?roomsText(locale,'filterOfficial'):roomsText(locale,ROOM_CATEGORY_KEY[f as RoomCategory])}
+              </button>
+            ))}
+          </div>
+        )}
 
         {isSearchingCities && (
           <div className="pointer-events-auto mt-2 w-full max-w-md mx-auto bg-surface border border-app rounded-2xl px-4 py-3 shadow-floating text-caption font-semibold text-app-muted">
@@ -927,10 +1018,12 @@ export const SocialMapScreen: React.FC = () => {
         {selectedRoom && <div className="space-y-4 px-5 pb-6">
           <div className="flex items-start gap-3">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-500 via-violet-500 to-amber-400 text-white shadow-elevated">
-              {selectedRoom.type==='VOICE'?<Mic2/>:selectedRoom.type==='VIDEO'?<Video/>:<MessageCircle/>}
+              {/* V3: rooms are always text-only now (selectedRoom.type stays 'TEXT'; the DB
+                  column and this data point are kept for historical/admin visibility only). */}
+              <MessageCircle />
             </div>
             <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="truncate text-heading text-app">{selectedRoom.title}</h2>{selectedRoom.isOfficial&&<ShieldCheck className="h-4 w-4 text-[#25D9D0]"/>}</div>
-              <p className="text-caption font-semibold text-app-muted">{selectedRoom.city} · {selectedRoom.language.toUpperCase()} · {selectedRoom.type}</p></div>
+              <p className="text-caption font-semibold text-app-muted">{selectedRoom.city} · {selectedRoom.language.toUpperCase()} · {roomsText(locale,ROOM_CATEGORY_KEY[selectedRoom.category]||'categoryGeneral')}{selectedRoom.type!=='TEXT'?` · ${selectedRoom.type}`:''}</p></div>
             <button onClick={()=>navigate(`/rooms/${selectedRoom.id}/report`)} aria-label={roomsText(locale,'report')} className="rounded-full p-2 text-app-muted"><MoreHorizontal/></button>
           </div>
           {selectedRoom.isDemo&&<span className="inline-flex rounded-full bg-amber-400/15 px-3 py-1 text-caption font-extrabold text-amber-500">{roomsText(locale,'officialDemo')}</span>}
@@ -1030,30 +1123,24 @@ export const SocialMapScreen: React.FC = () => {
                 </div>
               )}
 
-              <div className="flex items-center justify-center gap-4 pt-1">
+              {/* V3: the map's direct-contact sheet no longer offers Like/SuperLike as the main
+                  action -- Discover's own swipe screen keeps that flow untouched. Here it's
+                  View Profile / Follow / Connect (40-coin paid intro), matching the room
+                  member-preview sheet exactly (see RoomScreen.tsx's MemberProfileSheet). */}
+              <div className="space-y-2 pt-1">
                 <button
-                  onClick={handleSheetPass}
-                  className="w-14 h-14 rounded-full bg-surface border border-app text-[#FF4B55] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
+                  onClick={() => {
+                    closeSheet();
+                    navigate(`/discover/${selectedUser.id}`);
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-surface border border-app text-caption font-extrabold text-app active:scale-[0.98] transition-transform"
                 >
-                  <X className="w-6 h-6 stroke-[2.5]" />
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  {t('mapViewProfileAction')}
                 </button>
-                <button
-                  onClick={() => handleSheetLike(false)}
-                  className="w-16 h-16 rounded-full bg-brand-gradient text-white flex items-center justify-center shadow-xl shadow-pink-500/30 active:scale-90 transition-transform"
-                >
-                  <Heart className="w-7 h-7 fill-current" />
-                </button>
+                <FollowButton userId={selectedUser.id} className="w-full" />
+                <ConnectButton userId={selectedUser.id} locale={locale} sourceType="MAP" />
               </div>
-              <button
-                onClick={() => {
-                  closeSheet();
-                  navigate(`/discover/${selectedUser.id}`);
-                }}
-                className="w-full flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-surface border border-app text-caption font-extrabold text-app active:scale-[0.98] transition-transform"
-              >
-                <Sparkles className="w-4 h-4 text-purple-400" />
-                {t('mapViewProfileAction')}
-              </button>
             </div>
           ) : null}
         </div>

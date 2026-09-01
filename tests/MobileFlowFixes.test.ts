@@ -35,7 +35,7 @@ describe('mobile onboarding and discovery flow contracts', () => {
   it('requests device location in Discover and retains a global fallback', () => {
     const discover = source('features/discovery/DiscoverScreen.tsx');
 
-    expect(discover).toContain("nativeLocation.getCurrentPosition");
+    expect(discover).toContain('acquireBestLocation()');
     expect(discover).toContain('latitude: lat');
     expect(discover).toContain('longitude: lng');
     expect(discover).not.toContain("apiClient.post('/api/user/location', { lat, lng })");
@@ -121,13 +121,12 @@ describe('profile and monetization UI contracts', () => {
     expect(iap).toContain('Promise.allSettled');
     expect(iap).toContain('subscriptionProductCache');
     expect(iap).not.toContain('setStoreProducts([])');
-    expect(verification).toContain("uploadMedia(finalFrame.blob, 'verification')");
-    expect(verification).toContain("setSteps([...challenges, 'FINAL'])");
+    expect(verification).toContain("uploadMedia(shot.blob, 'verification')");
+    expect(verification).toContain("setStages(['CENTER_BASELINE', ...turns, 'FINAL'])");
     expect(verification).toContain("setPhase('submitting')");
-    expect(verification).toContain('await submitVerification(sessionId, nextFrames)');
+    expect(verification).toContain('await uploadAndSubmit(sessionId');
     expect(verification).not.toContain('submitVerificationInBackground');
-    expect(verification).toContain('data.pending === true');
-    expect(verification).toContain('data.verified === true');
+    expect(verification).toContain('turns.length !== 2');
     expect(authStore).toContain("verificationState?: 'UNVERIFIED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVERIFICATION_REQUIRED'");
     expect(profile).toContain("user?.verificationState === 'PENDING'");
     expect(profile).toContain("t('settingsVerificationPendingLabel')");

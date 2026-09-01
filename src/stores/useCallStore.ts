@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type CallStatus = 'RINGING' | 'ACTIVE' | 'RECONNECTING' | 'FAILED' | 'ENDED';
+export type CallStatus = 'RINGING' | 'CONNECTING' | 'ACTIVE' | 'RECONNECTING' | 'FAILED' | 'ENDED';
 export type CallError = 'PERMISSION_DENIED' | 'DEVICE_UNAVAILABLE' | 'CONNECTION_FAILED' | null;
 
 export interface CallSession {

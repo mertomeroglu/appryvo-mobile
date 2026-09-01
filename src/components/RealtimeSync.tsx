@@ -233,8 +233,13 @@ export const RealtimeSync: React.FC = () => {
     // modules -- eagerly importing them here does not pull in CallOverlay's own (larger, icon-
     // heavy) bundle, so the original lazy-loading intent for the call UI itself is preserved.
     const offCallAnswered = socketService.on('call:answered', async (data: any) => {
-      await webrtcService.setRemoteAnswer(data.answer);
-      useCallStore.getState().setCallStatus('ACTIVE');
+      try {
+        await webrtcService.setRemoteAnswer(data.answer);
+        useCallStore.getState().setCallStatus('CONNECTING');
+      } catch (error) {
+        console.error('[CALL] Failed to apply remote answer', error);
+        callService.endCall('remote_answer_error');
+      }
     });
 
     const offCallIceCandidate = socketService.on('call:ice-candidate', (data: any) => {

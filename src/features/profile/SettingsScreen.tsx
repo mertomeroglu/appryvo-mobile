@@ -126,6 +126,8 @@ export const SettingsScreen: React.FC = () => {
   const { t } = useAppTranslation();
 
   const mapVisible = me?.mapVisible === true;
+  const hideFollowersFollowing = me?.hideFollowersFollowing === true;
+  const isPremium = me?.isPremium === true;
 
   const handleToggleMapVisible = (next: boolean) => {
     if (!next) {
@@ -138,6 +140,19 @@ export const SettingsScreen: React.FC = () => {
     // fix from the map screen itself (see SocialMapScreen's checkInToMap) -- never a silent
     // settings toggle reusing old coordinates. This switch can only ever turn visibility off.
     navigate('/map');
+  };
+
+  const handleToggleFollowPrivacy = async (next: boolean) => {
+    if (!isPremium && next) {
+      navigate('/premium');
+      return;
+    }
+    try {
+      await apiClient.put('/api/follows/privacy', { hideFollowersFollowing: next });
+      if (user) setUser({ ...user, hideFollowersFollowing: next });
+    } catch (error: any) {
+      toast.error(error?.message || t('settingsFollowPrivacyFailedError'));
+    }
   };
 
   const pushEnabled = user?.pushNotificationsEnabled !== false;
@@ -280,6 +295,12 @@ export const SettingsScreen: React.FC = () => {
               checked={mapVisible}
               disabled={updateProfileMutation.isPending}
               onChange={handleToggleMapVisible}
+            />
+            <ToggleRow
+              icon={<Shield className="w-5 h-5" />}
+              label={t('settingsHideFollowConnectionsLabel')}
+              checked={hideFollowersFollowing}
+              onChange={handleToggleFollowPrivacy}
             />
             <ListRow
               icon={<Shield className="w-5 h-5" />}

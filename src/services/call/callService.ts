@@ -59,7 +59,9 @@ webrtcService.onConnectionStateChange = (state) => {
 
   if (state === 'connected') {
     clearReconnectTimer();
-    if (call.status === 'RECONNECTING') useCallStore.getState().setCallStatus('ACTIVE');
+    if (call.status === 'CONNECTING' || call.status === 'RINGING' || call.status === 'RECONNECTING') {
+      useCallStore.getState().setCallStatus('ACTIVE');
+    }
     return;
   }
 
@@ -105,6 +107,7 @@ export const callService = {
 
     try {
       const offer = await webrtcService.createOffer(callId, params.type === 'video');
+      await nativeCallAudio.startCallAudioSession(params.type === 'video');
       socketService.startCall({
         callId,
         calleeUid: params.calleeUid,
@@ -137,9 +140,10 @@ export const callService = {
     isProcessingCallAction = true;
 
     try {
+      useCallStore.getState().setCallStatus('CONNECTING');
       const answer = await webrtcService.acceptOffer(call.callId, call.offer, call.type === 'video');
       socketService.answerCall({ callId: call.callId, answer });
-      useCallStore.getState().setCallStatus('ACTIVE');
+      await nativeCallAudio.startCallAudioSession(call.type === 'video');
     } catch (err) {
       console.error('[CALL ACCEPT ERROR]', err);
       if (err instanceof MediaAccessError) {

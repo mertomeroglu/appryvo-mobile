@@ -22,14 +22,33 @@ public class CallAudioPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void startCallAudioSession(PluginCall call) {
+        try {
+            AudioManager am = audioManager();
+            boolean speakerOn = call.getBoolean("speakerOn", false);
+            am.setMode(AudioManager.MODE_IN_COMMUNICATION);
+            am.setSpeakerphoneOn(speakerOn);
+            JSObject ret = new JSObject();
+            ret.put("speakerOn", am.isSpeakerphoneOn());
+            call.resolve(ret);
+        } catch (Exception error) {
+            call.reject("Unable to start call audio session", error);
+        }
+    }
+
+    @PluginMethod
     public void setSpeakerOn(PluginCall call) {
-        boolean enabled = call.getBoolean("enabled", false);
-        AudioManager am = audioManager();
-        am.setMode(AudioManager.MODE_IN_COMMUNICATION);
-        am.setSpeakerphoneOn(enabled);
-        JSObject ret = new JSObject();
-        ret.put("enabled", am.isSpeakerphoneOn());
-        call.resolve(ret);
+        try {
+            boolean enabled = call.getBoolean("enabled", false);
+            AudioManager am = audioManager();
+            am.setMode(AudioManager.MODE_IN_COMMUNICATION);
+            am.setSpeakerphoneOn(enabled);
+            JSObject ret = new JSObject();
+            ret.put("enabled", am.isSpeakerphoneOn());
+            call.resolve(ret);
+        } catch (Exception error) {
+            call.reject("Unable to change call audio route", error);
+        }
     }
 
     @PluginMethod
@@ -41,9 +60,13 @@ public class CallAudioPlugin extends Plugin {
 
     @PluginMethod
     public void resetAudioMode(PluginCall call) {
-        AudioManager am = audioManager();
-        am.setSpeakerphoneOn(false);
-        am.setMode(AudioManager.MODE_NORMAL);
-        call.resolve();
+        try {
+            AudioManager am = audioManager();
+            am.setSpeakerphoneOn(false);
+            am.setMode(AudioManager.MODE_NORMAL);
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("Unable to reset call audio mode", error);
+        }
     }
 }

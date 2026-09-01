@@ -48,8 +48,10 @@ describe('RYVO PATCH V4 / PROMPT 02: map/geo/search', () => {
     expect(style).toContain("light: {");
     expect(style).toContain("dark: {");
     // Genuinely different palettes per theme, not the same tokens reused under two names.
-    expect(style).toContain("background: '#f7f7f4'");
-    expect(style).toContain("background: '#15151c'");
+    // (V3: land/water moved from a near-monochrome palette to a visibly green/blue one -- see
+    // ryvoMapStyle.ts's own top-of-PALETTE comment -- so these are the current background tokens.)
+    expect(style).toContain("background: '#eef6e6'");
+    expect(style).toContain("background: '#0f1a12'");
     // The simplification rules called for in the migration: no leftover Leaflet raster tile CSS.
     const css = fs.readFileSync(path.join(root, 'src', 'features', 'map', 'SocialMapScreen.css'), 'utf8');
     expect(css).not.toContain('leaflet-tile-pane');

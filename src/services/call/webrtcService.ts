@@ -2,6 +2,12 @@ import { nativeCalls } from '../../native/calls';
 import { socketService } from '../socket/socketService';
 
 const FALLBACK_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+const AUDIO_CONSTRAINTS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
+const DEBUG = import.meta.env.DEV;
 
 /**
  * Thin WebRTC media layer over the existing, real signaling contract (call:start / call:answer /
@@ -28,6 +34,7 @@ function classifyMediaError(err: unknown): MediaAccessError {
 class WebRTCService {
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
+  private remoteStream: MediaStream | null = null;
   private currentCallId: string | null = null;
   private mediaRequestId = 0;
   private facingMode: 'user' | 'environment' = 'user';
@@ -62,15 +69,20 @@ class WebRTCService {
       const servers = res?.data?.iceServers;
       return Array.isArray(servers) && servers.length > 0 ? servers : FALLBACK_ICE_SERVERS;
     } catch {
+      console.warn('[CALL][WebRTC] ICE configuration request failed; using STUN fallback');
       return FALLBACK_ICE_SERVERS;
     }
   }
 
   private async ensurePeerConnection(callId: string): Promise<RTCPeerConnection> {
     this.currentCallId = callId;
-    this.pendingRemoteIceCandidates = [];
     const iceServers = await this.getIceServers();
     const pc = new RTCPeerConnection({ iceServers });
+    this.remoteStream = new MediaStream();
+
+    if (DEBUG) {
+      console.info(`[CALL][WebRTC][${callId}] iceServers=${iceServers.length}`);
+    }
 
     pc.onicecandidate = (event) => {
       if (event.candidate && this.currentCallId) {
@@ -79,47 +91,107 @@ class WebRTCService {
     };
 
     pc.ontrack = (event) => {
-      this.onRemoteStream?.(event.streams[0] || null);
+      if (!this.remoteStream) this.remoteStream = new MediaStream();
+      if (!this.remoteStream.getTracks().some((track) => track.id === event.track.id)) {
+        this.remoteStream.addTrack(event.track);
+      }
+      if (DEBUG) {
+        console.info(
+          `[CALL][WebRTC][${callId}] remoteTrack=${event.track.kind} ` +
+            `audioTracks=${this.remoteStream.getAudioTracks().length} videoTracks=${this.remoteStream.getVideoTracks().length}`
+        );
+      }
+      event.track.onended = () => {
+        this.remoteStream?.removeTrack(event.track);
+        this.emitRemoteStream();
+      };
+      this.emitRemoteStream();
     };
 
     pc.onconnectionstatechange = () => {
+      console.info(`[CALL][WebRTC][${callId}] connectionState=${pc.connectionState}`);
       this.onConnectionStateChange?.(pc.connectionState);
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         this.onRemoteStream?.(null);
       }
     };
+    pc.oniceconnectionstatechange = () =>
+      console.info(`[CALL][WebRTC][${callId}] iceConnectionState=${pc.iceConnectionState}`);
+    pc.onicegatheringstatechange = () =>
+      console.info(`[CALL][WebRTC][${callId}] iceGatheringState=${pc.iceGatheringState}`);
+    pc.onsignalingstatechange = () =>
+      console.info(`[CALL][WebRTC][${callId}] signalingState=${pc.signalingState}`);
 
     this.pc = pc;
     return pc;
   }
 
+  private emitRemoteStream() {
+    if (!this.remoteStream || this.remoteStream.getTracks().length === 0) {
+      this.onRemoteStream?.(null);
+      return;
+    }
+    // A fresh wrapper makes React observe audio/video track additions and removals while the
+    // underlying tracks remain the same objects consumed by HTMLMediaElement.
+    this.onRemoteStream?.(new MediaStream(this.remoteStream.getTracks()));
+  }
+
   private async acquireLocalStream(video: boolean): Promise<MediaStream> {
     const requestId = ++this.mediaRequestId;
     let stream: MediaStream;
+    const preferredConstraints = {
+      audio: AUDIO_CONSTRAINTS,
+      video: video
+        ? { facingMode: this.facingMode, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } }
+        : false,
+    };
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: video ? { facingMode: this.facingMode } : false,
-      });
+      stream = await navigator.mediaDevices.getUserMedia(preferredConstraints);
     } catch (err) {
-      throw classifyMediaError(err);
+      if (!video) {
+        console.error('[CALL][WebRTC] getUserMedia failed for voice call', err);
+        throw classifyMediaError(err);
+      }
+      const classifiedError = classifyMediaError(err);
+      if (classifiedError.reason === 'PERMISSION_DENIED') {
+        console.error('[CALL][WebRTC] getUserMedia permission denied for video call', err);
+        throw classifiedError;
+      }
+      console.warn('[CALL][WebRTC] Preferred video constraints failed; trying basic capture', err);
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS, video: true });
+      } catch (fallbackError) {
+        console.error('[CALL][WebRTC] getUserMedia video fallback failed', fallbackError);
+        throw classifyMediaError(fallbackError);
+      }
     }
     if (requestId !== this.mediaRequestId) {
       stream.getTracks().forEach((track) => track.stop());
       throw new DOMException('Call ended before media became available.', 'AbortError');
     }
     this.localStream = stream;
+    if (DEBUG) {
+      console.info(
+        `[CALL][WebRTC][${this.currentCallId || 'pending'}] getUserMedia success ` +
+          `audioTracks=${stream.getAudioTracks().length} videoTracks=${stream.getVideoTracks().length}`
+      );
+    }
     this.onLocalStream?.(stream);
     return stream;
   }
 
   async createOffer(callId: string, video: boolean): Promise<RTCSessionDescriptionInit> {
-    const pc = await this.ensurePeerConnection(callId);
-    const stream = await this.acquireLocalStream(video);
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    return offer;
+    try {
+      const pc = await this.ensurePeerConnection(callId);
+      const stream = await this.acquireLocalStream(video);
+      this.addLocalTracks(pc, stream);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      return offer;
+    } catch (error) {
+      this.hangup();
+      throw error;
+    }
   }
 
   async acceptOffer(
@@ -127,14 +199,34 @@ class WebRTCService {
     offer: RTCSessionDescriptionInit,
     video: boolean
   ): Promise<RTCSessionDescriptionInit> {
-    const pc = await this.ensurePeerConnection(callId);
-    const stream = await this.acquireLocalStream(video);
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-    await pc.setRemoteDescription(offer);
-    await this.flushPendingIceCandidates();
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    return answer;
+    try {
+      const pc = await this.ensurePeerConnection(callId);
+      const stream = await this.acquireLocalStream(video);
+      this.addLocalTracks(pc, stream);
+      await pc.setRemoteDescription(offer);
+      await this.flushPendingIceCandidates();
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      return answer;
+    } catch (error) {
+      this.hangup();
+      throw error;
+    }
+  }
+
+  private addLocalTracks(pc: RTCPeerConnection, stream: MediaStream) {
+    for (const track of stream.getTracks()) {
+      const alreadyAdded = pc.getSenders().some((sender) => sender.track?.id === track.id);
+      if (!alreadyAdded) pc.addTrack(track, stream);
+    }
+    if (DEBUG) {
+      const senders = pc.getSenders();
+      console.info(
+        `[CALL][WebRTC][${this.currentCallId || 'pending'}] senders ` +
+          `audio=${senders.filter((sender) => sender.track?.kind === 'audio').length} ` +
+          `video=${senders.filter((sender) => sender.track?.kind === 'video').length}`
+      );
+    }
   }
 
   async setRemoteAnswer(answer: RTCSessionDescriptionInit) {
@@ -287,11 +379,22 @@ class WebRTCService {
   hangup() {
     this.mediaRequestId += 1;
     if (this.pc) this.pc.onconnectionstatechange = null;
+    if (this.pc) {
+      this.pc.onicecandidate = null;
+      this.pc.ontrack = null;
+      this.pc.oniceconnectionstatechange = null;
+      this.pc.onicegatheringstatechange = null;
+      this.pc.onsignalingstatechange = null;
+    }
     this.pc?.getSenders().forEach((sender) => sender.track?.stop());
     this.pc?.close();
     this.pc = null;
     this.localStream?.getTracks().forEach((track) => track.stop());
     this.localStream = null;
+    this.remoteStream?.getTracks().forEach((track) => {
+      track.onended = null;
+    });
+    this.remoteStream = null;
     this.currentCallId = null;
     this.facingMode = 'user';
     this.pendingRemoteIceCandidates = [];

@@ -16,6 +16,9 @@ const EXCLUDED_FILES = new Set([
   // Community Rooms owns a scoped, fully locale-aware Record<AppLocale, ...> dictionary so the
   // nine-locale feature can ship independently without inflating appLocale's already-large map.
   'features/rooms/roomsLocale.ts',
+  // Connect Pass owns the same kind of scoped, fully locale-aware Record<AppLocale, ...>
+  // dictionary as roomsLocale.ts, for the same reason (ship independently of appLocale.ts).
+  'features/connect/connectLocale.ts',
   'lib/profileLabels.ts',
   'lib/languages.ts',
   'lib/interests.ts',

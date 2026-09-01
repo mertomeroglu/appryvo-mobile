@@ -95,16 +95,35 @@ export const CallOverlay: React.FC = () => {
     const el = localVideoRef.current;
     if (!el) return;
     el.srcObject = localStream;
-    if (localStream) el.play().catch(() => {});
+    if (localStream) {
+      void el.play().then(
+        () => console.info('[CALL][Media] local video play success'),
+        (error) => console.warn('[CALL][Media] local video play failed', error)
+      );
+    }
   }, [localStream]);
 
   useEffect(() => {
-    const el = remoteVideoRef.current;
-    if (el) {
-      el.srcObject = remoteStream;
-      if (remoteStream) el.play().catch(() => {});
+    const video = remoteVideoRef.current;
+    if (video) {
+      video.srcObject = remoteStream;
+      if (remoteStream?.getVideoTracks().length) {
+        void video.play().then(
+          () => console.info('[CALL][Media] remote video play success'),
+          (error) => console.warn('[CALL][Media] remote video play failed', error)
+        );
+      }
     }
-    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStream;
+    const audio = remoteAudioRef.current;
+    if (audio) {
+      audio.srcObject = remoteStream;
+      if (remoteStream?.getAudioTracks().length) {
+        void audio.play().then(
+          () => console.info('[CALL][Media] remote audio play success'),
+          (error) => console.warn('[CALL][Media] remote audio play failed', error)
+        );
+      }
+    }
   }, [remoteStream]);
 
   if (!activeCall) return null;
@@ -202,6 +221,7 @@ export const CallOverlay: React.FC = () => {
           ref={remoteVideoRef}
           autoPlay
           playsInline
+          muted
           disablePictureInPicture
           controlsList="nodownload nofullscreen noremoteplayback"
           className={`absolute inset-0 w-full h-full object-cover z-0 transition-opacity ${
@@ -228,7 +248,9 @@ export const CallOverlay: React.FC = () => {
           }`}
         />
       )}
-      <audio ref={remoteAudioRef} autoPlay className="hidden" />
+      {/* Remote sound has one owner: this audio element. The remote video is muted above to
+          prevent doubled audio while still allowing its explicit play() to bypass video stalls. */}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
       {/* Top Status Header */}
       <header className={`pt-safe text-center z-10 ${showRemoteVideo ? 'text-white' : 'text-app'}`}>

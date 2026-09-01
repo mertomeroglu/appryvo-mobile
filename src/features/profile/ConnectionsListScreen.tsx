@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { formatDisplayAge } from '../../lib/profileLabels';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Users } from 'lucide-react';
-import { useFollowersQuery, useFollowingQuery } from '../../hooks/useQueries';
+import { ArrowLeft, Ban, UserMinus, Users } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { QUERY_KEYS, useFollowersQuery, useFollowingQuery } from '../../hooks/useQueries';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { IconButton } from '../../components/ui/IconButton';
@@ -11,6 +12,8 @@ import { VerifiedBadge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useAppTranslation } from '../../i18n/appLocale';
+import { apiClient } from '../../services/api/apiClient';
+import { toast } from '../../stores/useToastStore';
 
 type Tab = 'followers' | 'following';
 
@@ -23,6 +26,7 @@ export const ConnectionsListScreen: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const selfId = useAuthStore((s) => s.user?.id);
   const isSelf = !!userId && userId === selfId;
+  const queryClient = useQueryClient();
   const tab: Tab = searchParams.get('tab') === 'following' ? 'following' : 'followers';
 
   const followers = useFollowersQuery(userId);
@@ -47,6 +51,21 @@ export const ConnectionsListScreen: React.FC = () => {
 
   const openProfile = (targetId: string) => {
     navigate(targetId === selfId ? '/profile' : `/discover/${targetId}`);
+  };
+
+  const runConnectionAction = async (targetId: string, action: 'remove' | 'unfollow' | 'block') => {
+    try {
+      if (action === 'remove') await apiClient.delete(`/api/follows/followers/${targetId}`);
+      else if (action === 'unfollow') await apiClient.delete(`/api/follows/${targetId}`);
+      else await apiClient.post('/api/blocks', { targetUserId: targetId });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.followers(userId || '') }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.following(userId || '') }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.followStatus(userId || '') }),
+      ]);
+    } catch (error: any) {
+      toast.error(error?.message || t('safetyActionFailedError'));
+    }
   };
 
   return (
@@ -105,21 +124,27 @@ export const ConnectionsListScreen: React.FC = () => {
         ) : (
           <div className="divide-y divide-app">
             {items.map((item) => (
-              <button
+              <div
                 key={item.userId}
-                type="button"
-                onClick={() => openProfile(item.userId)}
                 className="flex w-full items-center gap-3 py-3 text-start active:bg-surface-elevated"
               >
-                <Avatar src={item.photoUrl ? normalizeMediaUrl(item.photoUrl) : undefined} name={item.name} size="md" />
-                <span className="min-w-0 flex-1">
+                <button type="button" onClick={() => openProfile(item.userId)} className="flex min-w-0 flex-1 items-center gap-3 text-start">
+                  <Avatar src={item.photoUrl ? normalizeMediaUrl(item.photoUrl) : undefined} name={item.name} size="md" />
+                  <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
                     <span className="truncate text-body font-bold text-app">{item.name}</span>
                     {formatDisplayAge(item.age) !== undefined ? <span className="text-caption text-app-muted">{formatDisplayAge(item.age)}</span> : null}
                     {item.verified && <VerifiedBadge size={16} />}
                   </span>
-                </span>
-              </button>
+                  </span>
+                </button>
+                {isSelf && (
+                  <span className="flex shrink-0 gap-1">
+                    <button type="button" aria-label={t('removeButtonLabel')} onClick={() => void runConnectionAction(item.userId, tab === 'followers' ? 'remove' : 'unfollow')} className="rounded-full p-2 text-app-muted"><UserMinus className="h-4 w-4" /></button>
+                    <button type="button" aria-label={t('blockUser')} onClick={() => void runConnectionAction(item.userId, 'block')} className="rounded-full p-2 text-red-500"><Ban className="h-4 w-4" /></button>
+                  </span>
+                )}
+              </div>
             ))}
             <div ref={sentinelRef} className="h-8" />
             {active.isFetchingNextPage && (

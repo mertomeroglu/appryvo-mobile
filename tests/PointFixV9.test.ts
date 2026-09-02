@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { FACE_LIVENESS_CONFIG, expectedYawDirection, interpretYawForPreview, measureFace, smoothYaw } from '../src/services/verification/faceLiveness';
 
@@ -55,6 +55,10 @@ describe('Point-Fix V9 client contracts', () => {
     expect(accept.indexOf('setRemoteDescription')).toBeLessThan(accept.indexOf('addLocalTracks'));
   });
   it('binds ringback strictly to outgoing RINGING', () => expect(source('src/components/CallOverlay.tsx')).toContain("activeCall?.direction === 'outgoing' && activeCall.status === 'RINGING'"));
+  it('uses a bundled neutral ringback asset', () => {
+    expect(source('src/services/call/ringbackTone.ts')).toContain("/audio/ringback.wav");
+    expect(existsSync(resolve(process.cwd(), 'public/audio/ringback.wav'))).toBe(true);
+  });
   it('implements draggable snapping PiP', () => {
     const overlay = source('src/components/CallOverlay.tsx');
     expect(overlay).toContain('onPointerMove={movePip}');

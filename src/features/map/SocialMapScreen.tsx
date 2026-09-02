@@ -37,6 +37,15 @@ import { socketService } from '../../services/socket/socketService';
 import { searchCities, type GeoCityResult } from '../../services/geo/cityService';
 import { acquireBestLocation } from '../../services/geo/locationQuality';
 import { buildRyvoMapStyle, type ResolvedTileSource } from './ryvoMapStyle';
+import {
+  ROOM_CLUSTER_LAYER_ID,
+  ROOM_SOURCE_ID,
+  ROOM_UNCLUSTERED_LAYER_ID,
+  buildRoomFeatureCollection,
+  installRoomMapLayers,
+  setRoomLayersVisible,
+  type RoomFeatureCollection,
+} from './roomMapLayers';
 import { OPENMAPTILES_SPRITE_URL, OPENMAPTILES_GLYPHS_URL, OPENMAPTILES_TILEJSON_URL, isRyvoMapConfigured } from './ryvoMapConfig';
 import { BottomSheet } from '../../components/ui/BottomSheet';
 import { IconButton } from '../../components/ui/IconButton';
@@ -132,7 +141,8 @@ function htmlToElement(html: string): HTMLElement {
 // city renders as fully-overlapping pins. Mirrors buildSocialClusterHtml's shape (a bubble +
 // count badge) but visually distinct (message-bubble icon, teal instead of pink/violet) so a
 // room cluster is never mistaken for a people cluster at a glance.
-function buildRoomClusterHtml(roomCount: number): string {
+/* Legacy DOM room marker rendering was replaced by native MapLibre layers. */
+function legacyBuildRoomClusterHtml(roomCount: number): string {
   return `<div style="position:relative;width:58px;height:58px;z-index:600;cursor:pointer">
     <div style="position:absolute;inset:0;border-radius:9999px;background:linear-gradient(135deg,#25D9D0,#7957ff);box-shadow:0 4px 14px rgba(37,217,208,.4);display:flex;align-items:center;justify-content:center;border:2.5px solid rgba(255,255,255,0.92)">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
@@ -141,7 +151,7 @@ function buildRoomClusterHtml(roomCount: number): string {
   </div>`;
 }
 
-function roomMarkerHtml(room: CommunityRoom, selected: boolean): string {
+function legacyRoomMarkerHtml(room: CommunityRoom, selected: boolean): string {
   const typeIcon = room.type === 'VOICE'
     ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8057ef" stroke-width="2.4"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>'
     : room.type === 'VIDEO'
@@ -272,8 +282,8 @@ export const SocialMapScreen: React.FC = () => {
   const mapRef = useRef<MapLibreMap | null>(null);
   const selfMarkerRef = useRef<MapLibreMarker | null>(null);
   const onScreenMarkersRef = useRef<Map<string, MapLibreMarker>>(new Map());
-  const roomMarkersRef = useRef<Map<string, MapLibreMarker>>(new Map());
-  const roomClusterIndexRef = useRef<Supercluster<{ room: CommunityRoom }> | null>(null);
+  const roomDataRef = useRef<RoomFeatureCollection>(buildRoomFeatureCollection([]));
+  const roomsByIdRef = useRef<Map<string, CommunityRoom>>(new Map());
   const roomModeRef = useRef(true);
   const clusterIndexRef = useRef<Supercluster<{ user: MapUser }> | null>(null);
   const moveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -530,6 +540,28 @@ export const SocialMapScreen: React.FC = () => {
         mapRef.current = map;
         map.on('error', (e) => console.error(`[SocialMapScreen] MapLibre error: ${e?.error?.message || e}`));
 
+        const restoreRoomLayers = () => installRoomMapLayers(map!, roomDataRef.current, roomModeRef.current);
+        map.on('style.load', restoreRoomLayers);
+        map.on('click', ROOM_CLUSTER_LAYER_ID, async (event) => {
+          if (!roomModeRef.current) return;
+          const feature = map!.queryRenderedFeatures(event.point, { layers: [ROOM_CLUSTER_LAYER_ID] })[0];
+          const clusterId = Number(feature?.properties?.cluster_id);
+          const coordinates = (feature?.geometry as { coordinates?: [number, number] })?.coordinates;
+          const source = map!.getSource(ROOM_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
+          if (!source || !Number.isFinite(clusterId) || !coordinates) return;
+          nativeHaptics.impact();
+          const expansionZoom = await source.getClusterExpansionZoom(clusterId);
+          map!.easeTo({ center: coordinates, zoom: Math.min(expansionZoom, MAX_ZOOM), duration: CLUSTER_EXPANSION_DURATION_MS });
+        });
+        map.on('click', ROOM_UNCLUSTERED_LAYER_ID, (event) => {
+          if (!roomModeRef.current) return;
+          const feature = map!.queryRenderedFeatures(event.point, { layers: [ROOM_UNCLUSTERED_LAYER_ID] })[0];
+          const room = roomsByIdRef.current.get(String(feature?.properties?.roomId || ''));
+          if (!room) return;
+          nativeHaptics.impact();
+          setSelectedRoom(room);
+        });
+
         const updateBbox = () => {
           const b = map!.getBounds();
           setBbox({ north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() });
@@ -558,6 +590,7 @@ export const SocialMapScreen: React.FC = () => {
           // Populate the initial viewport once the style/source has actually resolved, rather
           // than waiting on the first user pan.
           updateBbox();
+          restoreRoomLayers();
         });
       })
       .catch((err) => {
@@ -583,8 +616,6 @@ export const SocialMapScreen: React.FC = () => {
       });
       markersOnScreen.forEach((marker) => marker.remove());
       markersOnScreen.clear();
-      roomMarkersRef.current.forEach((marker) => marker.remove());
-      roomMarkersRef.current.clear();
       selfMarkerRef.current?.remove();
       map.remove();
       container?.replaceChildren();
@@ -724,68 +755,21 @@ export const SocialMapScreen: React.FC = () => {
   // when nothing actually moved, and the moveend/zoomend-driven render below still re-renders on
   // every pan/zoom independent of this).
   useEffect(() => {
-    const points: PointFeature<{ room: CommunityRoom }>[] = rooms
-      // City-anchored coordinates only (see roomDto's own comment) -- never a room owner's
-      // precise device GPS.
-      .filter((room) => Number.isFinite(room.latitude) && Number.isFinite(room.longitude))
-      .map((room) => ({ type: 'Feature', properties: { room }, geometry: { type: 'Point', coordinates: [room.longitude, room.latitude] } }));
-    const index = new Supercluster<{ room: CommunityRoom }>({ radius: CLUSTER_RADIUS_PX, maxZoom: MAX_ZOOM });
-    index.load(points);
-    roomClusterIndexRef.current = index;
-  }, [rooms]);
+    roomsByIdRef.current = new Map(rooms.map((room) => [room.id, room]));
+    roomDataRef.current = buildRoomFeatureCollection(rooms, selectedRoom?.id);
+  }, [rooms, selectedRoom?.id]);
 
   const renderRoomMarkers = useCallback(() => {
     const map = mapRef.current;
-    const index = roomClusterIndexRef.current;
-    roomMarkersRef.current.forEach((marker) => marker.remove());
-    roomMarkersRef.current.clear();
-    if (!map || !index) return;
-
-    const zoom = Math.round(map.getZoom());
-    const b = map.getBounds();
-    const bboxArr: [number, number, number, number] = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
-    const clusters = index.getClusters(bboxArr, zoom);
-
-    clusters.forEach((feature) => {
-      const [lng, lat] = feature.geometry.coordinates;
-      const props = feature.properties as any;
-
-      if (props.cluster) {
-        const clusterId = props.cluster_id as number;
-        const el = htmlToElement(buildRoomClusterHtml(props.point_count));
-        el.addEventListener('click', () => {
-          nativeHaptics.impact();
-          const map2 = mapRef.current;
-          if (!map2) return;
-          const currentZoom = map2.getZoom();
-          const expansionZoom = index.getClusterExpansionZoom(clusterId);
-          // Every room in one city shares that exact centroid (no precise GPS is ever stored),
-          // so a cluster of same-city rooms can never spatially separate no matter how far in
-          // you zoom -- once expanding wouldn't actually move anything, fall back to the city
-          // room directory instead of a no-op/infinite re-cluster loop.
-          if (currentZoom < MAX_ZOOM && expansionZoom > currentZoom) {
-            map2.easeTo({ center: [lng, lat], zoom: Math.min(expansionZoom, MAX_ZOOM), duration: CLUSTER_EXPANSION_DURATION_MS });
-          } else {
-            const leaves = index.getLeaves(clusterId, 1) as PointFeature<{ room: CommunityRoom }>[];
-            const cityId = leaves[0]?.properties.room.cityId;
-            if (cityId) navigate(`/rooms/city/${cityId}`);
-          }
-        });
-        roomMarkersRef.current.set(`rc:${clusterId}`, new MapLibreMarker({ element: el }).setLngLat([lng, lat]).addTo(map));
-      } else {
-        const room = (props as { room: CommunityRoom }).room;
-        const el = htmlToElement(roomMarkerHtml(room, selectedRoom?.id === room.id));
-        el.addEventListener('click', () => { nativeHaptics.impact(); setSelectedRoom(room); });
-        roomMarkersRef.current.set(`r:${room.id}`, new MapLibreMarker({ element: el }).setLngLat([lng, lat]).addTo(map));
-      }
-    });
-  }, [navigate, selectedRoom?.id]);
+    if (!map || (typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded())) return;
+    installRoomMapLayers(map, roomDataRef.current, roomModeRef.current);
+  }, []);
 
   useEffect(() => {
     const map=mapRef.current;
     onScreenMarkersRef.current.forEach((marker)=>marker.remove()); onScreenMarkersRef.current.clear();
-    roomMarkersRef.current.forEach((marker)=>marker.remove()); roomMarkersRef.current.clear();
     if (!map) return;
+    setRoomLayersVisible(map, discoveryMode === 'rooms');
     if (discoveryMode === 'people') { renderVisibleMarkers(); return; }
     renderRoomMarkers();
   },[discoveryMode,renderVisibleMarkers,renderRoomMarkers,rooms]);

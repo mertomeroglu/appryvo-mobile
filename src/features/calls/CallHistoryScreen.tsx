@@ -19,7 +19,7 @@ export const CallHistoryScreen: React.FC = () => {
   const { t, locale } = useAppTranslation();
   const { data = [], isLoading } = useCallHistoryQuery();
   return <div className="flex h-full flex-col overflow-y-auto bg-app p-4 pb-24 text-app no-scrollbar">
-    <header className="pt-safe mb-4 flex h-14 items-center gap-3"><IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-5 w-5" /></IconButton><h1 className="text-title">{t('callHistoryLabel')}</h1></header>
+    <header className="pt-safe mb-4 flex min-h-[calc(3.5rem+var(--safe-top))] items-center gap-3"><IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-5 w-5" /></IconButton><h1 className="text-title">{t('callHistoryLabel')}</h1></header>
     {isLoading ? <div className="space-y-3"><Skeleton variant="card" /><Skeleton variant="card" /></div> : <div className="space-y-2">{data.map((call: any) => {
       const missed = String(call.status).toUpperCase() === 'MISSED' || String(call.endReason).toLowerCase() === 'missed';
       return <button key={call.id} type="button" onClick={() => call.partnerId && navigate(`/profile/${call.partnerId}`)} className="flex w-full items-center gap-3 rounded-2xl border border-app bg-surface p-3 text-start shadow-soft">

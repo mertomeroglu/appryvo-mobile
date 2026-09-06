@@ -30,7 +30,7 @@ const DEFAULT_GEOMETRY: ProfileFrameGeometry = {
   canvasScale: 1.42,
   offsetX: 0,
   offsetY: 0,
-  flagAnchor: { x: 0.91, y: 0.9 },
+  flagAnchor: { x: 0.88, y: 0.14 },
 };
 
 /**

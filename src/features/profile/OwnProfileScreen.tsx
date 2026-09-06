@@ -31,6 +31,7 @@ import {
 import { nativeShare } from '../../native/share';
 import { CoinStoreSheet } from '../coins/CoinStoreSheet';
 import { CoinIcon } from '../gifts/CoinIcon';
+import { ScreenHeader } from '../../components/ui/ScreenHeader';
 
 const EditProfileModal = lazy(() => preloadEditProfileModal().then((module) => ({ default: module.EditProfileModal })));
 
@@ -131,18 +132,19 @@ export const OwnProfileScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full w-full bg-app text-app p-4 overflow-y-auto no-scrollbar pb-28 select-none">
-      {/* Header */}
-      <header className="pt-safe flex items-center justify-center gap-2 mb-2 relative">
-        <AppLogo variant="icon" size="sm" />
-        <h2 className="text-title text-app">{t('ownProfileTitle')}</h2>
-        <button
+      <ScreenHeader
+        transparent
+        className="-mx-4"
+        leading={<AppLogo variant="icon" size="sm" />}
+        title={t('ownProfileTitle')}
+        trailing={<button
           onClick={() => navigate('/profile/preview')}
-          className="absolute end-0 px-3 py-2 rounded-full bg-surface border border-app text-caption font-extrabold text-app flex items-center gap-1.5 shadow-soft active:scale-95 transition-transform"
+          className="flex shrink-0 items-center gap-1.5 rounded-full border border-app bg-surface px-3 py-2 text-caption font-extrabold text-app shadow-soft transition-transform active:scale-95"
         >
           <Eye className="w-3.5 h-3.5" />
           <span>{t('ownProfilePreviewAction')}</span>
-        </button>
-      </header>
+        </button>}
+      />
 
       {/* Identity block: avatar ring, nationality flag, verification, name, location, completion */}
       <div className="flex flex-col items-center text-center my-2">

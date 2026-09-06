@@ -52,7 +52,11 @@ describe('normalized profile-frame geometry', () => {
     const placement = getProfileFramePlacement(id);
 
     expect(root.dataset.profileAvatarFrame).toBe(id);
+    expect(root.dataset.frameState).toBe('standard');
+    expect(decoration.className).toContain('opacity-0');
+    fireEvent.load(decoration);
     expect(root.dataset.frameState).toBe('decorative');
+    expect(decoration.className).toContain('opacity-100');
     expect(root.style.width).toBe('56px');
     expect(root.style.height).toBe('56px');
     expect(decoration.style.width).toBe(placement.width);

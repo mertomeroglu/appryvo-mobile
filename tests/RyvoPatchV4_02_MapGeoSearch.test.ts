@@ -166,6 +166,7 @@ describe('RYVO PATCH V4 / PROMPT 02: map/geo/search', () => {
     const selectCityEnd = screen.indexOf('};', selectCityStart);
     const selectCityBody = screen.slice(selectCityStart, selectCityEnd);
     expect(selectCityBody).not.toMatch(/mapVisible|getCurrentPosition|acquireLocalLocation/);
-    expect(selectCityBody).toContain('flyTo');
+    expect(selectCityBody).toContain('navigateMapToGeography(mapRef.current, city)');
+    expect(source('features/map/geoNavigation.ts')).toContain('map.flyTo({');
   });
 });

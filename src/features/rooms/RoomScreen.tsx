@@ -263,7 +263,7 @@ export const RoomScreen: React.FC = () => {
   return (
     <div className="flex h-full flex-col bg-app text-app">
       <header className="flex items-center gap-3 border-b border-app bg-surface-95 px-4 pb-3 pt-safe backdrop-blur-xl">
-        <button onClick={() => navigate(-1)} className="mt-3 rounded-full p-2"><ArrowLeft /></button>
+        <button onClick={() => navigate(-1)} className="mt-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"><ArrowLeft className="h-5 w-5" /></button>
         <div className="mt-3 min-w-0 flex-1">
           <div className="flex items-center gap-1">
             <h1 className="truncate text-body font-extrabold">{room.title}</h1>
@@ -271,8 +271,8 @@ export const RoomScreen: React.FC = () => {
           </div>
           <p className="text-caption text-app-muted">{room.city} · {members.length} {roomsText(locale, 'participants')}</p>
         </div>
-        <button onClick={() => setShowMembers(true)} className="mt-3 rounded-full p-2"><Users /></button>
-        <button onClick={() => setShowMenu(true)} className="mt-3 rounded-full p-2"><MoreHorizontal /></button>
+        <button onClick={() => setShowMembers(true)} className="mt-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"><Users className="h-5 w-5" /></button>
+        <button onClick={() => setShowMenu(true)} className="mt-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"><MoreHorizontal className="h-5 w-5" /></button>
       </header>
 
       <main className="flex-1 space-y-3 overflow-y-auto p-4">
@@ -331,7 +331,7 @@ export const RoomScreen: React.FC = () => {
         <footer className="flex items-center gap-3 border-t border-app bg-surface px-4 pb-[calc(var(--safe-bottom)+.75rem)] pt-3">
           <span className="flex-1 text-body font-bold text-red-500">{roomsText(locale, 'recording')} {formatSeconds(recordSeconds)}</span>
           <button onClick={() => stopRecording(false)} className="flex h-12 w-12 items-center justify-center rounded-full bg-app-secondary"><X /></button>
-          <button onClick={() => stopRecording(true)} className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-gradient text-white"><Send /></button>
+          <button onClick={() => stopRecording(true)} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-gradient text-white"><Send className="h-5 w-5" /></button>
         </footer>
       ) : (
         <footer className="border-t border-app bg-surface px-4 pb-[calc(var(--safe-bottom)+.75rem)] pt-3">
@@ -351,7 +351,7 @@ export const RoomScreen: React.FC = () => {
               className="h-12 min-w-0 flex-1 rounded-full bg-app-secondary px-5 outline-none focus:ring-2 focus:ring-pink-500"
             />
             {text.trim() ? (
-              <button onClick={send} disabled={sendingHighlight} className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-gradient text-white disabled:opacity-40"><Send /></button>
+              <button onClick={send} disabled={sendingHighlight} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-gradient text-white disabled:opacity-40"><Send className="h-5 w-5" /></button>
             ) : (
               <button onClick={startRecording} className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-gradient text-white"><Mic /></button>
             )}

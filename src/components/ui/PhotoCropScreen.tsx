@@ -168,7 +168,7 @@ export const PhotoCropScreen: React.FC<PhotoCropScreenProps> = ({
 
   return (
     <div className="fixed inset-0 z-modal bg-black flex flex-col select-none">
-      <header className="pt-safe px-5 h-16 flex items-center justify-between z-sticky">
+      <header className="pt-safe px-5 min-h-[calc(4rem+var(--safe-top))] flex items-center justify-between z-sticky">
         <IconButton aria-label={t('discardAriaLabel')} variant="surface" size="md" onClick={onCancel}>
           <X className="w-5 h-5" />
         </IconButton>

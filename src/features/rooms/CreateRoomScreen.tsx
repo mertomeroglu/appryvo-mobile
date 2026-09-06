@@ -55,7 +55,7 @@ export const CreateRoomScreen: React.FC = () => {
   return (
     <div className="min-h-full bg-app px-4 pb-10 pt-safe text-app">
       <header className="mt-3 flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="rounded-full p-2"><ArrowLeft /></button>
+        <button onClick={() => navigate(-1)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"><ArrowLeft className="h-5 w-5" /></button>
         <h1 className="text-heading">{roomsText(locale, 'createRoom')}</h1>
       </header>
       <main className="mx-auto mt-6 max-w-md space-y-5">

@@ -124,7 +124,7 @@ export const AuthScreen: React.FC = () => {
       {/* Keep the same official wordmark used by Welcome, compact enough to leave the
           language control unobstructed while preserving the native back affordance. */}
       {mode !== 'welcome' && (
-        <header className="pt-safe px-5 pe-24 h-16 flex items-center gap-3 z-sticky">
+        <header className="pt-safe px-5 pe-24 min-h-[calc(4rem+var(--safe-top))] flex items-center gap-3 z-sticky">
           <IconButton aria-label={t('backButtonLabel')} variant="surface" size="md" onClick={() => goTo(mode === 'forgot' ? 'login' : 'welcome')}>
             <ArrowLeft className="w-5 h-5" />
           </IconButton>

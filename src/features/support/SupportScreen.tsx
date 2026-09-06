@@ -7,6 +7,7 @@ import { AppButton } from '../../components/ui/AppButton';
 import { toast } from '../../stores/useToastStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useAppTranslation, type AppMessageKey } from '../../i18n/appLocale';
+import { ScreenHeader } from '../../components/ui/ScreenHeader';
 
 // GET /api/support/categories now returns stable codes (support_controller.js), not display
 // text -- this used to be a hardcoded Turkish string sent to every client regardless of locale.
@@ -55,12 +56,7 @@ export const SupportScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full w-full bg-app text-app select-none overflow-hidden">
-      <header className="pt-safe px-4 h-16 flex items-center gap-3 border-b border-app bg-surface-80 backdrop-blur-md z-sticky shrink-0">
-        <IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate(-1)}>
-          <ArrowLeft className="w-5 h-5" />
-        </IconButton>
-        <h2 className="text-heading text-app">{t('support')}</h2>
-      </header>
+      <ScreenHeader leading={<IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-5 w-5" /></IconButton>} title={t('support')} />
 
       <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
         {submitted ? (

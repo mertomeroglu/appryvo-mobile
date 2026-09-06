@@ -83,12 +83,16 @@ export const ProfileAvatarFrame: React.FC<ProfileAvatarFrameProps> = ({
   const placement = getProfileFramePlacement(resolvedFrameId);
   const flagAnchor = getProfileFrameGeometry(resolvedFrameId).flagAnchor;
   const [failedAsset, setFailedAsset] = useState<string | null>(null);
+  const [loadedAsset, setLoadedAsset] = useState<string | null>(null);
   const assetUrl = frameAsset ? normalizeMediaUrl(frameAsset) : null;
-  const showDecoration = Boolean(assetUrl && failedAsset !== assetUrl);
+  const showDecoration = Boolean(assetUrl && failedAsset !== assetUrl && loadedAsset === assetUrl);
   const src = photoUrl ? normalizeMediaUrl(photoUrl) : undefined;
   const pixelSize = PROFILE_AVATAR_SIZE_PX[size];
 
-  useEffect(() => setFailedAsset(null), [assetUrl]);
+  useEffect(() => {
+    setFailedAsset(null);
+    setLoadedAsset(assetUrl && isProfileFrameAssetDecoded(assetUrl) ? assetUrl : null);
+  }, [assetUrl]);
 
   return (
     <div
@@ -109,9 +113,11 @@ export const ProfileAvatarFrame: React.FC<ProfileAvatarFrameProps> = ({
         />
       )}
 
-      <Avatar src={src} name={name} size={size} className="relative z-10 w-full h-full" />
+      <span className="absolute inset-0 z-10 overflow-hidden rounded-full bg-surface p-[2px]" data-avatar-clip="circular">
+        <Avatar src={src} name={name} size={size} className="h-full w-full overflow-hidden rounded-full" />
+      </span>
 
-      {showDecoration && assetUrl && (
+      {assetUrl && failedAsset !== assetUrl && (
         <img
           src={assetUrl}
           alt=""
@@ -120,12 +126,12 @@ export const ProfileAvatarFrame: React.FC<ProfileAvatarFrameProps> = ({
           loading={eager || isProfileFrameAssetDecoded(assetUrl) ? 'eager' : 'lazy'}
           fetchPriority={eager || isProfileFrameAssetDecoded(assetUrl) ? 'high' : 'auto'}
           decoding="async"
-          onLoad={onFrameLoad}
+          onLoad={() => { setLoadedAsset(assetUrl); onFrameLoad?.(); }}
           onError={() => {
             setFailedAsset(assetUrl);
             if (import.meta.env.DEV) console.warn(`[PROFILE FRAME] Asset failed; using Standard: ${resolvedFrameId}`);
           }}
-          className="absolute z-20 top-1/2 left-1/2 max-w-none h-auto pointer-events-none select-none"
+          className={cn('absolute z-20 top-1/2 left-1/2 max-w-none h-auto pointer-events-none select-none transition-opacity duration-150', showDecoration ? 'opacity-100' : 'opacity-0')}
           style={{
             ...placement,
             transformOrigin: 'center',
@@ -134,7 +140,13 @@ export const ProfileAvatarFrame: React.FC<ProfileAvatarFrameProps> = ({
       )}
 
       {online && (
-        <span className={`absolute z-30 bottom-0 w-[22%] h-[22%] min-w-2.5 min-h-2.5 rounded-full bg-success border-2 border-surface ${showCountryFlag && countryCode ? 'left-0' : 'right-0'}`} />
+        <span data-avatar-badge="online" className="absolute bottom-0 left-0 z-30 h-[22%] min-h-2.5 w-[22%] min-w-2.5 rounded-full border-2 border-surface bg-success" />
+      )}
+
+      {verified && (
+        <span data-avatar-badge="verified" className="absolute bottom-0 right-0 z-30 grid h-[24%] min-h-3 w-[24%] min-w-3 place-items-center rounded-full border-2 border-surface bg-aqua text-white">
+          <span className="h-1/2 w-1/2 rounded-full bg-white" />
+        </span>
       )}
 
       {showCountryFlag && countryCode && (
@@ -142,6 +154,7 @@ export const ProfileAvatarFrame: React.FC<ProfileAvatarFrameProps> = ({
           countryCode={countryCode}
           size={flagSizeFor(size)}
           className="absolute z-30 -translate-x-1/2 -translate-y-1/2"
+          data-avatar-badge="country"
           style={{ left: `${flagAnchor.x * 100}%`, top: `${flagAnchor.y * 100}%` }}
         />
       )}

@@ -3,7 +3,7 @@ import { normalizeCountryCode } from '../../lib/countryFlags';
 import { AVAILABLE_FLAG_CODES, UNKNOWN_FLAG_CODE, getFlagAssetPath } from '../../lib/flagAssets';
 import { cn } from '../../lib/utils';
 
-interface CountryFlagBadgeProps {
+interface CountryFlagBadgeProps extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'children'> {
   countryCode?: string | null;
   className?: string;
   size?: 'xs' | 'sm' | 'md';
@@ -11,8 +11,8 @@ interface CountryFlagBadgeProps {
 }
 
 const SIZE_CLASSES = {
-  xs: 'h-3.5 w-3.5 border-2',
-  sm: 'h-[18px] w-[18px] border-2',
+  xs: 'h-3.5 w-3.5 border',
+  sm: 'h-[18px] w-[18px] border',
   md: 'h-6 w-6 border-2',
 };
 
@@ -22,7 +22,7 @@ const SIZE_CLASSES = {
  * locally from HatScripts/circle-flags — never an emoji, never fetched from GitHub at runtime.
  * See THIRD_PARTY_NOTICES.md.
  */
-export const CountryFlagBadge: React.FC<CountryFlagBadgeProps> = ({ countryCode, className, size = 'md', style }) => {
+export const CountryFlagBadge: React.FC<CountryFlagBadgeProps> = ({ countryCode, className, size = 'md', style, ...props }) => {
   const code = normalizeCountryCode(countryCode);
   if (!code) return null;
   const assetCode = AVAILABLE_FLAG_CODES.has(code) ? code : UNKNOWN_FLAG_CODE;
@@ -37,6 +37,7 @@ export const CountryFlagBadge: React.FC<CountryFlagBadgeProps> = ({ countryCode,
       style={style}
       aria-label={`Ülke: ${code}`}
       title={code}
+      {...props}
     >
       <img
         src={getFlagAssetPath(assetCode)}

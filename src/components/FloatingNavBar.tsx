@@ -82,7 +82,7 @@ export const FloatingNavBar: React.FC = () => {
                     isActive ? 'text-white' : 'text-app-muted'
                   }`}
                 >
-                  <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : 'stroke-[2]'}`} />
+                  <Icon className="h-5 w-5 stroke-[2]" />
                   {typeof item.badge === 'number' && item.badge > 0 && (
                     <span className="absolute -top-2.5 -end-3 bg-pink-500 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full border-2 border-surface min-w-[18px] text-center leading-none">
                       {item.badge > 99 ? '99+' : item.badge}

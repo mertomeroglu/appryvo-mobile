@@ -5,6 +5,8 @@ import { communityRoomsService, type CommunityRoom, type RoomCategory } from '..
 import { useAppTranslation } from '../../i18n/appLocale';
 import { roomsText } from './roomsLocale';
 import { Avatar } from '../../components/ui/Avatar';
+import { ScreenHeader } from '../../components/ui/ScreenHeader';
+import { usefulRoomSubtitle } from './roomTitle';
 
 // V3: rooms are always TEXT now, so the directory filters by category (not room type any more --
 // see CreateRoomScreen.tsx / SocialMapScreen.tsx for the same category taxonomy).
@@ -33,23 +35,23 @@ export const RoomDirectoryScreen: React.FC = () => {
     () => rooms.filter((r) => (!category || r.category === category) && (!query || `${r.title} ${r.topic}`.toLowerCase().includes(query.toLowerCase()))),
     [rooms, category, query]
   );
+  const title = city || roomsText(locale, 'cityRooms');
+  const subtitle = usefulRoomSubtitle(title, roomsText(locale, 'cityRooms'));
 
   return (
     <div className="min-h-full bg-app pb-28 text-app">
-      <header className="sticky top-0 z-sticky border-b border-app bg-surface-95 px-4 pb-4 pt-safe backdrop-blur-xl">
-        <div className="mt-3 flex items-center gap-3">
-          <button onClick={() => navigate('/map')} className="rounded-full p-2"><ArrowLeft /></button>
-          <div className="flex-1">
-            <h1 className="text-heading">{city || roomsText(locale, 'cityRooms')}</h1>
-            <p className="text-caption text-app-muted">{roomsText(locale, 'cityRooms')}</p>
-          </div>
-          <button onClick={() => navigate(`/rooms/create?cityId=${cityId || ''}`)} className="flex h-11 w-11 items-center justify-center rounded-full bg-brand-gradient text-white"><Plus /></button>
-        </div>
-        <div className="relative mt-4">
-          <Search className="absolute start-4 top-3.5 h-5 w-5 text-app-muted" />
+      <div className="sticky top-0 z-sticky border-b border-app bg-surface-95 pb-4 backdrop-blur-xl">
+        <ScreenHeader
+          transparent
+          leading={<button onClick={() => navigate('/map')} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"><ArrowLeft className="h-5 w-5" /></button>}
+          title={<div><h1 className="truncate text-heading">{title}</h1>{subtitle && <p className="truncate text-caption font-normal text-app-muted">{subtitle}</p>}</div>}
+          trailing={<button onClick={() => navigate(`/rooms/create?cityId=${cityId || ''}`)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-gradient text-white"><Plus className="h-5 w-5" /></button>}
+        />
+        <div className="relative mx-4 mt-2">
+          <Search className="pointer-events-none absolute start-4 top-3.5 z-10 h-5 w-5 text-app-muted" />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={roomsText(locale, 'searchRooms')} className="h-12 w-full rounded-2xl border border-app bg-app-secondary ps-12 pe-4 outline-none focus:border-pink-500" />
         </div>
-        <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar">
+        <div className="mx-4 mt-3 flex gap-2 overflow-x-auto no-scrollbar">
           <button onClick={() => setCategory('')} className={`shrink-0 rounded-full px-4 py-2 text-caption font-bold ${category === '' ? 'bg-brand-gradient text-white' : 'border border-app bg-surface text-app-muted'}`}>
             {roomsText(locale, 'filterAll')}
           </button>
@@ -59,12 +61,12 @@ export const RoomDirectoryScreen: React.FC = () => {
             </button>
           ))}
         </div>
-      </header>
+      </div>
       <main className="space-y-3 p-4">
         {visible.map((room) => (
           <button key={room.id} onClick={() => navigate(`/rooms/${room.id}`)} className="w-full rounded-[24px] border border-app bg-surface p-4 text-start shadow-soft active:scale-[.99]">
             <div className="flex gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-500 to-violet-600 text-white"><MessageCircle /></div>
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-500 to-violet-600 text-white"><MessageCircle className="h-5 w-5" /></div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <h2 className="truncate text-body font-extrabold">{room.title}</h2>

@@ -523,7 +523,7 @@ export const DiscoverScreen: React.FC = () => {
   return (
     <div className="relative h-full w-full bg-app text-app flex flex-col justify-between overflow-hidden select-none">
       {/* Top Bar Header */}
-      <header className="pt-safe px-4 h-16 flex items-center justify-between z-sticky bg-app-80 backdrop-blur-md">
+      <header className="pt-safe px-4 min-h-[calc(4rem+var(--safe-top))] flex items-center justify-between z-sticky bg-app-80 backdrop-blur-md">
         <AppLogo variant="icon" size="md" />
 
         <div className="flex items-center gap-2">

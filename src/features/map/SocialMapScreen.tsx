@@ -74,6 +74,7 @@ const ROOM_CATEGORY_KEY: Record<RoomCategory, Parameters<typeof roomsText>[1]> =
 import { roomsText } from '../rooms/roomsLocale';
 import { Avatar } from '../../components/ui/Avatar';
 import { AppButton } from '../../components/ui/AppButton';
+import { navigateMapToGeography } from './geoNavigation';
 
 export interface MapUser {
   id: string;
@@ -285,7 +286,7 @@ export const SocialMapScreen: React.FC = () => {
   const onScreenMarkersRef = useRef<Map<string, MapLibreMarker>>(new Map());
   const roomDataRef = useRef<RoomFeatureCollection>(buildRoomFeatureCollection([]));
   const roomsByIdRef = useRef<Map<string, CommunityRoom>>(new Map());
-  const roomModeRef = useRef(true);
+  const roomModeRef = useRef(false);
   const clusterIndexRef = useRef<Supercluster<{ user: MapUser }> | null>(null);
   const moveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -317,7 +318,7 @@ export const SocialMapScreen: React.FC = () => {
   const [citySearchError, setCitySearchError] = useState(false);
   const [selectedPin, setSelectedPin] = useState<SelectedPin | null>(null);
   const [selectedUser, setSelectedUser] = useState<MapUser | null>(null);
-  const [discoveryMode, setDiscoveryMode] = useState<'people'|'rooms'>(() => import.meta.env.MODE === 'test' ? 'people' : 'rooms');
+  const [discoveryMode, setDiscoveryMode] = useState<'people'|'rooms'>('people');
   const [rooms, setRooms] = useState<CommunityRoom[]>([]);
   const [roomFilter, setRoomFilter] = useState<'ALL' | 'OFFICIAL' | RoomCategory>('ALL');
   const [selectedRoom, setSelectedRoom] = useState<CommunityRoom|null>(null);
@@ -830,13 +831,10 @@ export const SocialMapScreen: React.FC = () => {
   };
 
   const selectCity = (city: GeoCityResult) => {
-    setSearchQuery(city.city || '');
+    setSearchQuery(city.city || city.name || '');
     setCityResults([]);
     setCitySearchError(false);
-    if (typeof city.latitude === 'number' && typeof city.longitude === 'number') {
-      mapRef.current?.flyTo({ center: [city.longitude, city.latitude], zoom: LOCATE_ZOOM, duration: FLY_DURATION_MS });
-    }
-    if (discoveryMode === 'rooms' && city.id) navigate(`/rooms/city/${city.id}`);
+    navigateMapToGeography(mapRef.current, city);
   };
 
   // Gated on isLoading (true only until the first page of results for this bbox has ever
@@ -866,7 +864,7 @@ export const SocialMapScreen: React.FC = () => {
             <AppLogo variant="icon" size="sm" />
           </div>
           <form onSubmit={handleCitySearch} className="relative flex-1 pointer-events-auto">
-            <Search className="absolute left-4 top-3.5 w-5 h-5 text-app-muted" />
+            <Search aria-hidden="true" className="pointer-events-none absolute left-4 top-3.5 z-10 w-5 h-5 text-app-muted" />
             <input
               type="text"
               placeholder={t('mapSearchPlaceholder')}
@@ -912,11 +910,11 @@ export const SocialMapScreen: React.FC = () => {
             {cityResults.map((city, idx) => (
               <button
                 key={idx}
-                onClick={() => selectCity(city)}
-                className="w-full px-4 py-3 text-left border-b border-app last:border-b-0 text-body font-medium text-app hover:bg-surface-elevated flex items-center gap-2"
+                onPointerDown={(event) => { event.preventDefault(); selectCity(city); }}
+                className="relative z-10 w-full touch-manipulation px-4 py-3 text-left border-b border-app last:border-b-0 text-body font-medium text-app hover:bg-surface-elevated flex items-center gap-2"
               >
                 <span>{city.city}</span>
-                <span className="text-caption text-app-muted">{city.country}</span>
+                {city.type === 'city' && <span className="text-caption text-app-muted">{city.country}</span>}
               </button>
             ))}
           </div>
@@ -1035,18 +1033,18 @@ export const SocialMapScreen: React.FC = () => {
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-500 via-violet-500 to-amber-400 text-white shadow-elevated">
               {/* V3: rooms are always text-only now (selectedRoom.type stays 'TEXT'; the DB
                   column and this data point are kept for historical/admin visibility only). */}
-              <MessageCircle />
+              <MessageCircle className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="truncate text-heading text-app">{selectedRoom.title}</h2>{selectedRoom.isOfficial&&<ShieldCheck className="h-4 w-4 text-[#25D9D0]"/>}</div>
               <p className="text-caption font-semibold text-app-muted">{selectedRoom.city} · {selectedRoom.language.toUpperCase()} · {roomsText(locale,ROOM_CATEGORY_KEY[selectedRoom.category]||'categoryGeneral')}{selectedRoom.type!=='TEXT'?` · ${selectedRoom.type}`:''}</p></div>
-            <button onClick={()=>navigate(`/rooms/${selectedRoom.id}/report`)} aria-label={roomsText(locale,'report')} className="rounded-full p-2 text-app-muted"><MoreHorizontal/></button>
+            <button onClick={()=>navigate(`/rooms/${selectedRoom.id}/report`)} aria-label={roomsText(locale,'report')} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-app-muted"><MoreHorizontal className="h-5 w-5"/></button>
           </div>
           {selectedRoom.isDemo&&<span className="inline-flex rounded-full bg-amber-400/15 px-3 py-1 text-caption font-extrabold text-amber-500">{roomsText(locale,'officialDemo')}</span>}
           <p className="text-body leading-relaxed text-app">{selectedRoom.topic}</p>
           <div className="flex items-center justify-between"><div className="flex -space-x-3">{selectedRoom.participants.slice(0,6).map((p)=><Avatar key={p.id} src={normalizeMediaUrl(p.photoUrl||undefined)} name={p.name} size="sm" className="rounded-full border-2 border-surface"/>)}</div>
             <span className="text-caption font-bold text-app-muted">{selectedRoom.activeParticipantCount}/{selectedRoom.maxParticipants} {roomsText(locale,'participants')}</span></div>
           <div className="grid grid-cols-[1fr_auto] gap-2"><AppButton onClick={joinSelectedRoom} loading={joiningRoom} disabled={selectedRoom.activeParticipantCount>=selectedRoom.maxParticipants} fullWidth>{selectedRoom.activeParticipantCount>=selectedRoom.maxParticipants?roomsText(locale,'roomFull'):roomsText(locale,'joinRoom')}</AppButton>
-            <AppButton variant="secondary" onClick={()=>navigate(`/rooms/city/${selectedRoom.cityId}`)} aria-label={roomsText(locale,'cityRooms')}><ChevronRight/></AppButton></div>
+            <AppButton variant="secondary" onClick={()=>navigate(`/rooms/city/${selectedRoom.cityId}`)} aria-label={roomsText(locale,'cityRooms')}><ChevronRight className="h-5 w-5"/></AppButton></div>
         </div>}
       </BottomSheet>
 

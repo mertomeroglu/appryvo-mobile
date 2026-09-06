@@ -57,7 +57,7 @@ export const ConnectRequestInboxScreen: React.FC = () => {
   return (
     <div className="flex h-full flex-col bg-app text-app">
       <header className="flex items-center gap-3 border-b border-app bg-surface-95 px-4 pb-3 pt-safe backdrop-blur-xl">
-        <button onClick={() => navigate(-1)} className="mt-3 rounded-full p-2"><ArrowLeft /></button>
+        <button onClick={() => navigate(-1)} className="mt-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"><ArrowLeft className="h-5 w-5" /></button>
         <h1 className="mt-3 text-heading">{connectText(locale, 'connectInboxTitle')}</h1>
       </header>
       <main className="flex-1 overflow-y-auto p-4 space-y-3">

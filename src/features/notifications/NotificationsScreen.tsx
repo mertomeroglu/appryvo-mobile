@@ -8,6 +8,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { IconButton } from '../../components/ui/IconButton';
 import { formatMessageTime } from '../../lib/formatMessageTime';
 import { useAppTranslation } from '../../i18n/appLocale';
+import { ScreenHeader } from '../../components/ui/ScreenHeader';
 
 interface InAppNotification {
   id: string;
@@ -57,17 +58,15 @@ export const NotificationsScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full w-full bg-app text-app overflow-hidden select-none">
-      <header className="pt-safe px-4 h-16 flex items-center gap-3 z-sticky bg-app-80 backdrop-blur-md border-b border-app">
-        <IconButton aria-label={t('backButtonLabel')} variant="surface" size="md" onClick={() => navigate(-1)}>
-          <ArrowLeft className="w-5 h-5" />
-        </IconButton>
-        <h2 className="text-title text-app">{t('notifications')}</h2>
-        {!isLoading && data?.unreadCount > 0 && (
+      <ScreenHeader
+        leading={<IconButton aria-label={t('backButtonLabel')} variant="surface" size="md" onClick={() => navigate(-1)}><ArrowLeft className="h-5 w-5" /></IconButton>}
+        title={t('notifications')}
+        trailing={!isLoading && data?.unreadCount > 0 ? (
           <span className="ms-auto px-2.5 py-1 rounded-full bg-brand-gradient text-white text-micro font-extrabold">
             {t('notifCountBadgeTemplate').replace('{count}', String(data.unreadCount))}
           </span>
-        )}
-      </header>
+        ) : null}
+      />
 
       <div className="flex-1 overflow-y-auto no-scrollbar px-4 pb-24">
         {isLoading && (

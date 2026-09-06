@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { authService, LoginPayload, RegisterPayload } from '../services/auth/authService';
 import { socketService } from '../services/socket/socketService';
 import { useUiStore } from './useUiStore';
+import { localReengagement } from '../services/notifications/localReengagement';
 
 interface UserProfile {
   id: string;
@@ -102,6 +103,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: async () => {
     set({ isLoading: true });
+    await localReengagement.cancel();
     await authService.logout();
     socketService.disconnect();
     userStateVersion += 1;

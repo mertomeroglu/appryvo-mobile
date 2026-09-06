@@ -155,17 +155,17 @@ describe('Android Critical Hotfix — Contract & Behavior Tests', () => {
       expect(manifest).not.toContain('android.permission.WRITE_EXTERNAL_STORAGE');
     });
 
-    it('Build gradle has targetSdk 36, versionCode 11, versionName 3.0.1', () => {
+    it('Build gradle has targetSdk 36, versionCode 12, versionName 3.0.2', () => {
       const gradle = source('android/app/build.gradle');
       expect(gradle).toContain('compileSdk 36');
       expect(gradle).toContain('targetSdk 36');
-      expect(gradle).toContain('versionCode 11');
-      expect(gradle).toContain('versionName "3.0.1"');
+      expect(gradle).toContain('versionCode 12');
+      expect(gradle).toContain('versionName "3.0.2"');
     });
 
-    it('Package.json is synced to version 3.0.1', () => {
+    it('Package.json is synced to version 3.0.2', () => {
       const pkg = JSON.parse(source('package.json'));
-      expect(pkg.version).toBe('3.0.1');
+      expect(pkg.version).toBe('3.0.2');
     });
   });
 });

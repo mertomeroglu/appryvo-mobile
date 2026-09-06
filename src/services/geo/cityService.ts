@@ -8,11 +8,18 @@
 import { apiClient } from '../api/apiClient';
 
 export interface GeoCityResult {
-  id?: number;
+  id?: number | string;
   city: string;
+  name?: string;
   country?: string;
+  countryCode?: string;
+  type: 'city' | 'country';
   latitude?: number;
   longitude?: number;
+  southLatitude?: number;
+  northLatitude?: number;
+  westLongitude?: number;
+  eastLongitude?: number;
 }
 
 // Throws on a network/server failure so callers can distinguish "no matches" (empty array) from
@@ -29,11 +36,18 @@ export async function searchCities(query: string): Promise<GeoCityResult[]> {
       const city = entry?.city || entry?.name;
       if (!city) return null;
       return {
-        id: typeof entry?.id === 'number' ? entry.id : (typeof entry?.cityId === 'number' ? entry.cityId : undefined),
+        id: typeof entry?.id === 'number' || typeof entry?.id === 'string' ? entry.id : (typeof entry?.cityId === 'number' ? entry.cityId : undefined),
         city,
+        name: entry?.name,
         country: entry?.country,
+        countryCode: entry?.countryCode,
+        type: entry?.type === 'country' ? 'country' : 'city',
         latitude: typeof entry?.latitude === 'number' ? entry.latitude : undefined,
         longitude: typeof entry?.longitude === 'number' ? entry.longitude : undefined,
+        southLatitude: typeof entry?.southLatitude === 'number' ? entry.southLatitude : undefined,
+        northLatitude: typeof entry?.northLatitude === 'number' ? entry.northLatitude : undefined,
+        westLongitude: typeof entry?.westLongitude === 'number' ? entry.westLongitude : undefined,
+        eastLongitude: typeof entry?.eastLongitude === 'number' ? entry.eastLongitude : undefined,
       };
     })
     .filter((entry: GeoCityResult | null): entry is GeoCityResult => entry !== null);

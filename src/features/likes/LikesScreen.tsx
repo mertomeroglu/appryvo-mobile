@@ -10,6 +10,7 @@ import { PremiumBadge } from '../../components/ui/Badge';
 import { AppButton } from '../../components/ui/AppButton';
 import { AppLogo } from '../../components/ui/AppLogo';
 import { useAppTranslation } from '../../i18n/appLocale';
+import { ScreenHeader } from '../../components/ui/ScreenHeader';
 
 function initialsFrom(name?: string) {
   if (!name) return '?';
@@ -64,22 +65,18 @@ export const LikesScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full w-full bg-app text-app p-4 overflow-y-auto no-scrollbar pb-24 select-none">
-      {/* Top Title Bar */}
-      <header className="pt-safe flex items-center justify-between my-2">
-        <div className="flex items-center gap-2.5">
-          <AppLogo variant="icon" size="sm" />
-          <div>
-            <h2 className="text-title text-app">{t('likesScreenTitle')}</h2>
-            <p className="text-caption text-app-muted mt-0.5 normal-case">{t('likesScreenSubtitle')}</p>
-          </div>
-        </div>
-        {!isLoading && (
+      <ScreenHeader
+        transparent
+        className="-mx-4"
+        leading={<AppLogo variant="icon" size="sm" />}
+        title={<div><h2 className="truncate text-title text-app">{t('likesScreenTitle')}</h2><p className="mt-0.5 truncate text-caption font-normal normal-case text-app-muted">{t('likesScreenSubtitle')}</p></div>}
+        trailing={!isLoading ? (
           <div className="px-3 py-1.5 rounded-full bg-surface border border-app text-caption font-extrabold text-pink-500 flex items-center gap-1.5 shadow-soft">
             <Heart className="w-3.5 h-3.5 fill-current" />
             <span>{t('likesCountTemplate').replace('{count}', String(likesList.length))}</span>
           </div>
-        )}
-      </header>
+        ) : null}
+      />
 
       {/* Non-Premium Banner CTA */}
       {!isLoading && !isPremium && likesList.length > 0 && (

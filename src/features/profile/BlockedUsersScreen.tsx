@@ -10,6 +10,7 @@ import { Avatar } from '../../components/ui/Avatar';
 import { AppButton } from '../../components/ui/AppButton';
 import { toast } from '../../stores/useToastStore';
 import { useAppTranslation } from '../../i18n/appLocale';
+import { ScreenHeader } from '../../components/ui/ScreenHeader';
 
 export const BlockedUsersScreen: React.FC = () => {
   const navigate = useNavigate();
@@ -28,12 +29,7 @@ export const BlockedUsersScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full w-full bg-app text-app select-none">
-      <header className="pt-safe px-4 h-16 flex items-center gap-3 border-b border-app bg-surface-80 backdrop-blur-md z-sticky">
-        <IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate(-1)}>
-          <ArrowLeft className="w-5 h-5" />
-        </IconButton>
-        <h2 className="text-heading text-app">{t('blockedUsersTitle')}</h2>
-      </header>
+      <ScreenHeader leading={<IconButton aria-label={t('backButtonLabel')} variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-5 w-5" /></IconButton>} title={t('blockedUsersTitle')} />
 
       <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
         {isLoading ? (

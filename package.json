@@ -1,7 +1,7 @@
 {
   "name": "mobile-capacitor",
   "private": true,
-  "version": "3.0.1",
+  "version": "3.0.2",
   "type": "module",
   "scripts": {
     "postinstall": "patch-package",
@@ -29,6 +29,7 @@
     "@capacitor/haptics": "7.0.0",
     "@capacitor/ios": "7.0.1",
     "@capacitor/keyboard": "7.0.0",
+    "@capacitor/local-notifications": "^7.0.0",
     "@capacitor/network": "7.0.0",
     "@capacitor/preferences": "7.0.0",
     "@capacitor/share": "7.0.0",

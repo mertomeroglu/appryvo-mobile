@@ -33,6 +33,7 @@ import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { apiClient } from '../../services/api/apiClient';
 import { nativeLocation } from '../../native/location';
 import { nativeHaptics } from '../../native/haptics';
+import { nativeAppSettings } from '../../native/nativeSettings';
 import { socketService } from '../../services/socket/socketService';
 import { searchCities, type GeoCityResult } from '../../services/geo/cityService';
 import { acquireBestLocation } from '../../services/geo/locationQuality';
@@ -661,7 +662,8 @@ export const SocialMapScreen: React.FC = () => {
         return { latitude, longitude, accuracy: Number.isFinite(accuracy) ? accuracy : undefined };
       })
       .catch((err: any) => {
-        setLocationStatus(err?.code === 1 ? 'denied' : 'error');
+        const isDenied = err?.code === 'PERMISSION_DENIED' || err?.code === 1;
+        setLocationStatus(isDenied ? 'denied' : 'error');
         throw err;
       });
   }, []);
@@ -800,9 +802,15 @@ export const SocialMapScreen: React.FC = () => {
     renderVisibleMarkers();
   }, [selectedUser, frameCatalog, zoomLevel, renderVisibleMarkers]);
 
-  const handleRecenter = () => {
+  const handleRecenter = async () => {
     nativeHaptics.impact();
-    acquireLocalLocation(true).catch(() => {});
+    try {
+      await acquireLocalLocation(true);
+    } catch (err: any) {
+      if ((err?.code === 'PERMISSION_DENIED' || err?.code === 1) && err?.isPermanent) {
+        nativeAppSettings.openLocationServices().catch(() => {});
+      }
+    }
   };
 
   const handleCitySearch = async (e: React.FormEvent) => {
@@ -931,10 +939,16 @@ export const SocialMapScreen: React.FC = () => {
           <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
             <span>{t('mapLocationDeniedMessage')}</span>
             <button
-              onClick={() => acquireLocalLocation(true).catch(() => {})}
+              onClick={() => {
+                acquireLocalLocation(true).catch((err: any) => {
+                  if (err?.code === 'PERMISSION_DENIED' || err?.code === 1) {
+                    nativeAppSettings.openLocationServices().catch(() => {});
+                  }
+                });
+              }}
               className="shrink-0 text-pink-500 font-bold"
             >
-              {t('retryButton')}
+              {t('callOpenSettingsAction') || t('retryButton')}
             </button>
           </div>
         )}

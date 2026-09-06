@@ -69,6 +69,8 @@ export const StoryComposer: React.FC<StoryComposerProps> = ({ isOpen, onClose, o
         const blob = await fetch(uri).then((r) => r.blob()).catch(() => null);
         if (blob) setCropSource(URL.createObjectURL(blob));
         else handleClose();
+      } catch {
+        handleClose();
       } finally {
         nativePickerLaunchingRef.current = false;
       }
@@ -86,6 +88,8 @@ export const StoryComposer: React.FC<StoryComposerProps> = ({ isOpen, onClose, o
         const blob = await fetch(uris[0]).then((r) => r.blob()).catch(() => null);
         if (blob) setCropSource(URL.createObjectURL(blob));
         else handleClose();
+      } catch {
+        handleClose();
       } finally {
         nativePickerLaunchingRef.current = false;
       }

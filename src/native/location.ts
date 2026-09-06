@@ -1,16 +1,103 @@
-import { Geolocation, PositionOptions } from '@capacitor/geolocation';
-import { Capacitor } from '@capacitor/core';
+import { Geolocation, PermissionStatus, PositionOptions } from '@capacitor/geolocation';
+import { Capacitor, PermissionState } from '@capacitor/core';
+
+export type LocationErrorCode =
+  | 'PERMISSION_DENIED'
+  | 'POSITION_UNAVAILABLE'
+  | 'LOCATION_TIMEOUT'
+  | 'UNKNOWN';
+
+export class LocationError extends Error {
+  readonly code: LocationErrorCode;
+  readonly isPermanent: boolean;
+
+  constructor(message: string, code: LocationErrorCode, isPermanent = false) {
+    super(message);
+    this.name = 'LocationError';
+    this.code = code;
+    this.isPermanent = isPermanent;
+  }
+}
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
 export const nativeLocation = {
+  async checkPermissions(): Promise<PermissionStatus> {
+    if (Capacitor.isNativePlatform()) {
+      return await Geolocation.checkPermissions();
+    }
+    if (typeof navigator !== 'undefined' && 'permissions' in navigator) {
+      try {
+        const status = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+        return {
+          location: status.state as PermissionState,
+          coarseLocation: status.state as PermissionState,
+        };
+      } catch {
+        return { location: 'prompt', coarseLocation: 'prompt' };
+      }
+    }
+    return { location: 'prompt', coarseLocation: 'prompt' };
+  },
+
+  async requestPermissions(): Promise<PermissionStatus> {
+    if (Capacitor.isNativePlatform()) {
+      return await Geolocation.requestPermissions({ permissions: ['location', 'coarseLocation'] });
+    }
+    return { location: 'granted', coarseLocation: 'granted' };
+  },
+
+  async ensurePermission(): Promise<boolean> {
+    if (!Capacitor.isNativePlatform()) return true;
+
+    try {
+      const current = await this.checkPermissions();
+      if (current.location === 'granted' || current.coarseLocation === 'granted') {
+        return true;
+      }
+
+      if (
+        current.location === 'prompt' ||
+        current.location === 'prompt-with-rationale' ||
+        current.coarseLocation === 'prompt' ||
+        current.coarseLocation === 'prompt-with-rationale'
+      ) {
+        const requested = await this.requestPermissions();
+        if (requested.location === 'granted' || requested.coarseLocation === 'granted') {
+          return true;
+        }
+        throw new LocationError(
+          'Location permission denied by user',
+          'PERMISSION_DENIED',
+          requested.location === 'denied'
+        );
+      }
+
+      throw new LocationError(
+        'Location permission permanently denied. Enable in device settings.',
+        'PERMISSION_DENIED',
+        true
+      );
+    } catch (err) {
+      if (err instanceof LocationError) throw err;
+      throw new LocationError(
+        err instanceof Error ? err.message : 'Location permission check failed',
+        'PERMISSION_DENIED'
+      );
+    }
+  },
+
   async getCurrentPosition(options?: PositionOptions) {
+    if (Capacitor.isNativePlatform()) {
+      await this.ensurePermission();
+    }
+
     const positionPromise = (async () => {
       if (Capacitor.isNativePlatform()) {
         return await Geolocation.getCurrentPosition(options);
       }
       return new Promise((resolve, reject) => {
-        if ('geolocation' in navigator) {
+        if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
           navigator.geolocation.getCurrentPosition(
             (pos) =>
               resolve({
@@ -29,7 +116,7 @@ export const nativeLocation = {
             options
           );
         } else {
-          reject(new Error('Geolocation not available'));
+          reject(new LocationError('Geolocation not available', 'POSITION_UNAVAILABLE'));
         }
       });
     })();
@@ -48,7 +135,7 @@ export const nativeLocation = {
     let timeoutHandle: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
-        reject(Object.assign(new Error('Location request timed out.'), { code: 'LOCATION_TIMEOUT' }));
+        reject(new LocationError('Location request timed out.', 'LOCATION_TIMEOUT'));
       }, timeoutMs);
     });
 
@@ -61,10 +148,20 @@ export const nativeLocation = {
 
   async watchPosition(callback: (pos: any, err?: any) => void, options?: PositionOptions) {
     if (Capacitor.isNativePlatform()) {
+      try {
+        await this.ensurePermission();
+      } catch (err) {
+        callback(null, err);
+        return null;
+      }
       return await Geolocation.watchPosition(options || {}, callback);
     }
-    if ('geolocation' in navigator) {
-      const id = navigator.geolocation.watchPosition((pos) => callback(pos), (err) => callback(null, err), options);
+    if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+      const id = navigator.geolocation.watchPosition(
+        (pos) => callback(pos),
+        (err) => callback(null, err),
+        options
+      );
       return id.toString();
     }
     return null;
@@ -74,7 +171,7 @@ export const nativeLocation = {
     if (!id) return;
     if (Capacitor.isNativePlatform()) {
       await Geolocation.clearWatch({ id });
-    } else if ('geolocation' in navigator) {
+    } else if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.clearWatch(Number(id));
     }
   },

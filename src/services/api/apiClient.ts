@@ -81,6 +81,12 @@ export async function refreshTokenFlow(): Promise<boolean> {
         }
       }
 
+      // Definitive invalidation: Refresh token expired or rejected by server with 401
+      if (res.status === 401) {
+        await secureStorage.clearAll();
+        return false;
+      }
+
       if (res.ok) {
         const data = await res.json();
         if (data?.status === 'success' && data?.data?.accessToken) {
@@ -91,11 +97,17 @@ export async function refreshTokenFlow(): Promise<boolean> {
           return true;
         }
       }
+
+      // Temporary server 5xx or bad gateway -- do NOT wipe stored tokens!
+      if (res.status >= 500) {
+        return false;
+      }
     } catch {
-      // Refresh error ignored
+      // Network failure, DNS error, offline, timeout:
+      // A temporary network problem MUST NOT delete the user's stored session!
+      return false;
     }
 
-    await secureStorage.clearAll();
     return false;
   })();
 

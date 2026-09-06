@@ -8,7 +8,8 @@ import {
 import { useAuthStore } from '../../stores/useAuthStore';
 import { apiClient } from '../../services/api/apiClient';
 import { mediaService } from '../../services/media/mediaService';
-import { nativeCamera } from '../../native/camera';
+import { nativeCamera, CameraError } from '../../native/camera';
+import { nativeAppSettings } from '../../native/nativeSettings';
 import { toast } from '../../stores/useToastStore';
 import { AppButton } from '../../components/ui/AppButton';
 import { ActionSheet } from '../../components/ui/ActionSheet';
@@ -178,6 +179,19 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const photosRef = useRef<DraftPhoto[]>(photos);
+  const isCameraBusyRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const unsubscribe = nativeCamera.onRestoredPhoto(async (uri) => {
+      try {
+        const blob = await fetch(uri).then((r) => r.blob());
+        enqueueForCrop([blob]);
+      } catch {
+        // Ignored
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => () => {
     if (cropSource) URL.revokeObjectURL(cropSource);
@@ -340,7 +354,11 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   };
 
   // --- Photos ---
-  const isCancellation = (err: any) => /cancel/i.test(err?.message || '') || /cancel/i.test(err?.errorMessage || '');
+  const isCancellation = (err: any) =>
+    err?.code === 'USER_CANCELLED' ||
+    err?.isCancellation ||
+    /cancel/i.test(err?.message || '') ||
+    /cancel/i.test(err?.errorMessage || '');
 
   const handleAddPhotos = () => {
     if (photos.length >= MAX_PHOTOS) return;
@@ -358,19 +376,34 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   };
 
   const handleTakePhoto = async () => {
+    if (isCameraBusyRef.current) return;
+    isCameraBusyRef.current = true;
     try {
       const uri = await nativeCamera.takePhoto();
       if (!uri) return;
       const blob = await fetch(uri).then((r) => r.blob());
       enqueueForCrop([blob]);
     } catch (err: any) {
-      if (!isCancellation(err)) toast.error(t('photoCaptureFailedMessage'));
+      if (isCancellation(err)) return;
+      if (err?.code === 'PERMISSION_DENIED') {
+        toast.error(t('photoCaptureFailedMessage'));
+        if (err?.isPermanent) {
+          nativeAppSettings.open().catch(() => {});
+        }
+        return;
+      }
+      toast.error(t('photoCaptureFailedMessage'));
+    } finally {
+      isCameraBusyRef.current = false;
     }
   };
 
   const handlePickFromGallery = async () => {
+    if (isCameraBusyRef.current) return;
+    isCameraBusyRef.current = true;
     try {
       const uris = await nativeCamera.pickImages();
+      if (!uris || uris.length === 0) return;
       const blobs: Blob[] = [];
       for (const uri of uris.slice(0, MAX_PHOTOS - photos.length)) {
         try {
@@ -381,7 +414,17 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
       }
       enqueueForCrop(blobs);
     } catch (err: any) {
-      if (!isCancellation(err)) toast.error(t('galleryAccessFailedMessage'));
+      if (isCancellation(err)) return;
+      if (err?.code === 'PERMISSION_DENIED') {
+        toast.error(t('galleryAccessFailedMessage'));
+        if (err?.isPermanent) {
+          nativeAppSettings.open().catch(() => {});
+        }
+        return;
+      }
+      toast.error(t('galleryAccessFailedMessage'));
+    } finally {
+      isCameraBusyRef.current = false;
     }
   };
 

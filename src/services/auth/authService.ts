@@ -1,7 +1,8 @@
-import { apiClient } from '../api/apiClient';
+import { apiClient, ApiException } from '../api/apiClient';
 import { secureStorage } from '../../native/secureStorage';
 import { pushRegistrationService } from '../push/pushRegistrationService';
 import { translateSync } from '../../i18n/appLocale';
+import { crashReporting } from '../../native/crashReporting';
 
 export interface RegisterPayload {
   email: string;
@@ -92,11 +93,37 @@ export const authService = {
   async restoreSession() {
     const token = await secureStorage.getAccessToken();
     if (!token) return null;
+
     try {
       const res = await this.getCurrentUser();
       return res?.data || null;
-    } catch {
-      await secureStorage.clearAll();
+    } catch (err: any) {
+      // 1. Account suspended or banned: getCurrentUser() already threw after clearing storage.
+      if (err?.message?.includes('SUSPENDED') || err?.message?.includes('BANNED')) {
+        await secureStorage.clearAll();
+        return null;
+      }
+
+      // 2. Definitive 401 Unauthorized:
+      // (The access token expired AND the refresh token attempt definitively failed)
+      if (err instanceof ApiException && err.statusCode === 401) {
+        await secureStorage.clearAll();
+        return null;
+      }
+
+      // 3. Transient failure: offline, timeout, network error, 5xx server glitch.
+      // NEVER delete the user's stored tokens for temporary issues!
+      // Fallback to the cached user profile so the authenticated shell remains active.
+      crashReporting.log(
+        `[AUTH] Session restore fallback to cache: transient error (${err?.statusCode || err?.code || err?.message})`
+      );
+
+      const cachedUser = await secureStorage.getUserData();
+      if (cachedUser) {
+        return cachedUser;
+      }
+
+      // If no cached user profile exists yet but credentials exist, do not wipe tokens.
       return null;
     }
   },

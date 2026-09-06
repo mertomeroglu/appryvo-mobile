@@ -118,7 +118,7 @@ describe('profile and monetization UI contracts', () => {
     const settings = source('features/profile/SettingsScreen.tsx');
     const authStore = source('stores/useAuthStore.ts');
 
-    expect(iap).toContain('Promise.allSettled');
+    expect(iap).toContain('withNativeBillingLock');
     expect(iap).toContain('subscriptionProductCache');
     expect(iap).not.toContain('setStoreProducts([])');
     expect(verification).toContain("uploadMedia(shot.blob, 'verification')");

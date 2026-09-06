@@ -21,7 +21,14 @@ export class ApiException extends Error {
 let refreshInFlight: Promise<boolean> | null = null;
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const token = await secureStorage.getAccessToken();
+  let token = await secureStorage.getAccessToken();
+  // A valid refresh token can outlive a missing/corrupt/expired access-token entry. Without
+  // this recovery every authenticated feature (coins, subscriptions, frames, verification)
+  // sends the same unauthenticated request until the user manually logs in again.
+  if (!token && await secureStorage.getRefreshToken()) {
+    const refreshed = await refreshTokenFlow();
+    if (refreshed) token = await secureStorage.getAccessToken();
+  }
   const headers: Record<string, string> = {
     Accept: 'application/json',
   };

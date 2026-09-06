@@ -7,6 +7,7 @@ import { mediaService } from '../../services/media/mediaService';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { toast } from '../../stores/useToastStore';
 import { nativeHaptics } from '../../native/haptics';
+import { nativeCamera } from '../../native/camera';
 import { AppButton } from '../../components/ui/AppButton';
 import { IconButton } from '../../components/ui/IconButton';
 import { AppLogo } from '../../components/ui/AppLogo';
@@ -145,7 +146,13 @@ export const VerificationScreen: React.FC = () => {
       } catch (reason) { console.warn('[VERIFY][MediaPipe] inference failed', reason); }
       finally { inferBusyRef.current = false; }
     };
-    Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false }), createFaceLandmarker()])
+    // Resolve Android runtime CAMERA permission through Capacitor before WebView getUserMedia.
+    // This avoids relying on WebChromeClient timing and never starts MediaPipe with a denied
+    // camera request.
+    Promise.all([
+      nativeCamera.ensureCameraPermission().then(() => navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })),
+      createFaceLandmarker(),
+    ])
       .then(([stream, landmarker]) => {
         if (cancelled) { stream.getTracks().forEach((track) => track.stop()); landmarker.close(); return; }
         streamRef.current = stream; landmarkerRef.current = landmarker;

@@ -85,9 +85,9 @@ async function markCompleted(transaction: Transaction, endpoint: string) {
   const token = verificationToken(transaction);
   if (!token) return;
   if (nativePlatform() === 'android' && transaction.productType === PURCHASE_TYPE.INAPP) {
-    await NativePurchases.consumePurchase({ purchaseToken: token });
+    await withNativeBillingLock(() => NativePurchases.consumePurchase({ purchaseToken: token }));
   } else {
-    await NativePurchases.acknowledgePurchase({ purchaseToken: token });
+    await withNativeBillingLock(() => NativePurchases.acknowledgePurchase({ purchaseToken: token }));
   }
   await apiClient.post(endpoint, {
     platform: billingPlatform(),
@@ -116,6 +116,18 @@ async function verifyCoinTransaction(transaction: Transaction, expectedProductId
 
 let subscriptionProductCache: Product[] = [];
 let initializePromise: Promise<() => void> | null = null;
+let nativeBillingQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * The Android plugin owns one BillingClient instance. Concurrent getProducts/getPurchases calls
+ * can replace or close that shared client underneath one another, so all native store access is
+ * serialized. API receipt verification deliberately happens after leaving this queue.
+ */
+export function withNativeBillingLock<T>(operation: () => Promise<T>): Promise<T> {
+  const result = nativeBillingQueue.then(operation, operation);
+  nativeBillingQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
 
 export function findSubscriptionStoreProduct(products: Product[], tier: SubscriptionTier, period: SubscriptionPeriod) {
   const config = getSubscriptionProduct(tier, period);
@@ -129,9 +141,11 @@ export function findSubscriptionStoreProduct(products: Product[], tier: Subscrip
 
 async function reconcileTransactions() {
   if (!Capacitor.isNativePlatform()) return;
-  const [inAppResult, subsResult] = await Promise.allSettled([
-    NativePurchases.getPurchases({ productType: PURCHASE_TYPE.INAPP }),
-    NativePurchases.getPurchases({ productType: PURCHASE_TYPE.SUBS }),
+  const [inAppResult, subsResult] = await withNativeBillingLock(async () => [
+    await NativePurchases.getPurchases({ productType: PURCHASE_TYPE.INAPP })
+      .then((value) => ({ status: 'fulfilled', value }) as const, (reason) => ({ status: 'rejected', reason }) as const),
+    await NativePurchases.getPurchases({ productType: PURCHASE_TYPE.SUBS })
+      .then((value) => ({ status: 'fulfilled', value }) as const, (reason) => ({ status: 'rejected', reason }) as const),
   ]);
   if (inAppResult.status === 'fulfilled') {
     for (const transaction of inAppResult.value.purchases) {
@@ -176,45 +190,49 @@ export const BillingService = {
 
   async getCoinProducts(packs?: CoinPack[]): Promise<Product[]> {
     if (!Capacitor.isNativePlatform()) return [];
-    const support = await NativePurchases.isBillingSupported();
-    if (!support.isBillingSupported) return [];
     const allowedAmounts = packs?.length ? new Set(packs.map((pack) => pack.coinAmount)) : null;
     const productIdentifiers = COIN_PRODUCTS
       .filter((product) => !allowedAmounts || allowedAmounts.has(product.coinAmount))
       .map((product) => nativePlatform() === 'ios' ? product.appleProductId : product.googleProductId);
-    const result = await NativePurchases.getProducts({ productIdentifiers, productType: PURCHASE_TYPE.INAPP });
-    return result.products.filter(hasNativePrice);
+    return withNativeBillingLock(async () => {
+      const support = await NativePurchases.isBillingSupported();
+      if (!support.isBillingSupported) return [];
+      const result = await NativePurchases.getProducts({ productIdentifiers, productType: PURCHASE_TYPE.INAPP });
+      return result.products.filter(hasNativePrice);
+    });
   },
 
   async purchaseCoin(pack: CoinPack) {
     if (!Capacitor.isNativePlatform()) throw new Error(translateSync('giftCoinPurchaseNativeOnlyMessage'));
     const productId = productIdForCoinPack(pack);
-    const transaction = await NativePurchases.purchaseProduct({
-      productIdentifier: productId,
-      productType: PURCHASE_TYPE.INAPP,
-      quantity: 1,
-      isConsumable: false,
-      autoAcknowledgePurchases: false,
-      appAccountToken: appAccountToken(),
-    });
+    const transaction = await withNativeBillingLock(() => NativePurchases.purchaseProduct({
+        productIdentifier: productId,
+        productType: PURCHASE_TYPE.INAPP,
+        quantity: 1,
+        isConsumable: false,
+        autoAcknowledgePurchases: false,
+        appAccountToken: appAccountToken(),
+      }));
     return verifyCoinTransaction(transaction, productId);
   },
 
   async getSubscriptionProducts(): Promise<Product[]> {
     if (!Capacitor.isNativePlatform()) return [];
-    const support = await NativePurchases.isBillingSupported();
-    if (!support.isBillingSupported) throw new Error('STORE_BILLING_UNAVAILABLE');
     const identifiers = nativePlatform() === 'ios'
       ? SUBSCRIPTION_PRODUCTS.map((product) => product.appleProductId)
       : ['ryvo_plus', 'ryvo_gold'];
-    const result = await NativePurchases.getProducts({
-      productIdentifiers: [...new Set(identifiers)],
-      productType: PURCHASE_TYPE.SUBS,
+    const products = await withNativeBillingLock(async () => {
+      const support = await NativePurchases.isBillingSupported();
+      if (!support.isBillingSupported) throw new Error('STORE_BILLING_UNAVAILABLE');
+      const result = await NativePurchases.getProducts({
+        productIdentifiers: [...new Set(identifiers)],
+        productType: PURCHASE_TYPE.SUBS,
+      });
+      return result.products.filter((product) => hasNativePrice(product) && (
+        nativePlatform() === 'ios'
+        || (Boolean(product.offerToken) && Boolean(periodFromGoogleBasePlan(product.identifier)))
+      ));
     });
-    const products = result.products.filter((product) => hasNativePrice(product) && (
-      nativePlatform() === 'ios'
-      || (Boolean(product.offerToken) && Boolean(periodFromGoogleBasePlan(product.identifier)))
-    ));
     subscriptionProductCache = mergeStoreProducts(subscriptionProductCache, products);
     return subscriptionProductCache;
   },
@@ -232,7 +250,7 @@ export const BillingService = {
     let oldPurchaseToken: string | undefined;
     let replacementMode: PRORATION_MODE | undefined;
     if (isAndroid) {
-      const current = await NativePurchases.getPurchases({ productType: PURCHASE_TYPE.SUBS });
+      const current = await withNativeBillingLock(() => NativePurchases.getPurchases({ productType: PURCHASE_TYPE.SUBS }));
       const active = current.purchases.find((purchase) => purchase.purchaseState === '1' && purchase.purchaseToken);
       oldPurchaseToken = active?.purchaseToken;
       if (active && active.productIdentifier !== config.googleProductId) {
@@ -242,7 +260,7 @@ export const BillingService = {
       } else if (active) replacementMode = PRORATION_MODE.IMMEDIATE_WITH_TIME_PRORATION;
     }
 
-    const transaction = await NativePurchases.purchaseProduct({
+    const transaction = await withNativeBillingLock(() => NativePurchases.purchaseProduct({
       productIdentifier: isAndroid ? config.googleProductId : config.appleProductId,
       planIdentifier: isAndroid ? storeProduct.identifier : undefined,
       offerToken: isAndroid ? storeProduct.offerToken : undefined,
@@ -252,13 +270,13 @@ export const BillingService = {
       quantity: 1,
       autoAcknowledgePurchases: false,
       appAccountToken: appAccountToken(),
-    });
+    }));
     return verifySubscriptionTransaction(transaction, isAndroid ? storeProduct.identifier : undefined);
   },
 
   async restorePurchases() {
     if (Capacitor.isNativePlatform()) {
-      await NativePurchases.restorePurchases();
+      await withNativeBillingLock(() => NativePurchases.restorePurchases());
       await reconcileTransactions();
     }
     return apiClient.get('/api/subscriptions/restore');
@@ -266,12 +284,12 @@ export const BillingService = {
 
   async getBoostProduct(): Promise<Product | null> {
     if (!Capacitor.isNativePlatform()) return null;
-    const result = await NativePurchases.getProducts({ productIdentifiers: [BOOST_PRODUCT_ID], productType: PURCHASE_TYPE.INAPP });
+    const result = await withNativeBillingLock(() => NativePurchases.getProducts({ productIdentifiers: [BOOST_PRODUCT_ID], productType: PURCHASE_TYPE.INAPP }));
     return result.products.find((product) => product.identifier === BOOST_PRODUCT_ID) || null;
   },
 
   async purchaseBoost() {
-    const transaction = await NativePurchases.purchaseProduct({ productIdentifier: BOOST_PRODUCT_ID, productType: PURCHASE_TYPE.INAPP, quantity: 1, isConsumable: false, autoAcknowledgePurchases: false, appAccountToken: appAccountToken() });
+    const transaction = await withNativeBillingLock(() => NativePurchases.purchaseProduct({ productIdentifier: BOOST_PRODUCT_ID, productType: PURCHASE_TYPE.INAPP, quantity: 1, isConsumable: false, autoAcknowledgePurchases: false, appAccountToken: appAccountToken() }));
     const response = await apiClient.post('/api/subscriptions/verify', verificationPayload(transaction, BOOST_PRODUCT_ID));
     await markCompleted(transaction, '/api/subscriptions/complete');
     return response;
@@ -279,12 +297,12 @@ export const BillingService = {
 
   async getFrameProduct(productId: string): Promise<Product | null> {
     if (!Capacitor.isNativePlatform()) return null;
-    const result = await NativePurchases.getProducts({ productIdentifiers: [productId], productType: PURCHASE_TYPE.INAPP });
+    const result = await withNativeBillingLock(() => NativePurchases.getProducts({ productIdentifiers: [productId], productType: PURCHASE_TYPE.INAPP }));
     return result.products.find((product) => product.identifier === productId) || null;
   },
 
   async purchaseFrame(productId: string) {
-    const transaction = await NativePurchases.purchaseProduct({ productIdentifier: productId, productType: PURCHASE_TYPE.INAPP, quantity: 1, isConsumable: false, autoAcknowledgePurchases: false, appAccountToken: appAccountToken() });
+    const transaction = await withNativeBillingLock(() => NativePurchases.purchaseProduct({ productIdentifier: productId, productType: PURCHASE_TYPE.INAPP, quantity: 1, isConsumable: false, autoAcknowledgePurchases: false, appAccountToken: appAccountToken() }));
     const payload = verificationPayload(transaction, productId);
     const response = await apiClient.post('/api/profile/frames/purchase/verify', payload);
     await markCompleted(transaction, '/api/subscriptions/complete');

@@ -67,10 +67,18 @@ describe('Android Critical Hotfix — Contract & Behavior Tests', () => {
       expect(authServiceSrc).toContain('getUserData()');
     });
 
-    it('12 — No stored token returns null without clearing anything', () => {
+    it('12 — Missing access token attempts recovery from a valid refresh token', () => {
       const authServiceSrc = source('src/services/auth/authService.ts');
-      expect(authServiceSrc).toContain('const token = await secureStorage.getAccessToken()');
-      expect(authServiceSrc).toContain('if (!token) return null');
+      expect(authServiceSrc).toContain('let token = await secureStorage.getAccessToken()');
+      expect(authServiceSrc).toContain('await refreshTokenFlow()');
+      expect(authServiceSrc).toContain('await secureStorage.getRefreshToken()');
+    });
+
+    it('recovers auth headers before feature requests when only the refresh token remains', () => {
+      const apiClientSrc = source('src/services/api/apiClient.ts');
+      const headerSection = apiClientSrc.slice(apiClientSrc.indexOf('async function getAuthHeaders'), apiClientSrc.indexOf('async function handleResponse'));
+      expect(headerSection).toContain('secureStorage.getRefreshToken()');
+      expect(headerSection).toContain('refreshTokenFlow()');
     });
 
     it('13, 14, 15, 16 — Network offline, timeout, 5xx NEVER wipe credentials', () => {
@@ -79,8 +87,8 @@ describe('Android Critical Hotfix — Contract & Behavior Tests', () => {
       const restoreSection = authServiceSrc.slice(authServiceSrc.indexOf('restoreSession()'));
       const catchBlock = restoreSection.slice(restoreSection.indexOf('catch (err: any) {'));
       expect(catchBlock).toContain('cachedUser');
-      expect(catchBlock).toContain('secureStorage.getUserData()');
       expect(catchBlock).toContain('statusCode === 401');
+      expect(catchBlock).toContain('recoverableRefreshToken');
 
       // In apiClient refreshTokenFlow, catch block must NOT call secureStorage.clearAll()
       const apiClientSrc = source('src/services/api/apiClient.ts');
@@ -140,6 +148,12 @@ describe('Android Critical Hotfix — Contract & Behavior Tests', () => {
   // CONFIGURATION & BUILD INTEGRITY GATES
   // =========================================================================
   describe('Configuration & Android Manifest Integrity', () => {
+    it('uses Capacitor WebChromeClient for verification camera permission delivery', () => {
+      const mainActivity = source('android/app/src/main/java/com/appryvo/ryvo/MainActivity.java');
+      expect(mainActivity).not.toContain('setWebChromeClient(new CallWebChromeClient');
+      const verification = source('src/features/profile/VerificationScreen.tsx');
+      expect(verification).toContain('nativeCamera.ensureCameraPermission()');
+    });
     it('Manifest includes camera and location permissions with optional camera hardware feature', () => {
       const manifest = source('android/app/src/main/AndroidManifest.xml');
       expect(manifest).toContain('android.permission.CAMERA');
@@ -155,17 +169,17 @@ describe('Android Critical Hotfix — Contract & Behavior Tests', () => {
       expect(manifest).not.toContain('android.permission.WRITE_EXTERNAL_STORAGE');
     });
 
-    it('Build gradle has targetSdk 36, versionCode 12, versionName 3.0.2', () => {
+    it('Build gradle has targetSdk 36, versionCode 13, versionName 3.0.3', () => {
       const gradle = source('android/app/build.gradle');
       expect(gradle).toContain('compileSdk 36');
       expect(gradle).toContain('targetSdk 36');
-      expect(gradle).toContain('versionCode 12');
-      expect(gradle).toContain('versionName "3.0.2"');
+      expect(gradle).toContain('versionCode 13');
+      expect(gradle).toContain('versionName "3.0.3"');
     });
 
-    it('Package.json is synced to version 3.0.2', () => {
+    it('Package.json is synced to version 3.0.3', () => {
       const pkg = JSON.parse(source('package.json'));
-      expect(pkg.version).toBe('3.0.2');
+      expect(pkg.version).toBe('3.0.3');
     });
   });
 });

@@ -1,4 +1,4 @@
-import { apiClient, ApiException } from '../api/apiClient';
+import { apiClient, ApiException, refreshTokenFlow } from '../api/apiClient';
 import { secureStorage } from '../../native/secureStorage';
 import { pushRegistrationService } from '../push/pushRegistrationService';
 import { translateSync } from '../../i18n/appLocale';
@@ -65,7 +65,11 @@ export const authService = {
     const accountStatus = res?.data?.status?.toUpperCase();
     if (accountStatus === 'SUSPENDED' || accountStatus === 'BANNED') {
       await secureStorage.clearAll();
-      throw new Error(accountStatus === 'SUSPENDED' ? translateSync('realtimeAccountSuspendedError') : translateSync('realtimeAccountDisabledError'));
+      throw new ApiException(
+        accountStatus === 'SUSPENDED' ? translateSync('realtimeAccountSuspendedError') : translateSync('realtimeAccountDisabledError'),
+        403,
+        'ACCOUNT_SUSPENDED',
+      );
     }
     if (res?.status === 'success' && res?.data) {
       await secureStorage.setUserData(res.data);
@@ -91,24 +95,38 @@ export const authService = {
   },
 
   async restoreSession() {
-    const token = await secureStorage.getAccessToken();
-    if (!token) return null;
+    let token = await secureStorage.getAccessToken();
+    const cachedUser = await secureStorage.getUserData();
+    if (!token) {
+      const refreshToken = await secureStorage.getRefreshToken();
+      if (!refreshToken) return null;
+      if (await refreshTokenFlow()) token = await secureStorage.getAccessToken();
+      // A transient refresh/network failure must not turn a known user into a logged-out user.
+      // A definitive invalid refresh clears storage inside refreshTokenFlow, so cachedUser is
+      // returned only while a recoverable credential still exists.
+      if (!token) return await secureStorage.getRefreshToken() ? cachedUser : null;
+    }
 
     try {
       const res = await this.getCurrentUser();
       return res?.data || null;
     } catch (err: any) {
       // 1. Account suspended or banned: getCurrentUser() already threw after clearing storage.
-      if (err?.message?.includes('SUSPENDED') || err?.message?.includes('BANNED')) {
+      if (err instanceof ApiException && err.code === 'ACCOUNT_SUSPENDED') {
         await secureStorage.clearAll();
         return null;
       }
 
-      // 2. Definitive 401 Unauthorized:
-      // (The access token expired AND the refresh token attempt definitively failed)
+      // 2. A /me 401 is definitive only when refreshTokenFlow also removed/rejected the
+      // refresh credential. If refresh itself was temporarily unavailable, customFetch still
+      // surfaces the original 401 and the recoverable session must be preserved.
       if (err instanceof ApiException && err.statusCode === 401) {
-        await secureStorage.clearAll();
-        return null;
+        const recoverableRefreshToken = await secureStorage.getRefreshToken();
+        if (!recoverableRefreshToken) {
+          await secureStorage.clearAll();
+          return null;
+        }
+        return cachedUser;
       }
 
       // 3. Transient failure: offline, timeout, network error, 5xx server glitch.
@@ -118,7 +136,6 @@ export const authService = {
         `[AUTH] Session restore fallback to cache: transient error (${err?.statusCode || err?.code || err?.message})`
       );
 
-      const cachedUser = await secureStorage.getUserData();
       if (cachedUser) {
         return cachedUser;
       }

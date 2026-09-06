@@ -1,5 +1,5 @@
 diff --git a/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java b/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java
-index dfb6cca..051f951 100644
+index dfb6cca..6373a0d 100644
 --- a/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java
 +++ b/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java
 @@ -202,7 +202,7 @@ public class NativePurchasesPlugin extends Plugin {
@@ -95,7 +95,86 @@ index dfb6cca..051f951 100644
          }
      }
  
-@@ -1207,7 +1221,7 @@ public class NativePurchasesPlugin extends Plugin {
+@@ -784,24 +798,34 @@ public class NativePurchasesPlugin extends Plugin {
+                                 return;
+                             }
+ 
+-                            ProductDetails.PricingPhase firstPricingPhase = selectedOfferDetails
++                            List<ProductDetails.PricingPhase> pricingPhaseList = selectedOfferDetails
+                                 .getPricingPhases()
+-                                .getPricingPhaseList()
+-                                .get(0);
++                                .getPricingPhaseList();
++                            // Introductory/free-trial offers commonly start with a zero-price
++                            // phase. Returning that phase makes the JS catalog discard every
++                            // otherwise valid subscription as "price unavailable". Prefer the
++                            // final non-zero phase, which is the normal recurring store price.
++                            ProductDetails.PricingPhase displayPricingPhase = pricingPhaseList.get(pricingPhaseList.size() - 1);
++                            for (int phaseIndex = pricingPhaseList.size() - 1; phaseIndex >= 0; phaseIndex--) {
++                                if (pricingPhaseList.get(phaseIndex).getPriceAmountMicros() > 0) {
++                                    displayPricingPhase = pricingPhaseList.get(phaseIndex);
++                                    break;
++                                }
++                            }
+                             product.put("planIdentifier", productDetails.getProductId());
+                             product.put("identifier", selectedOfferDetails.getBasePlanId());
+                             product.put("offerToken", selectedOfferDetails.getOfferToken());
+                             product.put("offerId", selectedOfferDetails.getOfferId());
+-                            double price = firstPricingPhase.getPriceAmountMicros() / 1000000.0;
++                            double price = displayPricingPhase.getPriceAmountMicros() / 1000000.0;
+                             product.put("price", price);
+-                            product.put("priceString", firstPricingPhase.getFormattedPrice());
+-                            product.put("currencyCode", firstPricingPhase.getPriceCurrencyCode());
++                            product.put("priceString", displayPricingPhase.getFormattedPrice());
++                            product.put("currencyCode", displayPricingPhase.getPriceCurrencyCode());
+                             Log.d(TAG, "Plan identifier: " + productDetails.getProductId());
+                             Log.d(TAG, "Base plan ID: " + selectedOfferDetails.getBasePlanId());
+                             Log.d(TAG, "Offer token: " + selectedOfferDetails.getOfferToken());
+                             Log.d(TAG, "Price: " + price);
+-                            Log.d(TAG, "Formatted price: " + firstPricingPhase.getFormattedPrice());
+-                            Log.d(TAG, "Currency: " + firstPricingPhase.getPriceCurrencyCode());
++                            Log.d(TAG, "Formatted price: " + displayPricingPhase.getFormattedPrice());
++                            Log.d(TAG, "Currency: " + displayPricingPhase.getPriceCurrencyCode());
+                         }
+                         product.put("isFamilyShareable", false);
+ 
+@@ -929,21 +953,27 @@ public class NativePurchasesPlugin extends Plugin {
+                                     product.put("offerToken", offerDetails.getOfferToken());
+                                     product.put("offerId", offerDetails.getOfferId());
+ 
+-                                    ProductDetails.PricingPhase firstPricingPhase = offerDetails
++                                    List<ProductDetails.PricingPhase> pricingPhaseList = offerDetails
+                                         .getPricingPhases()
+-                                        .getPricingPhaseList()
+-                                        .get(0);
+-                                    double price = firstPricingPhase.getPriceAmountMicros() / 1000000.0;
++                                        .getPricingPhaseList();
++                                    ProductDetails.PricingPhase displayPricingPhase = pricingPhaseList.get(pricingPhaseList.size() - 1);
++                                    for (int phaseIndex = pricingPhaseList.size() - 1; phaseIndex >= 0; phaseIndex--) {
++                                        if (pricingPhaseList.get(phaseIndex).getPriceAmountMicros() > 0) {
++                                            displayPricingPhase = pricingPhaseList.get(phaseIndex);
++                                            break;
++                                        }
++                                    }
++                                    double price = displayPricingPhase.getPriceAmountMicros() / 1000000.0;
+                                     product.put("price", price);
+-                                    product.put("priceString", firstPricingPhase.getFormattedPrice());
+-                                    product.put("currencyCode", firstPricingPhase.getPriceCurrencyCode());
++                                    product.put("priceString", displayPricingPhase.getFormattedPrice());
++                                    product.put("currencyCode", displayPricingPhase.getPriceCurrencyCode());
+                                     product.put("isFamilyShareable", false);
+ 
+                                     Log.d(TAG, "Plan identifier: " + productDetails.getProductId());
+                                     Log.d(TAG, "Base plan ID: " + offerDetails.getBasePlanId());
+                                     Log.d(TAG, "Price: " + price);
+-                                    Log.d(TAG, "Formatted price: " + firstPricingPhase.getFormattedPrice());
+-                                    Log.d(TAG, "Currency: " + firstPricingPhase.getPriceCurrencyCode());
++                                    Log.d(TAG, "Formatted price: " + displayPricingPhase.getFormattedPrice());
++                                    Log.d(TAG, "Currency: " + displayPricingPhase.getPriceCurrencyCode());
+ 
+                                     products.put(product);
+                                     addedOffers++;
+@@ -1207,7 +1237,7 @@ public class NativePurchasesPlugin extends Plugin {
              return;
          }
  
@@ -104,7 +183,7 @@ index dfb6cca..051f951 100644
          try {
              this.initBillingClient(call);
          } catch (RuntimeException e) {
-@@ -1260,7 +1274,7 @@ public class NativePurchasesPlugin extends Plugin {
+@@ -1260,7 +1290,7 @@ public class NativePurchasesPlugin extends Plugin {
              return;
          }
  

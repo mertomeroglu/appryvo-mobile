@@ -24,9 +24,8 @@ public class MainActivity extends BridgeActivity {
 
         super.onCreate(savedInstanceState);
 
-        // Capacitor 7 already maps WebView capture requests to Android runtime permissions.
-        // Keep that implementation, but put an origin/resource allow-list in front of it so an
-        // unexpected navigated origin or unknown WebView resource can never be granted.
-        bridge.getWebView().setWebChromeClient(new CallWebChromeClient(bridge));
+        // Keep Capacitor's own BridgeWebChromeClient. Replacing it here made camera permission
+        // delivery depend on a second, app-maintained origin comparison and could leave
+        // getUserMedia unresolved even after Android granted CAMERA permission.
     }
 }

@@ -1,7 +1,7 @@
 {
   "name": "mobile-capacitor",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.3",
   "type": "module",
   "scripts": {
     "postinstall": "patch-package",

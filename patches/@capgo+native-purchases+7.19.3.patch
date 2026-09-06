@@ -1,5 +1,5 @@
 diff --git a/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java b/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java
-index dfb6cca..6373a0d 100644
+index dfb6cca..56f58ab 100644
 --- a/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java
 +++ b/node_modules/@capgo/native-purchases/android/src/main/java/ee/forgr/nativepurchases/NativePurchasesPlugin.java
 @@ -202,7 +202,7 @@ public class NativePurchasesPlugin extends Plugin {
@@ -20,7 +20,46 @@ index dfb6cca..6373a0d 100644
          AcknowledgePurchaseParams acknowledgePurchaseParams = AcknowledgePurchaseParams.newBuilder()
              .setPurchaseToken(purchaseToken)
              .build();
-@@ -461,6 +461,9 @@ public class NativePurchasesPlugin extends Plugin {
+@@ -319,13 +319,16 @@ public class NativePurchasesPlugin extends Plugin {
+         Log.d(TAG, "initBillingClient() called");
+         Log.d(TAG, "purchaseCall is null: " + (purchaseCall == null));
+ 
+-        // Store the pending call so we can reject it if billing setup fails
+-        this.pendingCall = purchaseCall;
+-        this.lastBillingError = null;
+-
+         semaphoreWait();
+         closeBillingClient();
+         semaphoreUp();
++
++        // closeBillingClient clears state belonging to the previous connection. Register the
++        // new call only afterwards; otherwise setup failures never reach JavaScript and every
++        // later store request remains stuck behind an unresolved promise.
++        this.pendingCall = purchaseCall;
++        this.lastBillingError = null;
++
+         CountDownLatch semaphoreReady = new CountDownLatch(1);
+         Log.d(TAG, "Creating new BillingClient");
+         billingClient = BillingClient.newBuilder(getContext())
+@@ -418,7 +421,16 @@ public class NativePurchasesPlugin extends Plugin {
+         );
+         try {
+             Log.d(TAG, "Waiting for billing client setup to finish");
+-            semaphoreReady.await();
++            boolean connected = semaphoreReady.await(10, TimeUnit.SECONDS);
++            if (!connected) {
++                Log.e(TAG, "Billing client setup timed out");
++                if (pendingCall != null) {
++                    pendingCall.reject("BILLING_SETUP_TIMEOUT", "Billing service connection timed out");
++                    pendingCall = null;
++                }
++                closeBillingClient();
++                throw new RuntimeException("Billing service connection timed out");
++            }
+             Log.d(TAG, "Billing client setup wait completed");
+ 
+             // Check if billing setup failed
+@@ -461,6 +473,9 @@ public class NativePurchasesPlugin extends Plugin {
          Log.d(TAG, "purchaseProduct() called");
          String productIdentifier = call.getString("productIdentifier");
          String planIdentifier = call.getString("planIdentifier");
@@ -30,7 +69,7 @@ index dfb6cca..6373a0d 100644
          String productType = call.getString("productType", "inapp");
          Number quantity = call.getInt("quantity", 1);
          String appAccountToken = call.getString("appAccountToken");
-@@ -560,21 +563,24 @@ public class NativePurchasesPlugin extends Plugin {
+@@ -560,21 +575,24 @@ public class NativePurchasesPlugin extends Plugin {
                                  BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(productDetailsItem);
                              if (productType.equals("subs")) {
                                  Log.d(TAG, "Processing subscription product");
@@ -59,7 +98,7 @@ index dfb6cca..6373a0d 100644
                                  }
                                  productDetailsParams.setOfferToken(selectedOfferDetails.getOfferToken());
                                  Log.d(TAG, "Set offer token: " + selectedOfferDetails.getOfferToken());
-@@ -584,6 +590,14 @@ public class NativePurchasesPlugin extends Plugin {
+@@ -584,6 +602,14 @@ public class NativePurchasesPlugin extends Plugin {
                          BillingFlowParams.Builder billingFlowBuilder = BillingFlowParams.newBuilder().setProductDetailsParamsList(
                              productDetailsParamsList
                          );
@@ -74,7 +113,7 @@ index dfb6cca..6373a0d 100644
                          if (accountIdentifier != null && !accountIdentifier.isEmpty()) {
                              billingFlowBuilder.setObfuscatedAccountId(accountIdentifier);
                          }
-@@ -649,17 +663,17 @@ public class NativePurchasesPlugin extends Plugin {
+@@ -649,17 +675,17 @@ public class NativePurchasesPlugin extends Plugin {
      private void onConsumeResponse(BillingResult billingResult, String purchaseToken) {
          Log.d(TAG, "onConsumeResponse() called");
          Log.d(TAG, "Consume result: " + billingResult.getResponseCode() + " - " + billingResult.getDebugMessage());
@@ -95,7 +134,7 @@ index dfb6cca..6373a0d 100644
          }
      }
  
-@@ -784,24 +798,34 @@ public class NativePurchasesPlugin extends Plugin {
+@@ -784,24 +810,34 @@ public class NativePurchasesPlugin extends Plugin {
                                  return;
                              }
  
@@ -138,7 +177,7 @@ index dfb6cca..6373a0d 100644
                          }
                          product.put("isFamilyShareable", false);
  
-@@ -929,21 +953,27 @@ public class NativePurchasesPlugin extends Plugin {
+@@ -929,21 +965,27 @@ public class NativePurchasesPlugin extends Plugin {
                                      product.put("offerToken", offerDetails.getOfferToken());
                                      product.put("offerId", offerDetails.getOfferId());
  
@@ -174,7 +213,7 @@ index dfb6cca..6373a0d 100644
  
                                      products.put(product);
                                      addedOffers++;
-@@ -1207,7 +1237,7 @@ public class NativePurchasesPlugin extends Plugin {
+@@ -1207,7 +1249,7 @@ public class NativePurchasesPlugin extends Plugin {
              return;
          }
  
@@ -183,7 +222,7 @@ index dfb6cca..6373a0d 100644
          try {
              this.initBillingClient(call);
          } catch (RuntimeException e) {
-@@ -1260,7 +1290,7 @@ public class NativePurchasesPlugin extends Plugin {
+@@ -1260,7 +1302,7 @@ public class NativePurchasesPlugin extends Plugin {
              return;
          }
  

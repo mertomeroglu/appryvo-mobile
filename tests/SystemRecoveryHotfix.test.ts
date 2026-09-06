@@ -37,6 +37,10 @@ describe('system recovery hotfix', () => {
     const patch = readFileSync(resolve(process.cwd(), 'patches/@capgo+native-purchases+7.19.3.patch'), 'utf8');
     expect(patch).toContain('displayPricingPhase');
     expect(patch).toContain('getPriceAmountMicros() > 0');
+    expect(patch).toContain('semaphoreReady.await(10, TimeUnit.SECONDS)');
+    expect(patch).toContain('BILLING_SETUP_TIMEOUT');
+    expect(patch).toContain('new call only afterwards');
+    expect(patch).toContain('+        this.pendingCall = purchaseCall;');
     expect(patch).not.toContain('+                            ProductDetails.PricingPhase firstPricingPhase');
   });
 });

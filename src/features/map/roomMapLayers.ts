@@ -7,8 +7,19 @@ export const ROOM_CLUSTER_COUNT_LAYER_ID = 'room-cluster-count';
 export const ROOM_UNCLUSTERED_LAYER_ID = 'room-unclustered';
 export const ROOM_UNCLUSTERED_ICON_LAYER_ID = 'room-unclustered-icon';
 export const ROOM_PARTICIPANT_COUNT_LAYER_ID = 'room-participant-count';
-export const ROOM_CLUSTER_MAX_ZOOM = 12;
-export const ROOM_CLUSTER_RADIUS = 52;
+// Rooms are anchored to city centroids, so every room in a city sits on the exact same point.
+// That makes the useful grouping "per city", not "whatever happens to be within N pixels": a
+// radius wide enough to merge neighbouring cities drew the marker at the cluster's centroid --
+// a spot that belongs to no city and, for Antalya+Fethiye+Marmaris, landed in the sea. It also
+// moved as soon as the visible set changed, which is what looked like drifting pins.
+//
+// A tiny radius still groups co-located rooms (identical points are 0px apart, so any radius
+// catches them) while leaving separate cities separate at every usable zoom.
+export const ROOM_CLUSTER_RADIUS = 2;
+// Past this zoom a group would split back into a stack of pins on one coordinate, which is worth
+// nothing to look at and nothing to tap. Keeping it above the map's own max zoom means a city's
+// rooms stay one marker, and tapping it opens that city's room list.
+export const ROOM_CLUSTER_MAX_ZOOM = 16;
 
 export interface RoomPointProperties {
   roomId: string;
@@ -27,24 +38,12 @@ export interface RoomFeatureCollection {
   }>;
 }
 
-// Room coordinates are deliberately city centroids. A tiny deterministic display-only offset
-// prevents rooms in the same city from becoming permanently co-located after clusterMaxZoom;
-// it never represents or reveals an owner's location.
-function displayOffset(id: string): [number, number] {
-  let hash = 2166136261;
-  for (let i = 0; i < id.length; i += 1) hash = Math.imul(hash ^ id.charCodeAt(i), 16777619);
-  const angle = ((hash >>> 0) % 360) * (Math.PI / 180);
-  const ring = 0.0012 + (((hash >>> 9) % 5) * 0.00045);
-  return [Math.cos(angle) * ring, Math.sin(angle) * ring];
-}
-
 export function buildRoomFeatureCollection(rooms: CommunityRoom[], selectedRoomId?: string): RoomFeatureCollection {
   return {
     type: 'FeatureCollection',
     features: rooms
       .filter((room) => Number.isFinite(room.latitude) && Number.isFinite(room.longitude))
       .map((room) => {
-        const [dx, dy] = displayOffset(room.id);
         return {
           type: 'Feature' as const,
           properties: {
@@ -54,10 +53,60 @@ export function buildRoomFeatureCollection(rooms: CommunityRoom[], selectedRoomI
             official: Boolean(room.isOfficial),
             selected: room.id === selectedRoomId,
           },
-          geometry: { type: 'Point' as const, coordinates: [room.longitude + dx, room.latitude + dy] as [number, number] },
+          geometry: { type: 'Point' as const, coordinates: [room.longitude, room.latitude] as [number, number] },
         };
       }),
   };
+}
+
+// Official rooms carry the app icon rather than a generic chat glyph, with the verified tick in
+// the corner -- the same pairing the room list and the room sheet use, so a pin on the map and a
+// row in a list are recognisably the same thing.
+export const ROOM_BRAND_ICON_URL = '/assets/brand/ana_simge.png';
+const ICON_PX = 40;
+let brandIconPromise: Promise<ImageData | null> | null = null;
+
+function drawOfficialTick(ctx: CanvasRenderingContext2D): void {
+  const cx = ICON_PX - 10;
+  const cy = ICON_PX - 10;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 8.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#25D9D0';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.lineWidth = 2.4;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.moveTo(cx - 3.6, cy + 0.2);
+  ctx.lineTo(cx - 1.1, cy + 2.8);
+  ctx.lineTo(cx + 3.8, cy - 3.1);
+  ctx.stroke();
+}
+
+// Resolves to null (rather than rejecting) when the asset cannot be read -- callers keep the
+// glyph they already registered instead of the pin losing its icon entirely.
+function loadBrandIcon(): Promise<ImageData | null> {
+  if (brandIconPromise) return brandIconPromise;
+  brandIconPromise = new Promise((resolve) => {
+    if (typeof Image === 'undefined') { resolve(null); return; }
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = ICON_PX;
+      canvas.height = ICON_PX;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { resolve(null); return; }
+      ctx.drawImage(img, 1, 1, ICON_PX - 12, ICON_PX - 12);
+      drawOfficialTick(ctx);
+      resolve(ctx.getImageData(0, 0, ICON_PX, ICON_PX));
+    };
+    img.onerror = () => resolve(null);
+    img.src = ROOM_BRAND_ICON_URL;
+  });
+  return brandIconPromise;
 }
 
 function makeIcon(type: RoomType): ImageData {
@@ -86,12 +135,31 @@ function makeIcon(type: RoomType): ImageData {
   return ctx.getImageData(0, 0, 40, 40);
 }
 
+// MapLibre re-clusters a GeoJSON source from scratch on every setData, and a cluster is drawn at
+// the centroid of its members -- so calling setData with identical data still makes every cluster
+// bubble recompute and visibly shift. installRoomMapLayers runs on each map idle, so without this
+// guard the room pins drifted around on every pan even though nothing about the rooms changed.
+const lastDataSignature = new WeakMap<MapLibreMap, string>();
+
+function dataSignature(data: RoomFeatureCollection): string {
+  return data.features
+    .map((f) => `${f.properties.roomId}:${f.properties.participantCount}:${f.properties.selected ? 1 : 0}`)
+    .join('|');
+}
+
 export function installRoomMapLayers(map: MapLibreMap, data: RoomFeatureCollection, visible: boolean): void {
   if (typeof map.getSource !== 'function' || typeof map.addLayer !== 'function') return;
   if (typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded()) return;
-  (['TEXT', 'VOICE', 'VIDEO'] as RoomType[]).forEach((type) => {
+  const iconIds = (['TEXT', 'VOICE', 'VIDEO'] as RoomType[]).map((type) => {
     const id = `room-${type.toLowerCase()}-icon`;
     if (!map.hasImage(id)) map.addImage(id, makeIcon(type), { pixelRatio: 2 });
+    return id;
+  });
+  // Registered synchronously above so the layer never references a missing image, then swapped
+  // for the branded one the moment the asset decodes.
+  void loadBrandIcon().then((branded) => {
+    if (!branded || typeof map.updateImage !== 'function') return;
+    iconIds.forEach((id) => { if (map.hasImage(id)) map.updateImage(id, branded); });
   });
   if (!map.getSource(ROOM_SOURCE_ID)) {
     map.addSource(ROOM_SOURCE_ID, {
@@ -101,8 +169,13 @@ export function installRoomMapLayers(map: MapLibreMap, data: RoomFeatureCollecti
       clusterRadius: ROOM_CLUSTER_RADIUS,
       clusterMaxZoom: ROOM_CLUSTER_MAX_ZOOM,
     });
+    lastDataSignature.set(map, dataSignature(data));
   } else {
-    (map.getSource(ROOM_SOURCE_ID) as GeoJSONSource).setData(data as any);
+    const signature = dataSignature(data);
+    if (lastDataSignature.get(map) !== signature) {
+      (map.getSource(ROOM_SOURCE_ID) as GeoJSONSource).setData(data as any);
+      lastDataSignature.set(map, signature);
+    }
   }
   if (!map.getLayer(ROOM_CLUSTER_LAYER_ID)) map.addLayer({
     id: ROOM_CLUSTER_LAYER_ID, type: 'circle', source: ROOM_SOURCE_ID, filter: ['has', 'point_count'],

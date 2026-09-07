@@ -27,13 +27,22 @@ describe('native MapLibre room clustering', () => {
     expect(data.features[1].properties.selected).toBe(true);
     expect(data.features.every((f) => !('room' in f.properties))).toBe(true);
   });
-  it('separates privacy-safe city-centroid points after cluster expansion', () => {
+  it('puts every room in a city on that city point so they group into one marker', () => {
+    // Rooms used to be scattered around the centroid by a per-id offset. That made same-city
+    // rooms distinct points, which let them cluster with NEIGHBOURING cities instead -- and a
+    // cluster is drawn at its members' centroid, so the pin ended up between cities (in the sea
+    // for the Antalya/Fethiye/Marmaris group) and moved whenever the visible set changed.
     const points = buildRoomFeatureCollection([room('a', 'TEXT'), room('b', 'TEXT')]).features;
-    expect(points[0].geometry.coordinates).not.toEqual(points[1].geometry.coordinates);
+    expect(points[0].geometry.coordinates).toEqual(points[1].geometry.coordinates);
+    expect(points[0].geometry.coordinates).toEqual([28.97, 41.01]);
   });
   it('enables native clustering with a bounded expansion threshold and no individual maxzoom', () => {
-    expect(ROOM_CLUSTER_RADIUS).toBeGreaterThanOrEqual(40);
-    expect(ROOM_CLUSTER_MAX_ZOOM).toBeLessThan(15);
+    // Small on purpose: co-located rooms are 0px apart so any radius groups them, while a wide
+    // radius is what used to merge separate cities into a centroid pin belonging to neither.
+    expect(ROOM_CLUSTER_RADIUS).toBeLessThanOrEqual(8);
+    // Above the map's own max zoom, so a city's rooms never split into a stack of pins sharing
+    // one coordinate -- tapping the single marker opens that city's room list instead.
+    expect(ROOM_CLUSTER_MAX_ZOOM).toBeGreaterThanOrEqual(15);
     expect(layers).toMatch(/cluster:\s*true/);
     expect(layers).not.toMatch(/ROOM_UNCLUSTERED_LAYER_ID[\s\S]{0,500}maxzoom/);
   });

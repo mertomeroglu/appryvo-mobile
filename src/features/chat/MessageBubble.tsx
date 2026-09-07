@@ -411,7 +411,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 <div className={`mb-1.5 flex max-w-full items-stretch overflow-hidden rounded-xl ${isMe ? 'bg-white/[0.12]' : 'bg-app'}`}>
                   <span className={`w-0.5 shrink-0 ${isMe ? 'bg-white/70' : 'bg-pink-500'}`} />
                   <p className={`truncate px-2.5 py-1.5 text-micro normal-case ${isMe ? 'text-white/85' : 'text-app-muted'}`}>
-                    {resolvedReplyPreview?.unavailable
+                    {(resolvedReplyPreview && 'unavailable' in resolvedReplyPreview && resolvedReplyPreview.unavailable)
                       ? t('chatMessageDeletedFallback')
                       : resolvedReplyPreview?.text || (resolvedReplyPreview?.messageType
                         ? t('bubbleTypedMessageTemplate').replace('{type}', resolvedReplyPreview.messageType)
@@ -446,7 +446,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   (message.messageType === 'IMAGE' || message.messageType === 'GIF' || !message.messageType) && (
                     <button type="button" className="mb-1.5 block w-full overflow-hidden rounded-[14px] bg-black/10" onClick={(event) => { event.stopPropagation(); setImageViewerOpen(true); }}>
                       {imageLoadFailed ? (
-                        <span className="flex min-h-32 items-center justify-center gap-2 text-micro"><RefreshCw className="h-4 w-4" />{t('retry')}</span>
+                        <span className="flex min-h-32 items-center justify-center gap-2 text-micro"><RefreshCw className="h-4 w-4" />{t('retryButton')}</span>
                       ) : (
                         <img key={imageRetryKey} src={resolvedMediaUrl} alt={t('bubbleMediaAlt')} loading="lazy" decoding="async" onError={() => setImageLoadFailed(true)} className="max-h-60 w-full object-cover" />
                       )}
@@ -513,9 +513,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       <AnimatePresence>
         {imageViewerOpen && resolvedMediaUrl && (
           <motion.div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 px-3 pb-[var(--safe-bottom)] pt-[var(--safe-top)]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setImageViewerOpen(false)}>
-            <button type="button" aria-label={t('close')} className="absolute right-4 top-[calc(var(--safe-top)+12px)] z-10 rounded-full bg-white/15 p-2 text-white" onClick={() => setImageViewerOpen(false)}><X className="h-6 w-6" /></button>
+            <button type="button" aria-label={t('closeAriaLabel')} className="absolute right-4 top-[calc(var(--safe-top)+12px)] z-10 rounded-full bg-white/15 p-2 text-white" onClick={() => setImageViewerOpen(false)}><X className="h-6 w-6" /></button>
             {imageLoadFailed ? (
-              <button type="button" className="flex items-center gap-2 rounded-xl bg-white/10 px-4 py-3 text-white" onClick={(event) => { event.stopPropagation(); setImageLoadFailed(false); setImageRetryKey((value) => value + 1); }}><RefreshCw className="h-5 w-5" />{t('retry')}</button>
+              <button type="button" className="flex items-center gap-2 rounded-xl bg-white/10 px-4 py-3 text-white" onClick={(event) => { event.stopPropagation(); setImageLoadFailed(false); setImageRetryKey((value) => value + 1); }}><RefreshCw className="h-5 w-5" />{t('retryButton')}</button>
             ) : (
               <img key={`viewer-${imageRetryKey}`} src={resolvedMediaUrl} alt={t('bubbleMediaAlt')} onError={() => setImageLoadFailed(true)} onClick={(event) => event.stopPropagation()} className="max-h-full max-w-full object-contain" />
             )}

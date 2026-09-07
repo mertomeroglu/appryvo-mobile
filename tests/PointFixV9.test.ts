@@ -34,12 +34,25 @@ describe('Point-Fix V9 liveness', () => {
 });
 
 describe('Point-Fix V9 client contracts', () => {
-  it('removes and invalidates map users after like', () => {
+  // Liking or matching with someone used to delete their marker, client-side here and in the map
+  // query on the server. That belongs to the swipe deck, which is a one-pass queue; the map
+  // answers "who is around me", and it made the map shrink permanently as people used it --
+  // including for two testers who match and then cannot see each other. Both surfaces now only
+  // refetch, so the marker can pick up any state the interaction changed. Asserted negatively so
+  // the removal cannot quietly return.
+  it('refreshes but never removes map users after a like', () => {
     const hooks = source('src/hooks/useQueries.ts');
-    expect(hooks).toContain("setQueriesData<any[]>({ queryKey: ['discovery', 'map'] }");
+    expect(hooks).not.toContain("setQueriesData<any[]>({ queryKey: ['discovery', 'map'] }");
     expect(hooks).toContain("invalidateQueries({ queryKey: ['discovery', 'map'] })");
   });
-  it('removes matched users from the map in realtime', () => expect(source('src/components/RealtimeSync.tsx')).toContain('payload.matchedUserId'));
+  it('keeps matched users on the map instead of splicing them out in realtime', () => {
+    const map = source('src/features/map/SocialMapScreen.tsx');
+    const handlerStart = map.indexOf("socketService.on('match:new'");
+    expect(handlerStart).toBeGreaterThan(-1);
+    const matchHandler = map.slice(handlerStart, handlerStart + 400);
+    expect(matchHandler).toContain("invalidateQueries({ queryKey: ['discovery', 'map'] })");
+    expect(matchHandler).not.toContain('setQueriesData');
+  });
   it('shares wallet and Coin store across profile surfaces', () => {
     expect(source('src/features/profile/OwnProfileScreen.tsx')).toContain('useWalletQuery');
     expect(source('src/features/profile/SettingsScreen.tsx')).toContain('CoinStoreSheet');
@@ -54,7 +67,15 @@ describe('Point-Fix V9 client contracts', () => {
     const accept = rtc.slice(rtc.indexOf('async acceptOffer'), rtc.indexOf('private addLocalTracks'));
     expect(accept.indexOf('setRemoteDescription')).toBeLessThan(accept.indexOf('addLocalTracks'));
   });
-  it('binds ringback strictly to outgoing RINGING', () => expect(source('src/components/CallOverlay.tsx')).toContain("activeCall?.direction === 'outgoing' && activeCall.status === 'RINGING'"));
+  // Superseded: binding the tone to outgoing-only meant an incoming call was silent whenever the
+  // app was already open, since the FCM notification's sound only covers the backgrounded case.
+  // Both sides now ring while RINGING; the roles are still distinguished, by volume.
+  it('rings on both sides of a RINGING call, louder for the callee', () => {
+    const overlay = source('src/components/CallOverlay.tsx');
+    expect(overlay).toContain("const ringing = activeCall?.status === 'RINGING';");
+    expect(overlay).toContain("ringbackTone.start(activeCall.direction === 'incoming' ? 0.85 : 0.22)");
+    expect(overlay).toContain('else ringbackTone.stop();');
+  });
   it('uses a bundled neutral ringback asset', () => {
     expect(source('src/services/call/ringbackTone.ts')).toContain("/audio/ringback.wav");
     expect(existsSync(resolve(process.cwd(), 'public/audio/ringback.wav'))).toBe(true);

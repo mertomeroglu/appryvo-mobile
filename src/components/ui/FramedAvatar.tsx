@@ -8,7 +8,6 @@ import { CountryFlagBadge } from './CountryFlagBadge';
 import { isProfileFrameAssetDecoded, warmProfileFrameAssets } from '../../services/media/profileFrameCache';
 import {
   getProfileFrameAsset,
-  getProfileFrameGeometry,
   getProfileFramePreviewAsset,
   getProfileFramePlacement,
   PROFILE_AVATAR_SIZE_PX,
@@ -43,15 +42,9 @@ export const ProfileFrameCatalogProvider: React.FC<{ children: React.ReactNode }
     () => Array.isArray(data?.frames) ? data.frames : [],
     [data?.frames]
   );
-  useEffect(() => warmProfileFrameAssets(frames, activeFrameId), [activeFrameId, frames]);
+  useEffect(() => { warmProfileFrameAssets(frames, activeFrameId); }, [activeFrameId, frames]);
   return <ProfileFrameCatalogContext.Provider value={frames}>{children}</ProfileFrameCatalogContext.Provider>;
 };
-
-function flagSizeFor(size: ProfileAvatarSize): 'xs' | 'sm' | 'md' {
-  if (size === 'xs' || size === 'sm') return 'xs';
-  if (size === 'md' || size === 'lg') return 'sm';
-  return 'md';
-}
 
 /**
  * The single normalized avatar/frame renderer used by catalog and product surfaces.
@@ -81,7 +74,6 @@ export const ProfileAvatarFrame: React.FC<ProfileAvatarFrameProps> = ({
       ? getProfileFramePreviewAsset(resolvedFrame)
       : getProfileFrameAsset(resolvedFrame);
   const placement = getProfileFramePlacement(resolvedFrameId);
-  const flagAnchor = getProfileFrameGeometry(resolvedFrameId).flagAnchor;
   const [failedAsset, setFailedAsset] = useState<string | null>(null);
   const [loadedAsset, setLoadedAsset] = useState<string | null>(null);
   const assetUrl = frameAsset ? normalizeMediaUrl(frameAsset) : null;
@@ -139,8 +131,16 @@ export const ProfileAvatarFrame: React.FC<ProfileAvatarFrameProps> = ({
         />
       )}
 
-      {online && (
-        <span data-avatar-badge="online" className="absolute bottom-0 left-0 z-30 h-[22%] min-h-2.5 w-[22%] min-w-2.5 rounded-full border-2 border-surface bg-success" />
+      {typeof online === 'boolean' && (
+        <span
+          aria-label={online ? 'online' : 'offline'}
+          data-avatar-badge="online"
+          data-presence-state={online ? 'online' : 'offline'}
+          className={cn(
+            'absolute left-[16%] top-[86%] z-30 h-[13%] min-h-1.5 w-[13%] min-w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-surface shadow-sm',
+            online ? 'bg-success' : 'bg-presence-offline'
+          )}
+        />
       )}
 
       {verified && (
@@ -152,10 +152,10 @@ export const ProfileAvatarFrame: React.FC<ProfileAvatarFrameProps> = ({
       {showCountryFlag && countryCode && (
         <CountryFlagBadge
           countryCode={countryCode}
-          size={flagSizeFor(size)}
-          className="absolute z-30 -translate-x-1/2 -translate-y-1/2"
+          size="xs"
+          className="absolute left-[87%] top-[86%] z-30 -translate-x-1/2 -translate-y-1/2"
           data-avatar-badge="country"
-          style={{ left: `${flagAnchor.x * 100}%`, top: `${flagAnchor.y * 100}%` }}
+          style={{ width: '16%', height: '16%' }}
         />
       )}
     </div>

@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Compass, Search, MapPin, Check, Crown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../services/api/apiClient';
 import { searchCities, type GeoCityResult } from '../../services/geo/cityService';
-import { useEntitlementsQuery } from '../../hooks/useQueries';
+import { useEntitlementsQuery, useMeQuery } from '../../hooks/useQueries';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { AppButton } from '../../components/ui/AppButton';
 import { IconButton } from '../../components/ui/IconButton';
@@ -22,6 +22,28 @@ export const PassportScreen: React.FC = () => {
   const navigate = useNavigate();
   const locale = useAppLocaleStore((state) => state.locale);
   const passportLabel = PASSPORT_LABELS[locale];
+
+  const { data: me, refetch: refetchMe } = useMeQuery();
+  // The screen used to keep the active city in local state only, so reopening it forgot which
+  // city you were teleported to. /api/me is the authority.
+  const serverPassportCity = me?.locationMode === 'PASSPORT' ? (me?.passportCity || null) : null;
+  const currentPassportCity = activePassportCity ?? serverPassportCity;
+
+  // Search as you type rather than only on submit: the old form-submit-only flow was why
+  // typing "fra" showed nothing until you pressed enter.
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (term.length < 2) { setCities([]); setHasSearched(false); return; }
+    let cancelled = false;
+    setIsSearching(true);
+    const timer = setTimeout(() => {
+      searchCities(term)
+        .then((results) => { if (!cancelled) { setCities(results); setSearchError(false); } })
+        .catch(() => { if (!cancelled) { setCities([]); setSearchError(true); } })
+        .finally(() => { if (!cancelled) { setIsSearching(false); setHasSearched(true); } });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [searchQuery]);
 
   const { data: entitlements, isLoading } = useEntitlementsQuery();
   const passportEnabled = entitlements?.passportEnabled === true;
@@ -44,6 +66,20 @@ export const PassportScreen: React.FC = () => {
     }
   };
 
+  const handleDisablePassport = async () => {
+    setIsSaving(true);
+    try {
+      await apiClient.delete('/api/user/passport');
+      setActivePassportCity(null);
+      await refetchMe();
+      toast.success(t('passportDisableAction'));
+    } catch (err: any) {
+      toast.error(err?.message || t('passportLocationUpdateFailedError'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSelectCity = async (city: GeoCityResult) => {
     if (typeof city.latitude !== 'number' || typeof city.longitude !== 'number') return;
     setIsSaving(true);
@@ -55,6 +91,7 @@ export const PassportScreen: React.FC = () => {
         country: city.country,
       });
       setActivePassportCity(city.city);
+      void refetchMe();
       toast.success(t('passportTeleportedToastTemplate').replace('{city}', city.city));
     } catch (err: any) {
       toast.error(err.message || t('passportLocationUpdateFailedError'));
@@ -101,6 +138,17 @@ export const PassportScreen: React.FC = () => {
         </div>
       ) : (
         <>
+          {currentPassportCity && (
+            <div className="w-full max-w-md mx-auto mt-3 rounded-2xl border border-app bg-surface p-4 shadow-soft">
+              <p className="text-caption font-bold text-app">
+                {t('passportActiveLabelTemplate').replace('{city}', currentPassportCity)}
+              </p>
+              <AppButton variant="secondary" size="md" fullWidth loading={isSaving} onClick={handleDisablePassport} className="mt-3">
+                {t('passportDisableAction')}
+              </AppButton>
+            </div>
+          )}
+
           {/* Search Input */}
           <form onSubmit={handleSearch} className="relative w-full max-w-md mx-auto my-3">
             <Search className="absolute start-4 top-3.5 w-5 h-5 text-app-muted" />

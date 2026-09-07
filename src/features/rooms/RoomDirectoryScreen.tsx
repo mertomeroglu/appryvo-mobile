@@ -7,6 +7,7 @@ import { roomsText } from './roomsLocale';
 import { Avatar } from '../../components/ui/Avatar';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { usefulRoomSubtitle } from './roomTitle';
+import { RoomAvatar } from './RoomAvatar';
 
 // V3: rooms are always TEXT now, so the directory filters by category (not room type any more --
 // see CreateRoomScreen.tsx / SocialMapScreen.tsx for the same category taxonomy).
@@ -66,7 +67,7 @@ export const RoomDirectoryScreen: React.FC = () => {
         {visible.map((room) => (
           <button key={room.id} onClick={() => navigate(`/rooms/${room.id}`)} className="w-full rounded-[24px] border border-app bg-surface p-4 text-start shadow-soft active:scale-[.99]">
             <div className="flex gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-500 to-violet-600 text-white"><MessageCircle className="h-5 w-5" /></div>
+              <RoomAvatar coverUrl={room.coverUrl} official={room.isOfficial} className="h-12 w-12" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <h2 className="truncate text-body font-extrabold">{room.title}</h2>

@@ -12,6 +12,8 @@ export interface RegisterPayload {
   birthDate: string;
   gender: string;
   targetGender: string;
+  /** Optional; collected inside the wizard's interests step and skippable there. */
+  religion?: string;
   city?: string;
   job?: string;
   bio?: string;

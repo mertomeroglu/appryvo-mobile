@@ -32,7 +32,7 @@ function initialsFrom(name?: string) {
 
 export const Avatar: React.FC<AvatarProps> = ({ src, name, size = 'md', online, className, ...props }) => {
   const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [src]);
+  useEffect(() => { setImageFailed(false); }, [src]);
 
   return (
     <div className={cn('relative shrink-0', SIZE_CLASSES[size], className)} {...props}>

@@ -216,7 +216,7 @@ export const ConfessionsScreen: React.FC<{ embedded?: boolean }> = ({ embedded =
                   <div className="relative">
                     <button type="button" aria-label={t('likeConfessionAriaLabel')} aria-pressed={!!item.myReaction} onClick={() => setReactionTargetId(reactionTargetId === item.id ? null : item.id)} className="flex items-center gap-1.5 hover:text-pink-500 disabled:opacity-60">
                       <SmilePlus className={`w-4 h-4 ${item.myReaction ? 'text-pink-500' : ''}`} />
-                      <span>{Object.values(item.reactionCounts || {}).reduce((sum, count) => sum + Number(count || 0), 0)}</span>
+                      <span>{Object.values(item.reactionCounts || {}).reduce<number>((sum, count) => sum + Number(count || 0), 0)}</span>
                     </button>
                     {reactionTargetId === item.id && <div className="absolute bottom-8 start-0 z-overlay flex gap-1 rounded-full border border-app bg-surface p-1.5 shadow-elevated">{reactionOptions.map((option) => <button key={option.type} type="button" aria-pressed={item.myReaction === option.type} onClick={() => handleReaction(item.id, option.type)} className={`grid h-9 w-9 place-items-center rounded-full text-xl ${item.myReaction === option.type ? 'bg-pink-500/15' : 'hover:bg-app-secondary'}`}>{option.emoji}</button>)}</div>}
                   </div>

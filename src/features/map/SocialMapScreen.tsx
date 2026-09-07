@@ -28,13 +28,15 @@ import {
   usePassMutation,
   useUpdateProfileMutation,
   type MapBbox,
+  type MapGenderFilter,
 } from '../../hooks/useQueries';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
-import { apiClient } from '../../services/api/apiClient';
+import { apiClient, ApiException } from '../../services/api/apiClient';
 import { nativeLocation } from '../../native/location';
 import { nativeHaptics } from '../../native/haptics';
 import { nativeAppSettings } from '../../native/nativeSettings';
 import { socketService } from '../../services/socket/socketService';
+import { toast } from '../../stores/useToastStore';
 import { searchCities, type GeoCityResult } from '../../services/geo/cityService';
 import { acquireBestLocation } from '../../services/geo/locationQuality';
 import { buildRyvoMapStyle, type ResolvedTileSource } from './ryvoMapStyle';
@@ -49,6 +51,7 @@ import {
 } from './roomMapLayers';
 import { OPENMAPTILES_SPRITE_URL, OPENMAPTILES_GLYPHS_URL, OPENMAPTILES_TILEJSON_URL, isRyvoMapConfigured } from './ryvoMapConfig';
 import { BottomSheet } from '../../components/ui/BottomSheet';
+import { RoomAvatar } from '../rooms/RoomAvatar';
 import { IconButton } from '../../components/ui/IconButton';
 import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
 import { CountryFlagBadge } from '../../components/ui/CountryFlagBadge';
@@ -61,7 +64,7 @@ import { MatchModal } from '../../components/MatchModal';
 import { AppLogo } from '../../components/ui/AppLogo';
 import { getRelationshipGoalLabels, formatDisplayAge } from '../../lib/profileLabels';
 import { SPRING } from '../../motion/tokens';
-import { useAppTranslation, translateSync } from '../../i18n/appLocale';
+import { APP_LOCALE_LABELS, useAppTranslation, translateSync, type AppLocale, type AppMessageKey } from '../../i18n/appLocale';
 import { communityRoomsService, type CommunityRoom, type RoomCategory } from '../../services/rooms/communityRoomsService';
 import { FollowButton } from '../../components/FollowButton';
 import { ConnectButton } from '../connect/ConnectButton';
@@ -101,8 +104,51 @@ interface SelectedPin {
 // Same neighborhood/city-scale cap the old Leaflet setup used (see git history) -- keeps the map
 // at a "who's near me" social/dating scale instead of full street-level detail, independent of
 // the style's own layer minzoom/maxzoom choices (ryvoMapStyle.ts).
-const MIN_ZOOM = 3;
+// MIN_ZOOM was 3, which caps the widest view at roughly 6,100 km -- enough for a continent, not
+// for the whole world. The server applies no distance limit at all (the map query filters by
+// viewport and nothing else), so that cap was the only thing making a far-away user unreachable:
+// someone in Türkiye simply could not fit a user in India on screen at any zoom. 2 doubles the
+// span so the map can actually reach everyone the API is willing to return.
+const MIN_ZOOM = 2;
 const MAX_ZOOM = 15;
+
+// MapLibre reports viewport bounds as raw floats, so every pan produced a brand-new query key --
+// a fresh request and a fresh cache entry for a viewport a few metres from the last one (a
+// 12-user system had already issued over 7,000 map requests). Snapping to ~110 m collapses small
+// drags onto one key. The snap is deliberately *outward* (floor the south/west edge, ceil the
+// north/east) so the box we ask for always contains everything actually on screen -- this can
+// never hide a marker to save a request.
+// How often an already-visible user's own stored position is refreshed in the background, and
+// where that last attempt is remembered. 15 minutes is short enough that a marker never sits days
+// out of date, long enough that bouncing in and out of the map isn't a stream of GPS fixes.
+const SELF_LOCATION_REFRESH_KEY = 'ryvo_map_self_location_refreshed_at';
+const SELF_LOCATION_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+
+const BBOX_SNAP_PER_DEGREE = 1000;
+function quantizeBbox(bounds: MapBbox): MapBbox {
+  return {
+    south: Math.floor(bounds.south * BBOX_SNAP_PER_DEGREE) / BBOX_SNAP_PER_DEGREE,
+    north: Math.ceil(bounds.north * BBOX_SNAP_PER_DEGREE) / BBOX_SNAP_PER_DEGREE,
+    west: Math.floor(bounds.west * BBOX_SNAP_PER_DEGREE) / BBOX_SNAP_PER_DEGREE,
+    east: Math.ceil(bounds.east * BBOX_SNAP_PER_DEGREE) / BBOX_SNAP_PER_DEGREE,
+  };
+}
+// Mirrors MAP_GENDER_FILTERS in the API's discovery_engine.js. 'ALL' is "no filter"; 'OTHER' is
+// the "Diğer" gender, not "no preference" -- the server's enum overloads that word, this does not.
+const MAP_GENDER_FILTERS: MapGenderFilter[] = ['ALL', 'FEMALE', 'MALE', 'OTHER'];
+const MAP_GENDER_FILTER_LABEL_KEY: Record<MapGenderFilter, AppMessageKey> = {
+  ALL: 'interestedInOptionEveryone',
+  FEMALE: 'interestedInOptionFemale',
+  MALE: 'interestedInOptionMale',
+  OTHER: 'mapFilterOther',
+};
+/** Mirrors resolveMapGenderFilter in the API's discovery_engine.js -- the same fallback, so the
+ *  highlighted pill always matches what the server actually filtered by. */
+function resolveGenderFilter(saved?: string | null, registrationChoice?: string | null): MapGenderFilter {
+  if (saved && MAP_GENDER_FILTERS.includes(saved as MapGenderFilter)) return saved as MapGenderFilter;
+  if (registrationChoice === 'FEMALE' || registrationChoice === 'MALE') return registrationChoice;
+  return 'ALL';
+}
 // [lng, lat] -- MapLibre's coordinate order, the opposite of Leaflet's [lat, lng]. Türkiye, shown
 // until the device's own location resolves.
 const DEFAULT_CENTER: [number, number] = [35.2, 39.0];
@@ -112,6 +158,8 @@ const MOVE_DEBOUNCE_MS = 350;
 // MapLibre's flyTo/easeTo `duration` is milliseconds, unlike Leaflet's flyTo which took seconds.
 const FLY_DURATION_MS = 1100;
 const CLUSTER_EXPANSION_DURATION_MS = 400;
+// Enough to identify the cities behind any realistic room cluster without walking a huge one.
+const CLUSTER_LEAF_PROBE_LIMIT = 200;
 // Two points within this many pixels of each other cluster together -- mirrors the old
 // leaflet.markercluster maxClusterRadius range (34-58px, denser near the default zoom).
 const CLUSTER_RADIUS_PX = 56;
@@ -278,6 +326,9 @@ const InterestChip: React.FC<{ label: string; index: number }> = ({ label, index
 export const SocialMapScreen: React.FC = () => {
   const { t, locale } = useAppTranslation();
   const navigate = useNavigate();
+  // The map is initialised once, so its handlers read navigate through a ref rather than
+  // closing over the first render's binding.
+  const navigateRef = useRef(navigate);
   const isDark = useIsDarkMode();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -321,6 +372,10 @@ export const SocialMapScreen: React.FC = () => {
   const [discoveryMode, setDiscoveryMode] = useState<'people'|'rooms'>('people');
   const [rooms, setRooms] = useState<CommunityRoom[]>([]);
   const [roomFilter, setRoomFilter] = useState<'ALL' | 'OFFICIAL' | RoomCategory>('ALL');
+  // Saving is what makes the choice stick: the filter is a profile column shared with Discover
+  // (users.gender_filter), not device state, so it survives an app restart and a reinstall and
+  // both surfaces always agree. This is only the in-flight value while the write lands.
+  const [savingGenderFilter, setSavingGenderFilter] = useState<MapGenderFilter | null>(null);
   const [selectedRoom, setSelectedRoom] = useState<CommunityRoom|null>(null);
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [joiningRoom, setJoiningRoom] = useState(false);
@@ -330,16 +385,22 @@ export const SocialMapScreen: React.FC = () => {
   });
 
   const queryClient = useQueryClient();
-  const { data: mapUsers, isLoading: isMapUsersLoading } = useDiscoveryMapQuery(bbox, 150);
+  const { data: me } = useMeQuery();
+  // What the map is actually filtered by right now. The saved profile column is the source of
+  // truth; until the user has ever set one the server falls back to their registration answer,
+  // so the same fallback is mirrored here rather than leaving every pill unlit.
+  const genderFilter: MapGenderFilter = savingGenderFilter
+    ?? resolveGenderFilter(me?.genderFilter, me?.targetGender);
+  const { data: mapUsers, isLoading: isMapUsersLoading } = useDiscoveryMapQuery(bbox, 150, genderFilter);
   const { data: selectedUserDetail, isFetching: isDetailFetching } = useDiscoveryUserQuery(selectedUser?.id);
   const { data: framesData } = useFramesQuery();
-  const { data: me } = useMeQuery();
   const frameCatalog = useMemo<ProfileFrameRecord[]>(
     () => Array.isArray(framesData?.frames) ? framesData.frames : [],
     [framesData?.frames]
   );
   const updateProfileMutation = useUpdateProfileMutation();
 
+  useEffect(() => { navigateRef.current = navigate; }, [navigate]);
   useEffect(() => { roomModeRef.current = discoveryMode === 'rooms'; }, [discoveryMode]);
 
   useEffect(() => {
@@ -386,12 +447,11 @@ export const SocialMapScreen: React.FC = () => {
     };
   }, [queryClient]);
 
-  useEffect(() => socketService.on('match:new', (payload: { matchedUserId?: string }) => {
-    if (payload?.matchedUserId) {
-      queryClient.setQueriesData<MapUser[]>({ queryKey: ['discovery', 'map'] }, (current) => (
-        Array.isArray(current) ? current.filter((user) => user.id !== payload.matchedUserId) : current
-      ));
-    }
+  // A new match used to be spliced straight out of the map cache here, mirroring a server rule
+  // that removed matched users from GET /api/discovery/map. That rule is gone -- the people you
+  // have connected with are exactly who you want to see around you -- so matching now only
+  // refreshes the markers (the new match's badge/state may have changed) instead of deleting one.
+  useEffect(() => socketService.on('match:new', () => {
     queryClient.invalidateQueries({ queryKey: ['discovery', 'map'] });
   }), [queryClient]);
 
@@ -552,6 +612,19 @@ export const SocialMapScreen: React.FC = () => {
           const source = map!.getSource(ROOM_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
           if (!source || !Number.isFinite(clusterId) || !coordinates) return;
           nativeHaptics.impact();
+          // Room coordinates are city centroids, so a cluster of rooms from a single city can
+          // never be split by zooming -- past clusterMaxZoom they just pile onto each other a
+          // few pixels apart. Send those straight to the city's room list instead of making
+          // people zoom to the bottom to find out there is nothing to separate.
+          const leaves = await source.getClusterLeaves(clusterId, CLUSTER_LEAF_PROBE_LIMIT, 0);
+          const clustered = leaves
+            .map((leaf) => roomsByIdRef.current.get(String((leaf.properties as { roomId?: string } | undefined)?.roomId || '')))
+            .filter((room): room is CommunityRoom => Boolean(room));
+          const cityIds = new Set(clustered.map((room) => room.cityId));
+          if (clustered.length > 1 && cityIds.size === 1) {
+            navigateRef.current(`/rooms/city/${clustered[0].cityId}`);
+            return;
+          }
           const expansionZoom = await source.getClusterExpansionZoom(clusterId);
           map!.easeTo({ center: coordinates, zoom: Math.min(expansionZoom, MAX_ZOOM), duration: CLUSTER_EXPANSION_DURATION_MS });
         });
@@ -566,7 +639,16 @@ export const SocialMapScreen: React.FC = () => {
 
         const updateBbox = () => {
           const b = map!.getBounds();
-          setBbox({ north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() });
+          const snapped = quantizeBbox({ north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() });
+          // Same object identity for an unchanged box, so a pan that lands inside the current
+          // snap cell doesn't re-run the query's `enabled`/key machinery at all.
+          setBbox((current) => (
+            current
+              && current.north === snapped.north && current.south === snapped.south
+              && current.east === snapped.east && current.west === snapped.west
+              ? current
+              : snapped
+          ));
           renderVisibleMarkers();
         };
         map.on('moveend', () => {
@@ -688,15 +770,33 @@ export const SocialMapScreen: React.FC = () => {
         observedAt: new Date(fix.timestamp).toISOString(),
         mapVisible: true,
       });
+      // A check-in *is* a position refresh, so it starts the background refresh's throttle
+      // window. Without this the refresh effect below -- which arms the moment checkedIn flips
+      // true -- would immediately take a second high-accuracy fix for the position we just sent.
+      try { localStorage.setItem(SELF_LOCATION_REFRESH_KEY, String(Date.now())); } catch { /* private mode */ }
       setCheckedIn(true);
       nativeHaptics.impact();
-    } catch {
-      // acquireLocalLocation already reflected a permission/GPS failure via locationStatus;
-      // a POST failure just leaves checkedIn at its previous value.
+    } catch (err: any) {
+      // This used to swallow every failure silently: the pill just stayed on "Haritada
+      // görünmüyorsun" with no explanation, which is indistinguishable from a dead button. The
+      // two common failures are both invisible without this -- a denied permission, and a fix
+      // that never reaches the 200m/30s quality bar acquireBestLocation and the server
+      // (LOCATION_QUALITY_LOW) both enforce, which is the normal indoor/Wi-Fi-only case.
+      const isDenied = err?.code === 'PERMISSION_DENIED' || err?.code === 1;
+      if (isDenied) {
+        setLocationStatus('denied');
+        toast.error(t('mapLocationDeniedMessage'));
+      } else if (!(err instanceof ApiException) || err.code === 'LOCATION_QUALITY_LOW') {
+        // Not an API error at all => acquireBestLocation gave up before we ever posted, which it
+        // only does when no fix cleared the accuracy/age bar.
+        toast.error(t('mapCheckInLowAccuracyError'));
+      } else {
+        toast.error(err?.message || t('mapCheckInFailedError'));
+      }
     } finally {
       setCheckingIn(false);
     }
-  }, [acquireLocalLocation]);
+  }, [t]);
 
   // Explicit "stop appearing": no GPS fix required, so this always works even if location is
   // denied or stale. users.map_visible = FALSE alone is enough to drop the viewer out of every
@@ -707,6 +807,50 @@ export const SocialMapScreen: React.FC = () => {
       onSuccess: () => setCheckedIn(false),
     });
   }, [updateProfileMutation]);
+
+  // Keep an already-visible user's own pin current. Nothing else in the app ever refreshes a
+  // stored location: there is no background location (by design, and no such Android permission
+  // is requested), app resume reconciles matches/likes/notifications but not position, and the
+  // only writers are an explicit check-in, Discover's distance sync, and a Passport change. A
+  // user who checked in once and then travelled stayed pinned to the old city indefinitely --
+  // production currently has a visible marker whose position is eleven days old.
+  //
+  // Deliberately scoped to `checkedIn === true`: touching GPS for someone who has not opted into
+  // the map would break the same consent rule Discover follows (it never locates on mount). For
+  // someone already choosing to appear, refreshing where they appear is the consent they gave.
+  // Throttled per device so re-entering the map screen doesn't spin up a high-accuracy fix each
+  // time, and silent -- this is upkeep, not an action the user asked for, so a failure just
+  // leaves the previous position in place rather than interrupting them.
+  useEffect(() => {
+    if (checkedIn !== true) return;
+    let cancelled = false;
+    const now = Date.now();
+    let last = 0;
+    try { last = Number(localStorage.getItem(SELF_LOCATION_REFRESH_KEY)) || 0; } catch { last = 0; }
+    if (now - last < SELF_LOCATION_REFRESH_INTERVAL_MS) return;
+
+    void (async () => {
+      try {
+        const fix = await acquireBestLocation();
+        if (cancelled) return;
+        const { latitude, longitude, accuracy } = fix.coords;
+        await apiClient.post('/api/user/location', {
+          latitude,
+          longitude,
+          accuracy,
+          observedAt: new Date(fix.timestamp).toISOString(),
+          mapVisible: true,
+        });
+        if (cancelled) return;
+        setCoords({ lat: latitude, lng: longitude });
+        try { localStorage.setItem(SELF_LOCATION_REFRESH_KEY, String(Date.now())); } catch { /* private mode */ }
+      } catch {
+        // Stale-but-present beats absent: keep whatever the server already has.
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [checkedIn]);
 
   // Self location marker.
   useEffect(() => {
@@ -805,6 +949,15 @@ export const SocialMapScreen: React.FC = () => {
 
   const handleRecenter = async () => {
     nativeHaptics.impact();
+    // While Passport is on, the chosen city IS this user's location -- recentring on the device's
+    // real GPS would drop them somewhere the rest of the app no longer considers them to be, and
+    // would ask for a location permission the feature does not need.
+    const passportLat = me?.passportLatitude;
+    const passportLng = me?.passportLongitude;
+    if (me?.locationMode === 'PASSPORT' && typeof passportLat === 'number' && typeof passportLng === 'number') {
+      mapRef.current?.flyTo({ center: [passportLng, passportLat], zoom: LOCATE_ZOOM, duration: FLY_DURATION_MS });
+      return;
+    }
     try {
       await acquireLocalLocation(true);
     } catch (err: any) {
@@ -881,6 +1034,29 @@ export const SocialMapScreen: React.FC = () => {
           </button>)}
         </div>
 
+        {discoveryMode === 'people' && (
+          <div className="pointer-events-auto mt-2 flex max-w-md gap-1.5 overflow-x-auto no-scrollbar mx-auto px-0.5">
+            {MAP_GENDER_FILTERS.map((f) => (
+              <button
+                key={f}
+                disabled={updateProfileMutation.isPending}
+                onClick={() => {
+                  if (f === genderFilter) return;
+                  setSavingGenderFilter(f);
+                  setSelectedUser(null);
+                  updateProfileMutation.mutate(
+                    { genderFilter: f },
+                    { onSettled: () => setSavingGenderFilter(null) }
+                  );
+                }}
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-extrabold transition-colors disabled:opacity-60 ${genderFilter===f?'border-transparent bg-brand-gradient text-white':'border-app bg-surface-95 text-app-muted'}`}
+              >
+                {t(MAP_GENDER_FILTER_LABEL_KEY[f])}
+              </button>
+            ))}
+          </div>
+        )}
+
         {discoveryMode === 'rooms' && (
           <div className="pointer-events-auto mt-2 flex max-w-md gap-1.5 overflow-x-auto no-scrollbar mx-auto px-0.5">
             {(['ALL','OFFICIAL','TRAVEL','LOCAL','LANGUAGE'] as const).map((f) => (
@@ -919,98 +1095,125 @@ export const SocialMapScreen: React.FC = () => {
             ))}
           </div>
         )}
-      </div>
-
-      {/* Status pills — never a full-screen blocker, the map stays interactive underneath.
-          Positioned relative to the search bar above (safe-top + its own ~56px height + a
-          breathing gap) rather than a bare fixed top-24: that fixed value ignored
-          env(safe-area-inset-top) entirely, so on a taller notch/dynamic-island inset the
-          search bar (itself correctly safe-area-aware via pt-safe) could sit low enough for
-          these two blocks to crowd or overlap. */}
-      <div className="absolute inset-x-0 top-[calc(var(--safe-top)+4.5rem)] z-sticky flex justify-center pointer-events-none px-6">
-        {discoveryMode === 'people' && locationStatus === 'pending' && (
-          <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
-            {t('mapLocatingLabel')}
-          </div>
-        )}
-        {locationStatus === 'denied' && (
-          <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
-            <span>{t('mapLocationDeniedMessage')}</span>
-            <button
-              onClick={() => {
-                acquireLocalLocation(true).catch((err: any) => {
-                  if (err?.code === 'PERMISSION_DENIED' || err?.code === 1) {
-                    nativeAppSettings.openLocationServices().catch(() => {});
-                  }
-                });
-              }}
-              className="shrink-0 text-pink-500 font-bold"
-            >
-              {t('callOpenSettingsAction') || t('retryButton')}
-            </button>
-          </div>
-        )}
-        {locationStatus === 'error' && (
-          <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
-            <span>{t('mapLocationErrorMessage')}</span>
-            <button onClick={() => acquireLocalLocation(true).catch(() => {})} className="shrink-0 text-pink-500 font-bold">
-              {t('retryButton')}
-            </button>
-          </div>
-        )}
-        {isMapUsersLoading && bbox && (
-          <div className={`${discoveryMode === 'people' ? '' : 'hidden'} px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md`}>
-            {t('mapNearbyLoadingLabel')}
-          </div>
-        )}
-        {isEmptyViewport && (
-          <div className={`${discoveryMode === 'people' ? '' : 'hidden'} px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md`}>
-            {t('mapNoOneNearbyLabel')}
-          </div>
-        )}
-      </div>
-
-      {/* Map visibility consent — appearing on the map for others is always a separate, explicit,
-          reversible action from simply browsing it or recentering on your own device location. */}
-      {discoveryMode === 'people' && checkedIn === false && (
-        <div className="absolute bottom-28 inset-x-4 z-sticky pointer-events-auto">
-          <div className="max-w-md mx-auto px-4 py-3 rounded-2xl bg-surface-95 border border-app shadow-elevated backdrop-blur-md flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-brand-gradient flex items-center justify-center shrink-0">
-              <MapPin className="w-4.5 h-4.5 text-white" />
+        {/* Status pills — never a full-screen blocker, the map stays interactive underneath.
+            These sit in the header's own flow, after the search bar, the rooms/people switch
+            and the rooms filter row, instead of at a hand-computed offset. The previous
+            top-[calc(var(--safe-top)+4.5rem)] was measured against the search bar alone, so it
+            landed directly on top of the rooms/people switch — and any new header row would
+            have broken it again. */}
+        <div className="mt-2 flex justify-center px-2 pointer-events-none">
+          {discoveryMode === 'rooms' && roomsLoading && (
+            <div className="rounded-full border border-app bg-surface-95 px-4 py-2 text-caption font-bold text-app-muted shadow-soft backdrop-blur-md">•••</div>
+          )}
+          {discoveryMode === 'people' && locationStatus === 'pending' && (
+            <div className="px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md">
+              {t('mapLocatingLabel')}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-caption font-bold text-app">{t('mapNotVisibleTitle')}</p>
-              <p className="text-caption text-app-muted leading-tight">{t('mapNotVisibleSubtitle')}</p>
+          )}
+          {locationStatus === 'denied' && (
+            <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
+              <span>{t('mapLocationDeniedMessage')}</span>
+              <button
+                onClick={() => {
+                  acquireLocalLocation(true).catch((err: any) => {
+                    if (err?.code === 'PERMISSION_DENIED' || err?.code === 1) {
+                      nativeAppSettings.openLocationServices().catch(() => {});
+                    }
+                  });
+                }}
+                className="shrink-0 text-pink-500 font-bold"
+              >
+                {t('callOpenSettingsAction') || t('retryButton')}
+              </button>
             </div>
-            <button
-              onClick={checkInToMap}
-              disabled={checkingIn}
-              className="shrink-0 px-3.5 py-2 rounded-full bg-brand-gradient text-white text-caption font-extrabold shadow-soft active:scale-95 transition-transform disabled:opacity-60"
-            >
-              {checkingIn ? '...' : t('mapCheckInButtonLabel')}
-            </button>
-          </div>
+          )}
+          {locationStatus === 'error' && (
+            <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3">
+              <span>{t('mapLocationErrorMessage')}</span>
+              <button onClick={() => acquireLocalLocation(true).catch(() => {})} className="shrink-0 text-pink-500 font-bold">
+                {t('retryButton')}
+              </button>
+            </div>
+          )}
+          {isMapUsersLoading && bbox && (
+            <div className={`${discoveryMode === 'people' ? '' : 'hidden'} px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md`}>
+              {t('mapNearbyLoadingLabel')}
+            </div>
+          )}
+          {/* An empty map has two very different causes and used to give one answer for both.
+              With a gender filter on, "nobody here" is usually "nobody here *matching your
+              filter*" -- the filter is inherited from the Discover preference, so a user can hit
+              an empty map having never knowingly set one, and reads it as the map being broken.
+              Naming the filter and offering the widening in the same pill turns a dead end into
+              one tap. Same pill geometry and the same text + action shape as the location pills
+              above, so the header keeps one vocabulary. */}
+          {isEmptyViewport && genderFilter === 'ALL' && (
+            <div className={`${discoveryMode === 'people' ? '' : 'hidden'} px-4 py-2 rounded-full bg-surface-90 border border-app text-caption font-semibold text-app-muted shadow-soft backdrop-blur-md`}>
+              {t('mapNoOneNearbyLabel')}
+            </div>
+          )}
+          {isEmptyViewport && genderFilter !== 'ALL' && (
+            <div className={`${discoveryMode === 'people' ? '' : 'hidden'} pointer-events-auto px-4 py-2.5 rounded-2xl bg-surface-95 border border-app text-caption font-semibold text-app shadow-elevated backdrop-blur-md flex items-center gap-3`}>
+              <span>{t('mapNoOneMatchesFilterLabel')}</span>
+              <button
+                disabled={updateProfileMutation.isPending}
+                onClick={() => {
+                  setSavingGenderFilter('ALL');
+                  setSelectedUser(null);
+                  updateProfileMutation.mutate(
+                    { genderFilter: 'ALL' },
+                    { onSettled: () => setSavingGenderFilter(null) }
+                  );
+                }}
+                className="shrink-0 text-pink-500 font-bold disabled:opacity-60"
+              >
+                {t('mapShowEveryoneAction')}
+              </button>
+            </div>
+          )}
         </div>
-      )}
-      {discoveryMode === 'people' && checkedIn === true && (
-        <div className="absolute bottom-28 left-4 z-sticky pointer-events-auto">
+      </div>
+
+      {/* Map visibility — one compact pill that both reports the current state and toggles it.
+          Appearing on the map for others is still an explicit, reversible action; it just no
+          longer needs a full banner (icon + two text lines + its own button) to say so, which
+          also keeps the bottom-right map controls off a tall banner. */}
+      {discoveryMode === 'people' && checkedIn !== null && (
+        <div className="absolute bottom-28 left-4 z-sticky pointer-events-auto flex flex-col items-start gap-1.5">
+          {/* Appearing on the map is opt-in (Apple 5.1.2(i)), so a registration alone never puts
+              anyone on it -- which means this control is the entire path onto the map and has to
+              read as an offer, not as a status line. Styled as a neutral status pill it was
+              routinely missed: users granted location, saw nobody, and assumed the map was
+              broken. While hidden it now carries the explanation and the brand gradient every
+              other primary action uses; once visible it drops back to a quiet status pill. */}
+          {!checkedIn && (
+            <span className="max-w-[15rem] rounded-2xl bg-surface-95 border border-app px-3 py-2 text-[11px] font-semibold leading-snug text-app-muted shadow-soft backdrop-blur-md">
+              {t('mapNotVisibleSubtitle')}
+            </span>
+          )}
           <button
-            onClick={hideFromMap}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-surface-95 border border-app shadow-elevated backdrop-blur-md text-caption font-bold text-app active:scale-95 transition-transform"
+            onClick={checkedIn ? hideFromMap : checkInToMap}
+            disabled={checkingIn}
+            aria-pressed={checkedIn}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-full shadow-elevated backdrop-blur-md text-caption font-bold active:scale-95 transition-transform disabled:opacity-60 ${
+              checkedIn
+                ? 'bg-surface-95 border border-app text-app'
+                : 'bg-brand-gradient border border-transparent text-white'
+            }`}
           >
-            <span className="w-2 h-2 rounded-full bg-[#25D9D0]" />
-            {t('mapVisibleLabel')}
-            <EyeOff className="w-3.5 h-3.5 text-app-muted" />
+            {/* `bg-app-muted` is not a generated utility (see globals.css) -- use the token. */}
+            {checkedIn && <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#25D9D0' }} />}
+            {checkingIn ? '...' : checkedIn ? t('mapVisibleLabel') : t('mapCheckInButtonLabel')}
+            {checkedIn ? <EyeOff className="w-3.5 h-3.5 text-app-muted" /> : <MapPin className="w-3.5 h-3.5 text-white" />}
           </button>
         </div>
       )}
 
-      {/* Floating controls — parked above the visibility banner/pill row. bottom-44 previously
-          left only a few px above the taller "Haritada görünmüyorsun" banner variant (icon +
-          two text lines + button, ~64px tall on top of its own bottom-28 offset reaches nearly
-          this button's own bottom edge) -- bumped to bottom-52 for real breathing room instead
-          of the two nearly touching. */}
-      <div className="absolute bottom-52 right-4 z-sticky flex flex-col gap-2">
+      {/* Floating controls — same baseline as the visibility pill on the opposite side. The old
+          bottom-52 was measured to clear the tall "Haritada görünmüyorsun" banner that used to
+          live here; that banner is now a pill, so the controls no longer need to float far up
+          the map away from the thumb. */}
+      <div className="absolute bottom-28 right-4 z-sticky flex flex-col items-end gap-2">
         {discoveryMode === 'rooms' && (
           <button onClick={()=>navigate('/rooms/create')} className="h-12 rounded-full bg-brand-gradient px-4 text-caption font-extrabold text-white shadow-elevated active:scale-95">
             + {roomsText(locale,'createRoom')}
@@ -1025,18 +1228,13 @@ export const SocialMapScreen: React.FC = () => {
         </IconButton>
       </div>
 
-      {discoveryMode==='rooms' && roomsLoading && <div className="absolute start-1/2 top-[calc(var(--safe-top)+8.5rem)] z-sticky -translate-x-1/2 rounded-full border border-app bg-surface-95 px-4 py-2 text-caption font-bold text-app-muted shadow-soft">•••</div>}
 
       <BottomSheet isOpen={!!selectedRoom} onClose={()=>setSelectedRoom(null)}>
         {selectedRoom && <div className="space-y-4 px-5 pb-6">
           <div className="flex items-start gap-3">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-500 via-violet-500 to-amber-400 text-white shadow-elevated">
-              {/* V3: rooms are always text-only now (selectedRoom.type stays 'TEXT'; the DB
-                  column and this data point are kept for historical/admin visibility only). */}
-              <MessageCircle className="h-5 w-5" />
-            </div>
+            <RoomAvatar coverUrl={selectedRoom.coverUrl} official={selectedRoom.isOfficial} className="h-14 w-14" />
             <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="truncate text-heading text-app">{selectedRoom.title}</h2>{selectedRoom.isOfficial&&<ShieldCheck className="h-4 w-4 text-[#25D9D0]"/>}</div>
-              <p className="text-caption font-semibold text-app-muted">{selectedRoom.city} · {selectedRoom.language.toUpperCase()} · {roomsText(locale,ROOM_CATEGORY_KEY[selectedRoom.category]||'categoryGeneral')}{selectedRoom.type!=='TEXT'?` · ${selectedRoom.type}`:''}</p></div>
+              <p className="text-caption font-semibold text-app-muted">{selectedRoom.city} · {APP_LOCALE_LABELS[selectedRoom.language as AppLocale] || selectedRoom.language} · {roomsText(locale,ROOM_CATEGORY_KEY[selectedRoom.category]||'categoryGeneral')}{selectedRoom.type!=='TEXT'?` · ${selectedRoom.type}`:''}</p></div>
             <button onClick={()=>navigate(`/rooms/${selectedRoom.id}/report`)} aria-label={roomsText(locale,'report')} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-app-muted"><MoreHorizontal className="h-5 w-5"/></button>
           </div>
           {selectedRoom.isDemo&&<span className="inline-flex rounded-full bg-amber-400/15 px-3 py-1 text-caption font-extrabold text-amber-500">{roomsText(locale,'officialDemo')}</span>}

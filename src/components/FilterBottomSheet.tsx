@@ -1,19 +1,36 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Crown, LockKeyhole, MapPin, ShieldCheck, Sparkles, SlidersHorizontal, X, Zap } from 'lucide-react';
+import { Check, Crown, LockKeyhole, MapPin, ShieldCheck, Sparkles, SlidersHorizontal, Users, X, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useEntitlementsQuery, useMeQuery, useUpdateProfileMutation } from '../hooks/useQueries';
+import { useEntitlementsQuery, useMeQuery, useUpdateProfileMutation, type MapGenderFilter } from '../hooks/useQueries';
 import { RELATIONSHIP_GOAL_LABELS } from '../lib/profileLabels';
 import { BottomSheet } from './ui/BottomSheet';
 import { AppButton } from './ui/AppButton';
 import { IconButton } from './ui/IconButton';
 import { DualRangeSlider } from './ui/DualRangeSlider';
-import { useAppTranslation } from '../i18n/appLocale';
+import { useAppTranslation, type AppMessageKey } from '../i18n/appLocale';
 
 interface FilterBottomSheetProps {
   isOpen: boolean;
   onClose: () => void;
   /** Called after preferences are saved so the caller can refetch the feed. */
   onApplied: () => void;
+}
+
+// The same four values, labels and fallback the map's filter row uses -- one preference
+// (users.gender_filter), shown identically wherever it can be changed.
+const GENDER_FILTERS: MapGenderFilter[] = ['ALL', 'FEMALE', 'MALE', 'OTHER'];
+const GENDER_FILTER_LABEL_KEY: Record<MapGenderFilter, AppMessageKey> = {
+  ALL: 'interestedInOptionEveryone',
+  FEMALE: 'interestedInOptionFemale',
+  MALE: 'interestedInOptionMale',
+  OTHER: 'mapFilterOther',
+};
+
+/** Mirrors resolveMapGenderFilter in the API's discovery_engine.js. */
+function resolveGenderFilter(saved?: string | null, registrationChoice?: string | null): MapGenderFilter {
+  if (saved && GENDER_FILTERS.includes(saved as MapGenderFilter)) return saved as MapGenderFilter;
+  if (registrationChoice === 'FEMALE' || registrationChoice === 'MALE') return registrationChoice;
+  return 'ALL';
 }
 
 const DEFAULTS = {
@@ -68,6 +85,7 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
   const [recentlyActive, setRecentlyActive] = useState(DEFAULTS.recentlyActive);
   const [newMembers, setNewMembers] = useState(DEFAULTS.newMembers);
   const [relationshipGoal, setRelationshipGoal] = useState<string | null>(DEFAULTS.relationshipGoal);
+  const [genderFilter, setGenderFilter] = useState<MapGenderFilter>('ALL');
   const [errorMsg, setErrorMsg] = useState('');
 
   // Initialize from the user's saved preferences -- every field here maps to a real, persisted
@@ -84,6 +102,9 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
     setRecentlyActive(hasAdvancedFilters ? me.recentlyActivePref ?? DEFAULTS.recentlyActive : false);
     setNewMembers(hasAdvancedFilters ? me.newMembersPref ?? DEFAULTS.newMembers : false);
     setRelationshipGoal(hasAdvancedFilters ? me.discoveryRelationshipGoalPref ?? DEFAULTS.relationshipGoal : null);
+    // Not gated behind Premium: this is "who am I even looking for", the same answer given at
+    // registration, not an advanced narrowing filter.
+    setGenderFilter(resolveGenderFilter(me.genderFilter, me.targetGender));
   }, [hasAdvancedFilters, me]);
 
   const openPremiumUpsell = () => {
@@ -102,6 +123,7 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
         recentlyActivePref: hasAdvancedFilters ? recentlyActive : false,
         newMembersPref: hasAdvancedFilters ? newMembers : false,
         discoveryRelationshipGoalPref: hasAdvancedFilters ? relationshipGoal : null,
+        genderFilter,
       });
       onApplied();
       onClose();
@@ -118,6 +140,7 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
     setRecentlyActive(DEFAULTS.recentlyActive);
     setNewMembers(DEFAULTS.newMembers);
     setRelationshipGoal(DEFAULTS.relationshipGoal);
+    setGenderFilter('ALL');
   };
 
   return (
@@ -131,6 +154,24 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
           <IconButton aria-label={t('closeAriaLabel')} variant="ghost" size="sm" onClick={onClose}>
             <X className="w-5 h-5" />
           </IconButton>
+        </div>
+
+        {/* Who to show. Shared with the map's own filter row and persisted on the profile
+            (users.gender_filter), so a choice made here is the choice there, and it survives
+            closing the app. 'Diğer' is the gender, not "no preference" -- that is 'Herkes'. */}
+        <div className="space-y-2">
+          <p className="text-caption font-bold text-app">{t('filterShowMeLabel')}</p>
+          <div className="grid grid-cols-2 gap-2">
+            {GENDER_FILTERS.map((value) => (
+              <ToggleChip
+                key={value}
+                icon={<Users className="w-4 h-4" />}
+                label={t(GENDER_FILTER_LABEL_KEY[value])}
+                active={genderFilter === value}
+                onClick={() => setGenderFilter(value)}
+              />
+            ))}
+          </div>
         </div>
 
         {/* Distance -- this is the user's own preferred ceiling, capped at 150km (never higher):

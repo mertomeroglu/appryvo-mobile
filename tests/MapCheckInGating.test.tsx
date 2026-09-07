@@ -125,6 +125,8 @@ describe('Ryvo privacy requirement: map visibility is manual check-in only', () 
     getCurrentPositionMock.mockClear();
     apiPostMock.mockClear();
     updateProfileMutateMock.mockClear();
+    meData.mapVisible = false;
+    localStorage.clear();
     vi.stubGlobal('requestAnimationFrame', (cb: (time: number) => void) => setTimeout(() => cb(0), 0) as unknown as number);
     vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
     // SocialMapScreen resolves its own TileJSON via fetch() (see its map-init effect) and watches
@@ -146,9 +148,40 @@ describe('Ryvo privacy requirement: map visibility is manual check-in only', () 
     vi.clearAllMocks();
   });
 
+  // The consent rule is "no GPS unless the user opted into the map", not "no GPS ever". Nothing
+  // else in the app refreshes a stored position -- there is no background location, and app
+  // resume reconciles matches/likes/notifications but not position -- so a user who checked in
+  // once and travelled stayed pinned to the old city forever. Refreshing where an already-visible
+  // user appears is inside the consent they gave; doing it for a hidden user would not be, and
+  // the test above still guards that.
+  it('refreshes the stored position on mount, but only for a user already visible on the map', async () => {
+    meData.mapVisible = true;
+    renderMap();
+
+    await waitFor(() => expect(getCurrentPositionMock).toHaveBeenCalled());
+    await waitFor(() => expect(apiPostMock).toHaveBeenCalledWith(
+      '/api/user/location',
+      expect.objectContaining({ mapVisible: true })
+    ));
+  });
+
+  it('does not refresh again while the throttle window is still open', async () => {
+    meData.mapVisible = true;
+    localStorage.setItem('ryvo_map_self_location_refreshed_at', String(Date.now()));
+    renderMap();
+
+    await screen.findByRole('button', { name: /You're visible on the map/ });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(getCurrentPositionMock).not.toHaveBeenCalled();
+    expect(apiPostMock).not.toHaveBeenCalled();
+  });
+
   it('never requests GPS just from mounting the map screen', async () => {
     renderMap();
-    await screen.findByRole('button', { name: 'Show Up' });
+    await screen.findByRole('button', { name: /Show Up/ });
     await act(async () => {
       await Promise.resolve();
     });
@@ -159,7 +192,7 @@ describe('Ryvo privacy requirement: map visibility is manual check-in only', () 
 
   it('tapping "Görün" performs exactly one location operation and publishes visibility once', async () => {
     renderMap();
-    const checkInButton = await screen.findByRole('button', { name: 'Show Up' });
+    const checkInButton = await screen.findByRole('button', { name: /Show Up/ });
 
     fireEvent.click(checkInButton);
 
@@ -180,7 +213,7 @@ describe('Ryvo privacy requirement: map visibility is manual check-in only', () 
 
   it('hiding from the map never re-requests GPS', async () => {
     renderMap();
-    const checkInButton = await screen.findByRole('button', { name: 'Show Up' });
+    const checkInButton = await screen.findByRole('button', { name: /Show Up/ });
     fireEvent.click(checkInButton);
     await waitFor(() => expect(getCurrentPositionMock).toHaveBeenCalledTimes(1));
 
@@ -195,7 +228,7 @@ describe('Ryvo privacy requirement: map visibility is manual check-in only', () 
     );
     expect(getCurrentPositionMock).not.toHaveBeenCalled();
 
-    await screen.findByRole('button', { name: 'Show Up' });
+    await screen.findByRole('button', { name: /Show Up/ });
   });
 
   it('RYVO PATCH 05 issue 2 -- other viewers\' map queries poll instead of going stale indefinitely after someone hides', () => {

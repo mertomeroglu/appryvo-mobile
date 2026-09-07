@@ -169,17 +169,23 @@ describe('Android Critical Hotfix — Contract & Behavior Tests', () => {
       expect(manifest).not.toContain('android.permission.WRITE_EXTERNAL_STORAGE');
     });
 
-    it('Build gradle has targetSdk 36, versionCode 13, versionName 3.0.3', () => {
+    it('Build gradle targets SDK 36 and carries a shippable version', () => {
       const gradle = source('android/app/build.gradle');
       expect(gradle).toContain('compileSdk 36');
       expect(gradle).toContain('targetSdk 36');
-      expect(gradle).toContain('versionCode 13');
-      expect(gradle).toContain('versionName "3.0.3"');
+      // versionCode/versionName are asserted by shape, not by a frozen literal: pinning the
+      // released numbers here made every version bump fail a camera/location contract test that
+      // has nothing to say about which version is current.
+      expect(gradle).toMatch(/versionCode \d+/);
+      expect(gradle).toMatch(/versionName "\d+\.\d+(\.\d+)?"/);
     });
 
-    it('Package.json is synced to version 3.0.3', () => {
+    it('Package.json version stays in sync with the gradle versionName', () => {
       const pkg = JSON.parse(source('package.json'));
-      expect(pkg.version).toBe('3.0.3');
+      const gradle = source('android/app/build.gradle');
+      const versionName = gradle.match(/versionName "([^"]+)"/)?.[1];
+      expect(versionName).toBeTruthy();
+      expect(pkg.version).toBe(versionName);
     });
   });
 });

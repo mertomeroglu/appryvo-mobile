@@ -87,7 +87,9 @@ export const ChatScreen: React.FC = () => {
   const recordingMountedRef = useRef(true);
   const chunksRef = useRef<Blob[]>([]);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // window.setTimeout (used below) returns a number in the browser -- ReturnType<typeof
+  // setTimeout> resolves to Node's Timeout in this project's type environment.
+  const typingTimerRef = useRef<number | null>(null);
   const isNearBottomRef = useRef(true);
   const initiallyScrolledMatchRef = useRef<string | null>(null);
 
@@ -784,7 +786,7 @@ export const ChatScreen: React.FC = () => {
                   }}
                   onDelete={handleDelete}
                   onReact={handleReact}
-                  onReport={() => { setReportedMessageId(message.id); setSafetyAction('report'); }}
+                  onReport={() => { setReportedMessageId(msg.id); setSafetyAction('report'); }}
                   onTranslate={handleManualTranslate}
                   onMeetingDecision={(message, decision) => {
                     if (!matchId) return;

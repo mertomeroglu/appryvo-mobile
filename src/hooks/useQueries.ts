@@ -16,12 +16,19 @@ export interface MapBbox {
   west: number;
 }
 
+/**
+ * What the map's gender filter row can ask for. Mirrors MAP_GENDER_FILTERS in the API's
+ * discovery_engine.js -- 'OTHER' means the "Diğer" gender here, never "no preference"
+ * (that is 'ALL'), because the server's gender enum overloads the same word.
+ */
+export type MapGenderFilter = 'ALL' | 'FEMALE' | 'MALE' | 'OTHER';
+
 // Query Keys Constant
 export const QUERY_KEYS = {
   me: ['user', 'me'],
   entitlements: ['user', 'entitlements'],
   discoveryFeed: ['discovery', 'feed'],
-  discoveryMap: (bbox?: MapBbox | null) => ['discovery', 'map', bbox?.north, bbox?.south, bbox?.east, bbox?.west],
+  discoveryMap: (bbox?: MapBbox | null, gender?: MapGenderFilter | null) => ['discovery', 'map', bbox?.north, bbox?.south, bbox?.east, bbox?.west, gender ?? null],
   inboundLikes: ['discovery', 'likes', 'inbound'],
   matches: ['matches'],
   messages: (matchId: string) => ['matches', matchId, 'messages'],
@@ -127,9 +134,14 @@ export function useDiscoveryUserQuery(userId?: string) {
 
 // The backend only filters by viewport (north/south/east/west) — it never reads lat/lng/radius —
 // so the map query is keyed on the current viewport bounds, refetched as the user pans/zooms.
-export function useDiscoveryMapQuery(bbox?: MapBbox | null, limit = 80) {
+/**
+ * `gender` is NOT sent to the server -- the filter lives on the profile (users.gender_filter,
+ * shared with Discover), and the map route reads it there. It is part of the query key only so
+ * that saving a new filter refetches the markers instead of serving the previous filter's cache.
+ */
+export function useDiscoveryMapQuery(bbox?: MapBbox | null, limit = 80, gender?: MapGenderFilter | null) {
   return useQuery({
-    queryKey: QUERY_KEYS.discoveryMap(bbox),
+    queryKey: QUERY_KEYS.discoveryMap(bbox, gender),
     queryFn: () => {
       const params = new URLSearchParams();
       if (bbox) {
@@ -531,6 +543,23 @@ export function useCallHistoryQuery() {
   });
 }
 
+// Optional email verification. Nothing in the product gates on it and no other user can see it;
+// it exists so someone can prove their own address to themselves.
+export function useRequestEmailOtpMutation() {
+  return useMutation({
+    mutationFn: () => apiClient.post('/api/auth/email-otp/request').then((res) => res?.data),
+  });
+}
+
+export function useVerifyEmailOtpMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => apiClient.post('/api/auth/email-otp/verify', { code }).then((res) => res?.data),
+    // /api/me carries emailVerified for the owner, so the profile row updates without a reload.
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: QUERY_KEYS.me }); },
+  });
+}
+
 export function useConfirmMeetingMutation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -644,9 +673,10 @@ export function useLikeMutation() {
     // batch out from under the in-progress deck. The server already excludes interacted
     // users from future fetches, so eager refetch isn't needed to stay correct.
     onSuccess: (_data, variables) => {
-      queryClient.setQueriesData<any[]>({ queryKey: ['discovery', 'map'] }, (current) => (
-        Array.isArray(current) ? current.filter((user) => String(user?.id || user?.uid) !== String(variables.targetUserId)) : current
-      ));
+      // Liking someone no longer removes their marker: the map answers "who is around me", not
+      // "who have I not decided on yet", so it keeps showing people you have already liked (the
+      // server stopped excluding them too). Only the refetch below stays, so the marker can pick
+      // up any state the like changed.
       queryClient.invalidateQueries({ queryKey: ['discovery', 'map'] });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
       // Liking someone who is already in "Seni Beğenenler" always creates a mutual match

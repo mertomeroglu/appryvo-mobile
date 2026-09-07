@@ -20,9 +20,10 @@ import { SPRING, PRESS_SCALE } from '../../motion/tokens';
 import { pageTransition } from '../../motion/variants';
 import { getRelationshipGoalLabel } from '../../lib/profileLabels';
 import { INTEREST_CATEGORIES, INTEREST_MIN, INTEREST_MAX } from '../../lib/interests';
+import { RELIGION_OPTIONS, RELIGION_LABEL_KEY } from '../../lib/religions';
 import { nativeKeyboard } from '../../native/keyboard';
 import { dismissKeyboardOnBackgroundPointerDown } from '../../hooks/useKeyboardViewport';
-import { useAppTranslation } from '../../i18n/appLocale';
+import { useAppTranslation, type AppMessageKey } from '../../i18n/appLocale';
 
 const MAX_PHOTOS = 6;
 const MIN_PHOTOS = 2;
@@ -167,6 +168,9 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   const [birthDateError, setBirthDateError] = useState('');
   const [gender, setGender] = useState('FEMALE');
   const [targetGender, setTargetGender] = useState('MALE');
+  // Optional, and deliberately not its own wizard step -- it rides inside the interests step so
+  // the number of screens between "start" and "account created" does not grow. null = skipped.
+  const [religion, setReligion] = useState<string | null>(null);
   const [relationshipGoal, setRelationshipGoal] = useState('OPEN_TO_EXPLORING');
   const [interests, setInterests] = useState<string[]>([]);
 
@@ -514,6 +518,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         birthDate,
         gender,
         targetGender,
+        religion: religion ?? undefined,
         relationshipGoal,
         interests,
         photoUploadTokens,
@@ -918,6 +923,24 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                   </p>
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar space-y-5 my-5">
+                  <div>
+                    <h3 className="text-micro font-bold text-app-muted uppercase tracking-wider mb-2">
+                      {t('religionStepHeading')}
+                    </h3>
+                    <p className="text-caption text-app-muted mb-2 normal-case">{t('religionOptionalHint')}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {RELIGION_OPTIONS.map((option) => (
+                        <Chip
+                          key={option}
+                          label={t(RELIGION_LABEL_KEY[option])}
+                          selected={religion === option}
+                          // Tapping the selected one clears it again -- the field is optional and
+                          // there is no other way back to "prefer not to answer at all".
+                          onSelect={() => setReligion((current) => (current === option ? null : option))}
+                        />
+                      ))}
+                    </div>
+                  </div>
                   {INTEREST_CATEGORIES.map((cat) => (
                     <div key={cat.id}>
                       <h3 className="text-micro font-bold text-app-muted uppercase tracking-wider mb-2">{cat.title}</h3>

@@ -24,6 +24,12 @@ interface UserProfile {
   faceVerified?: boolean;
   /** Email ownership is independent from face/profile verification. */
   emailVerified?: boolean;
+  /** 'PASSPORT' while a teleport is active, otherwise 'REAL'. */
+  locationMode?: 'REAL' | 'PASSPORT';
+  passportCity?: string | null;
+  passportCountry?: string | null;
+  passportLatitude?: number | null;
+  passportLongitude?: number | null;
   verificationState?: 'UNVERIFIED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVERIFICATION_REQUIRED';
   activeFrameId?: string;
   profileCompletion?: number;

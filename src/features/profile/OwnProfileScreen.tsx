@@ -27,11 +27,14 @@ import {
   CheckCircle2,
   Users,
   Share2,
+  MailCheck,
 } from 'lucide-react';
 import { nativeShare } from '../../native/share';
 import { CoinStoreSheet } from '../coins/CoinStoreSheet';
 import { CoinIcon } from '../gifts/CoinIcon';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
+import { EmailOtpModal } from '../../components/EmailOtpModal';
+import { socketService } from '../../services/socket/socketService';
 
 const EditProfileModal = lazy(() => preloadEditProfileModal().then((module) => ({ default: module.EditProfileModal })));
 
@@ -69,9 +72,11 @@ export const OwnProfileScreen: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isEmailOtpOpen, setIsEmailOtpOpen] = useState(false);
   const [editFocusSection, setEditFocusSection] = useState<string | undefined>(undefined);
   const [isCompletionOpen, setIsCompletionOpen] = useState(false);
   const [coinStoreOpen, setCoinStoreOpen] = useState(false);
+  const [isRealtimeOnline, setIsRealtimeOnline] = useState(() => socketService.isConnected());
   const locale = useAppLocaleStore((state) => state.locale);
   const shellReadyRef = useRef(false);
   const dataReadyRef = useRef(false);
@@ -130,6 +135,16 @@ export const OwnProfileScreen: React.FC = () => {
     };
   }, [user]);
 
+  useEffect(() => {
+    setIsRealtimeOnline(socketService.isConnected());
+    const offConnect = socketService.on('connect', () => setIsRealtimeOnline(true));
+    const offDisconnect = socketService.on('disconnect', () => setIsRealtimeOnline(false));
+    return () => {
+      offConnect();
+      offDisconnect();
+    };
+  }, []);
+
   return (
     <div className="flex flex-col h-full w-full bg-app text-app p-4 overflow-y-auto no-scrollbar pb-28 select-none">
       <ScreenHeader
@@ -155,7 +170,7 @@ export const OwnProfileScreen: React.FC = () => {
           verified={user?.verified}
           countryCode={user?.countryCode}
           showCountryFlag={showFlag}
-          online
+          online={isRealtimeOnline}
           size="xl"
           eager
         />
@@ -243,6 +258,14 @@ export const OwnProfileScreen: React.FC = () => {
             value={verificationValue}
             onClick={verificationComplete || verificationPending ? undefined : () => navigate('/verification')}
           />
+          {/* Optional, and private: this value renders only for the account owner -- no endpoint
+              exposes anyone else's email-verification state. */}
+          <ProfileRow
+            icon={<MailCheck className="w-5 h-5" />}
+            label={t('emailOtpRowLabel')}
+            value={user?.emailVerified ? t('emailOtpVerifiedValue') : undefined}
+            onClick={() => setIsEmailOtpOpen(true)}
+          />
           <ProfileRow
             icon={<Crown className="w-5 h-5" />}
             label={t('premium')}
@@ -329,6 +352,13 @@ export const OwnProfileScreen: React.FC = () => {
           />
         </Suspense>
       )}
+    
+      <EmailOtpModal
+        isOpen={isEmailOtpOpen}
+        onClose={() => setIsEmailOtpOpen(false)}
+        email={user?.email}
+        alreadyVerified={user?.emailVerified === true}
+      />
     </div>
   );
 };

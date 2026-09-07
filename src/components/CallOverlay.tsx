@@ -76,8 +76,14 @@ export const CallOverlay: React.FC = () => {
   }, [activeCall?.callId]);
 
   useEffect(() => {
-    const shouldRing = activeCall?.direction === 'outgoing' && activeCall.status === 'RINGING';
-    if (shouldRing) void ringbackTone.start(); else ringbackTone.stop();
+    // Both sides of a ringing call get audio. Only the caller did before, so an incoming call
+    // arrived in complete silence whenever the app was already open (the FCM notification's own
+    // sound only covers the backgrounded case) -- the single most reported "arama sesi gelmiyor"
+    // symptom. The callee's ring is loud because it has to be noticed; the caller's ringback is
+    // background confirmation and stays quiet.
+    const ringing = activeCall?.status === 'RINGING';
+    if (ringing) void ringbackTone.start(activeCall.direction === 'incoming' ? 0.85 : 0.22);
+    else ringbackTone.stop();
     return () => ringbackTone.stop();
   }, [activeCall?.direction, activeCall?.status]);
 

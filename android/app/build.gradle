@@ -14,8 +14,8 @@ android {
         applicationId "com.appryvo.ryvo"
         minSdk 24
         targetSdk 36
-        versionCode 13
-        versionName "3.0.3"
+        versionCode 27
+        versionName "3.4.7"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

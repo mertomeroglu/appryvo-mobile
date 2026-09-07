@@ -18,6 +18,7 @@ import { BottomSheet } from '../../components/ui/BottomSheet';
 import { AppButton } from '../../components/ui/AppButton';
 import { FollowButton } from '../../components/FollowButton';
 import { createAudioRecorder, recorderBlob, stopMediaStream } from '../../services/media/audioRecorder';
+import { randomUuid } from '../../lib/utils';
 
 // Ryvo Community Rooms V3: text-only forever -- no live voice/video room UI here any more (the
 // old mesh-WebRTC room-call service was deleted outright). Voice is a recorded MESSAGE,
@@ -152,7 +153,11 @@ export const RoomScreen: React.FC = () => {
     return () => { active = false; offM(); offR(); socketService.unsubscribeRoom(roomId); };
   }, [roomId]);
 
-  useEffect(() => bottom.current?.scrollIntoView({ behavior: 'smooth' }), [messages.length]);
+  // The braces matter. On current Chromium, scrollIntoView({ behavior: 'smooth' }) returns a
+  // Promise, so an expression-bodied arrow hands React that Promise as the effect cleanup. React
+  // calls the cleanup when the subtree is deleted -- which is exactly what leaving a room does --
+  // and crashed the whole route with "is not a function".
+  useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
 
   useEffect(() => () => {
     recordingMountedRef.current = false;
@@ -235,7 +240,7 @@ export const RoomScreen: React.FC = () => {
       }
       return;
     }
-    const clientMessageId = crypto.randomUUID();
+    const clientMessageId = randomUuid();
     setText('');
     socketService.emit('room:message:send', { roomId, text: body, clientMessageId, replyToMessageId: reply?.id || null }, (r: any) => {
       if (r.status !== 'success') setError(r.code);
@@ -254,7 +259,16 @@ export const RoomScreen: React.FC = () => {
     lastTap.current[m.id] = now;
   };
   const leave = async () => {
-    if (roomId) await communityRoomsService.leave(roomId);
+    if (!roomId) { navigate('/map', { replace: true }); return; }
+    try {
+      await communityRoomsService.leave(roomId);
+    } catch (e: any) {
+      // Staying put is the honest outcome -- navigating away would tell the user they left a room
+      // the server still counts them in.
+      setShowMenu(false);
+      setError(e?.response?.data?.code || e?.message || 'Error');
+      return;
+    }
     navigate('/map', { replace: true });
   };
 
@@ -365,7 +379,7 @@ export const RoomScreen: React.FC = () => {
       <BottomSheet isOpen={showMenu} onClose={() => setShowMenu(false)}>
         <div className="space-y-3 px-5 pb-6">
           <h2 className="text-heading">{room.title}</h2>
-          <AppButton fullWidth variant="secondary" onClick={() => communityRoomsService.report(room.id, { targetType: 'ROOM', reason: 'OTHER' }).then(() => setShowMenu(false))}>{roomsText(locale, 'report')}</AppButton>
+          <AppButton fullWidth variant="secondary" onClick={() => communityRoomsService.report(room.id, { targetType: 'ROOM', reason: 'OTHER' }).then(() => setShowMenu(false)).catch((e: any) => { setShowMenu(false); setError(e?.response?.data?.code || e?.message || 'Error'); })}>{roomsText(locale, 'report')}</AppButton>
           <AppButton fullWidth variant="danger" onClick={leave}>{roomsText(locale, 'leave')}</AppButton>
         </div>
       </BottomSheet>

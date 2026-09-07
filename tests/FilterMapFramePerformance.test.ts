@@ -43,7 +43,9 @@ describe('filter, map, and frame performance contracts', () => {
     expect(markerSizeForZoom(20, true)).toBe(58);
 
     const map = mobileSource('features/map/SocialMapScreen.tsx');
-    expect(map).toContain('useDiscoveryMapQuery(bbox, 150)');
+    // Still the same 150-marker ceiling this test exists to pin; the third argument is the
+    // saved gender filter, which only participates in the query key (it is read server-side).
+    expect(map).toContain('useDiscoveryMapQuery(bbox, 150, genderFilter)');
     expect(map).toContain('if (map2.getZoom() < MAX_ZOOM) {');
     expect(map).toContain('getProfileFramePreviewAsset(frame)');
   });

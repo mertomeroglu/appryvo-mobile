@@ -84,9 +84,18 @@ export const SafetyReportModal: React.FC<SafetyReportModalProps> = ({
         }
         await apiClient.delete('/api/account', { password });
       }
+      const accountDeleted = type === 'delete_account';
       setIsSuccess(true);
-      setTimeout(() => {
+      setTimeout(async () => {
         setIsSuccess(false);
+        // A successful deletion has to tear the local session down as well. The server has
+        // already banned the account and dropped its refresh tokens, but the auth store still
+        // reported isAuthenticated === true and secure storage still held the access token, so
+        // SessionGate bounced the user from /auth straight back to /map -- the app behaved
+        // exactly as if the deletion had never happened.
+        if (accountDeleted) {
+          await useAuthStore.getState().logout().catch(() => {});
+        }
         onClose();
         onSuccess?.();
       }, 1500);

@@ -18,7 +18,7 @@ export interface RegistrationPhotoUploadResult extends UploadMediaResult {
   data: UploadMediaResult['data'] & { uploadToken: string };
 }
 
-export type MediaUploadCategory = 'profile' | 'chat' | 'social' | 'voice' | 'verification';
+export type MediaUploadCategory = 'profile' | 'chat' | 'social' | 'voice' | 'verification' | 'room_cover';
 
 // A "photo" shows up in three different shapes across the API depending on the endpoint:
 //   - a plain URL string (discovery feed / full profile / matches: server already flattens

@@ -33,7 +33,11 @@ describe('RYVO PATCH V4 / PROMPT 02: map/geo/search', () => {
     // zoom into full street-level POI/label density, which the user flagged as too busy. Now a
     // named constant instead of a repeated literal, and also caps supercluster's own maxZoom so
     // expansion-zoom clicks can never overshoot the map's own ceiling.
-    expect(screen).toMatch(/const MIN_ZOOM = 3;/);
+    // MIN_ZOOM went 3 -> 2 after users reported not finding each other: the server applies no
+    // distance limit to the map at all (its query filters by viewport and nothing else), so this
+    // floor was the only thing making a far-away user unreachable -- 3 capped the widest view at
+    // about 6,100 km, not enough to fit Türkiye and India on one screen.
+    expect(screen).toMatch(/const MIN_ZOOM = 2;/);
     expect(screen).toMatch(/const MAX_ZOOM = 15;/);
     expect(screen).toMatch(/minZoom: MIN_ZOOM,\s*\n\s*maxZoom: MAX_ZOOM,/);
     expect(screen).toMatch(/maxZoom: MAX_ZOOM,\s*\r?\n\s*\}\);\s*\r?\n\s*index\.load\(points\);/);

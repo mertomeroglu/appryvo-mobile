@@ -24,7 +24,7 @@ function initialsFrom(name?: string) {
 
 const LikeCardImage: React.FC<{ src?: string; name?: string; blurred: boolean }> = ({ src, name, blurred }) => {
   const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
+  useEffect(() => { setFailed(false); }, [src]);
 
   if (!src || failed) {
     return (

@@ -71,6 +71,14 @@
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-5522488293762480~4542877638" />
+
+        <!-- Channel the FCM SDK posts to when a message names no channel, or names one that does
+             not exist on the device. Without it a push that arrives while the app is killed has
+             nowhere to land on Android 8+ and the system drops it silently. The id must match
+             PUSH_CHANNEL_ID in src/native/push.ts and the channelId the server sends. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="default" />
     </application>
 
 </manifest>

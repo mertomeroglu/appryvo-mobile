@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useEffect } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { AppShell } from '../app/AppShell';
 import { SessionGate } from '../app/SessionGate';
+import { RouteErrorScreen } from '../app/RouteErrorScreen';
 import { loadOwnProfileScreen } from './routePreload';
 import { measureProfileMilestone } from '../services/performance/profilePerformance';
 import { translateSync } from '../i18n/appLocale';
@@ -58,6 +59,7 @@ const ProfileRouteFallback: React.FC = () => {
 const router = createBrowserRouter([
   {
     path: '/',
+    errorElement: <RouteErrorScreen />,
     element: <AppShell />,
     children: [
       {

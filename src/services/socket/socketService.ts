@@ -252,6 +252,11 @@ export class SocketService {
     this.emit('message:reaction', { matchId, messageId, reaction });
   }
 
+  /** True only while the authenticated realtime transport is actually connected. */
+  public isConnected(): boolean {
+    return this.socket?.connected === true;
+  }
+
   public subscribeRoom(roomId:string){this.communityRooms.add(roomId);this.emit('room:subscribe',{roomId});}
   public unsubscribeRoom(roomId:string){this.communityRooms.delete(roomId);this.emit('room:unsubscribe',{roomId});}
 

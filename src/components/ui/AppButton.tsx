@@ -7,7 +7,9 @@ import { PRESS_SCALE, SPRING } from '../../motion/tokens';
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
-export interface AppButtonProps extends Omit<HTMLMotionProps<'button'>, 'ref'> {
+export interface AppButtonProps extends Omit<HTMLMotionProps<'button'>, 'ref' | 'children'> {
+  // motion widens children to ReactNode | MotionValue; this button only ever renders nodes.
+  children?: React.ReactNode;
   variant?: ButtonVariant;
   size?: ButtonSize;
   fullWidth?: boolean;

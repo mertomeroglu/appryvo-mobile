@@ -33,6 +33,7 @@
     --color-aqua: #25D9D0;
     --color-gold: #F5B942;
     --color-success: #32D583;
+    --color-presence-offline: #4B5563;
     --color-error: #FF4B55;
 
     --brand-gradient: linear-gradient(135deg, #FF4D8D 0%, #8B5CF6 50%, #536DFE 100%);
@@ -184,6 +185,18 @@
   }
   .border-app {
     border-color: var(--color-border);
+  }
+  /* Semantic colors are runtime theme tokens, so Tailwind v4 does not generate utilities for
+     them automatically. Keep the small public utility surface explicit; otherwise classes such
+     as `bg-success` silently disappear from the production CSS. */
+  .border-surface {
+    border-color: var(--color-surface);
+  }
+  .bg-success {
+    background-color: var(--color-success);
+  }
+  .bg-presence-offline {
+    background-color: var(--color-presence-offline);
   }
   
   .bg-brand-gradient {

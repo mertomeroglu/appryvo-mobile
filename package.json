@@ -1,17 +1,17 @@
 {
   "name": "mobile-capacitor",
   "private": true,
-  "version": "3.0.3",
+  "version": "3.4.7",
   "type": "module",
   "scripts": {
     "postinstall": "patch-package",
     "predev": "node scripts/copy-maplibre-worker-assets.mjs",
     "dev": "vite",
     "prebuild": "node scripts/copy-maplibre-worker-assets.mjs",
-    "build": "tsc && vite build",
+    "build": "tsc -b --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b --noEmit",
     "sync:icon": "powershell -ExecutionPolicy Bypass -File scripts/sync-android-icon.ps1",
     "test": "vitest run"
   },

@@ -45,7 +45,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories, startIndex, s
   const [viewersOpen, setViewersOpen] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number | undefined>(undefined);
   const lastTickRef = useRef(performance.now());
   const pendingReplyRef = useRef<{ storyId: string; text: string; clientMessageId: string } | null>(null);
 
@@ -327,7 +327,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories, startIndex, s
         <div className="fixed inset-0 z-modal flex items-end">
           <button
             type="button"
-            aria-label={t('close')}
+            aria-label={t('closeAriaLabel')}
             className="absolute inset-0 bg-black/60"
             onClick={() => setViewersOpen(false)}
           />

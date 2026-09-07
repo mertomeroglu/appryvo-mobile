@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion, type HTMLMotionProps } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import { PRESS_SCALE, SPRING } from '../../motion/tokens';
 
@@ -26,7 +26,10 @@ export const Chip: React.FC<ChipProps> = ({ tone = 'neutral', className, childre
   </span>
 );
 
-export interface FilterChipProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+// Built on motion.button, so the props must be motion's -- the plain HTML button attribute set
+// disagrees with it on the animation-capable event handlers.
+export interface FilterChipProps extends Omit<HTMLMotionProps<'button'>, 'ref' | 'children'> {
+  children?: React.ReactNode;
   selected?: boolean;
 }
 

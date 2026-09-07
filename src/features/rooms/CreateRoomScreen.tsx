@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, MapPin } from 'lucide-react';
+import { ArrowLeft, MapPin, ImagePlus, X } from 'lucide-react';
 import { communityRoomsService, type RoomCategory } from '../../services/rooms/communityRoomsService';
 import { searchCities, type GeoCityResult } from '../../services/geo/cityService';
-import { useAppTranslation } from '../../i18n/appLocale';
+import { APP_LOCALE_OPTIONS, useAppTranslation } from '../../i18n/appLocale';
 import { roomsText } from './roomsLocale';
 import { AppButton } from '../../components/ui/AppButton';
+import { nativeCamera, CameraError } from '../../native/camera';
+import { mediaService, normalizeMediaUrl } from '../../services/media/mediaService';
+import { randomUuid } from '../../lib/utils';
 
 // V3: rooms are always TEXT (no live voice/video room type picker any more).
 const CATEGORIES: RoomCategory[] = ['GENERAL', 'TRAVEL', 'FOOD_CAFE', 'MUSIC', 'MOVIES', 'GAMING', 'TECHNOLOGY', 'LOCAL', 'LANGUAGE', 'OTHER'];
@@ -29,21 +32,45 @@ export const CreateRoomScreen: React.FC = () => {
   const [max, setMax] = useState(100);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => randomUuid());
   const [creationCost, setCreationCost] = useState(100);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [coverUploading, setCoverUploading] = useState(false);
 
   useEffect(() => {
     communityRoomsService.config().then((config) => setCreationCost(config.creationCostCoins)).catch((error) => console.warn('[COMMUNITY ROOM] config load failed', error));
   }, []);
 
+  // The cover is uploaded before the room exists, so it is stored as a plain media URL and only
+  // attached when the room row is inserted. Cancelling the picker is a normal outcome, not an
+  // error worth showing.
+  const pickCover = async () => {
+    if (coverUploading) return;
+    try {
+      const uri = await nativeCamera.choosePhoto();
+      if (!uri) return;
+      setCoverUploading(true);
+      setError('');
+      const blob = await fetch(uri).then((r) => r.blob());
+      const uploaded = await mediaService.uploadMedia(blob, 'room_cover');
+      if (uploaded?.data?.url) setCoverUrl(uploaded.data.url);
+    } catch (e: any) {
+      if (e instanceof CameraError && e.code === 'USER_CANCELLED') return;
+      setError(e?.code || e?.message || 'Error');
+    } finally {
+      setCoverUploading(false);
+    }
+  };
+
   const submit = async () => {
-    const cityId = city?.id || Number(sp.get('cityId'));
+    // city.id is typed string | number (the geo API returns either); the create call needs a number.
+    const cityId = Number(city?.id ?? sp.get('cityId'));
     if (!cityId) { setError(roomsText(locale, 'city')); return; }
     setLoading(true);
     setError('');
     try {
-      const room = await communityRoomsService.create({ title, topic, category, language, cityId, maxParticipants: max, idempotencyKey });
-      setIdempotencyKey(crypto.randomUUID());
+      const room = await communityRoomsService.create({ title, topic, category, language, cityId, maxParticipants: max, idempotencyKey, coverUrl });
+      setIdempotencyKey(randomUuid());
       navigate(`/rooms/${room.id}`, { replace: true });
     } catch (e: any) {
       setError(e?.code || e?.message || 'Error');
@@ -63,6 +90,30 @@ export const CreateRoomScreen: React.FC = () => {
           <MapPin className="me-2 inline h-4 w-4 text-pink-500" />{roomsText(locale, 'createHint')}
         </p>
         <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-caption font-bold text-amber-600">{creationCost} Ryvo Coin</p>
+        <div>
+          <span className="text-caption font-bold">{roomsText(locale, 'coverPhoto')}</span>
+          {coverUrl ? (
+            <div className="relative mt-2 overflow-hidden rounded-2xl border border-app">
+              <img src={normalizeMediaUrl(coverUrl)} alt="" className="h-36 w-full object-cover" />
+              <button
+                onClick={() => setCoverUrl(null)}
+                aria-label={roomsText(locale, 'removeCover')}
+                className="absolute end-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={pickCover}
+              disabled={coverUploading}
+              className="mt-2 flex h-36 w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-app bg-surface text-caption font-bold text-app-muted disabled:opacity-60"
+            >
+              <ImagePlus className="h-6 w-6" />
+              {coverUploading ? '…' : roomsText(locale, 'coverPhoto')}
+            </button>
+          )}
+        </div>
         <label className="block text-caption font-bold">
           {roomsText(locale, 'title')}
           <input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-app bg-surface px-4" />
@@ -88,7 +139,11 @@ export const CreateRoomScreen: React.FC = () => {
         <label className="block text-caption font-bold">
           {roomsText(locale, 'language')}
           <select value={language} onChange={(e) => setLanguage(e.target.value as any)} className="mt-2 h-12 w-full rounded-2xl border border-app bg-surface px-4">
-            {['tr', 'en', 'es', 'fr', 'pt', 'ru', 'ar', 'hi', 'zh'].map((v) => <option key={v}>{v}</option>)}
+            {/* The code is what the server stores; a person picking a room's language should be
+                reading "Türkçe", not "tr". */}
+            {APP_LOCALE_OPTIONS.map((option) => (
+              <option key={option.code} value={option.code}>{option.nativeName}</option>
+            ))}
           </select>
         </label>
         <label className="block text-caption font-bold">

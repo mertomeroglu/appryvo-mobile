@@ -18,7 +18,35 @@ import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 export type NotificationTapEvent = NotificationActionPerformedEvent;
 export type NotificationReceivedPayload = FirebaseMessagingNotification;
 
+// Must match the channelId the server sets on every push (fcm_service.js:
+// android.notification.channelId). From Android 8 (API 26) on, a notification addressed to a
+// channel that does not exist is dropped by the system without any error reaching the app or
+// FCM -- which looked exactly like "push works in-app but never reaches the tray": the message
+// arrived and our JS handler ran, but Android refused to post the tray notification.
+export const PUSH_CHANNEL_ID = 'default';
+
 let listenerHandles: PluginListenerHandle[] = [];
+
+// Safe to call repeatedly: creating a channel that already exists is a no-op on Android, and
+// the plugin is a no-op on iOS (which has no channels).
+async function ensureAndroidChannel() {
+  if (Capacitor.getPlatform() !== 'android') return;
+  try {
+    await FirebaseMessaging.createChannel({
+      id: PUSH_CHANNEL_ID,
+      // The app posts everything to this single channel, so the name has nothing to
+      // disambiguate it from and a description would add nothing -- keeping it to the brand
+      // name also keeps an untranslatable string out of Android's settings UI.
+      name: 'Ryvo',
+      importance: 4,
+      visibility: 1,
+      lights: true,
+      vibration: true,
+    });
+  } catch (error) {
+    console.warn('[PUSH] notification channel could not be created', error);
+  }
+}
 
 async function removeManagedListeners() {
   const handles = listenerHandles;
@@ -59,6 +87,10 @@ export const nativePush = {
           onNotificationReceived(event.notification);
         }));
       }
+
+      // Before the first push can arrive, not lazily on receipt: a push that lands while the
+      // app is backgrounded is posted by the OS with no chance for us to create it first.
+      await ensureAndroidChannel();
 
       let perm = await FirebaseMessaging.checkPermissions();
       if (perm.receive !== 'granted') {

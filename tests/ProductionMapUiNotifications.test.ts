@@ -89,8 +89,21 @@ describe('production map, header, avatar, and local re-engagement fixes', () => 
     expect(avatar).toContain('isolate overflow-visible');
     expect(avatar).toContain('data-avatar-clip="circular"');
     expect(avatar).toContain('data-avatar-badge="online"');
+    expect(avatar).toContain("typeof online === 'boolean'");
+    expect(avatar).toContain("online ? 'bg-success' : 'bg-presence-offline'");
+    expect(avatar).toContain('h-[13%]');
+    expect(avatar).toContain('left-[16%] top-[86%]');
+    expect(avatar).toContain('left-[87%] top-[86%]');
+    expect(avatar).toContain("style={{ width: '16%', height: '16%' }}");
     expect(avatar).toContain('data-avatar-badge="verified"');
     expect(avatar).toContain('data-avatar-badge="country"');
+  });
+
+  it('ships semantic presence and badge colors in production CSS', () => {
+    const css = source('styles/globals.css');
+    expect(css).toContain('.bg-success');
+    expect(css).toContain('.bg-presence-offline');
+    expect(css).toContain('.border-surface');
   });
 
   it('schedules one stable generic reminder about 48h after backgrounding', async () => {

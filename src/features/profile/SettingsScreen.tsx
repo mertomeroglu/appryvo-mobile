@@ -343,7 +343,7 @@ export const SettingsScreen: React.FC = () => {
         isOpen={isDeleteOpen}
         onClose={() => setIsDeleteOpen(false)}
         type="delete_account"
-        onSuccess={() => navigate('/auth')}
+        onSuccess={() => navigate('/auth', { replace: true })}
       />
 
       <LegalModal document={legalDoc} onClose={() => setLegalDoc(null)} />

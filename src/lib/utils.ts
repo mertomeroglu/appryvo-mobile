@@ -21,3 +21,16 @@ const twMerge = extendTailwindMerge({
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+// crypto.randomUUID needs Chrome/WebView 92+, but the build target only requires 87, and minSdk 24
+// means some devices still run an Android System WebView old enough to fall in that gap. Calling it
+// unguarded there throws -- and where the call sits in a render path (a useState initializer, say)
+// the throw takes the whole route down rather than failing one action. callService and
+// GiftShopSheet each carry their own guard already; this is the shared one for everywhere else.
+export function randomUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16);
+    return (char === 'x' ? value : (value & 0x3) | 0x8).toString(16);
+  });
+}

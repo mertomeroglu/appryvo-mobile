@@ -125,9 +125,12 @@ export async function refreshTokenFlow(): Promise<boolean> {
   }
 }
 
-export interface RequestOptions extends RequestInit {
+export interface RequestOptions extends Omit<RequestInit, 'body'> {
   timeoutMs?: number;
   skipAuth?: boolean;
+  // Callers pass plain objects and customFetch JSON-encodes them below; RequestInit's BodyInit
+  // described only the raw fetch shapes, so every JSON call site was a type error.
+  body?: BodyInit | Record<string, unknown> | null;
 }
 
 export async function customFetch(path: string, options: RequestOptions = {}): Promise<any> {

@@ -30,10 +30,12 @@ export function normalizePublicTier(value: unknown): SubscriptionTier | 'FREE' {
  * PASSPORT_LABELS[locale] instead, since the Passport feature's display name is itself already
  * a full per-locale label map (see appLocale.ts). */
 export const PUBLIC_PLAN_FEATURES: Record<SubscriptionTier, readonly (AppMessageKey | 'Passport')[]> = {
+  // Swipe-era entitlements (unlimited likes, rewind, "see who likes you", priority likes) are
+  // deliberately absent: none of them exist in question-based matching. What a subscription
+  // actually lifts now is the FREE tier's 10 new question interactions per rolling 24h.
   PLUS: [
-    'planFeaturePlusUnlimitedLikes',
+    'planFeatureUnlimitedQuestionAnswers',
     'planFeaturePlusAdFree',
-    'planFeaturePlusUnlimitedRewind',
     'filterAdvancedFiltersLabel',
     'Passport',
     'planFeaturePlusSuperLike',
@@ -41,8 +43,8 @@ export const PUBLIC_PLAN_FEATURES: Record<SubscriptionTier, readonly (AppMessage
   ],
   GOLD: [
     'planFeatureGoldAllPlusFeatures',
-    'planFeatureGoldSeeLikesInstantly',
-    'planFeatureGoldPriorityRanking',
+    'planFeatureUnlimitedQuestionAnswers',
+    'planFeatureGoldPriorityMeeting',
     'planFeatureGoldSuperLike',
     'planFeatureGoldBoost',
     'planFeatureGoldIncognito',

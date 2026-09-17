@@ -2,33 +2,32 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   Bell,
   Camera,
+  CheckCircle2,
   CloudOff,
   Crosshair,
-  Heart,
-  Loader2,
+  HelpCircle,
   LocateFixed,
+  Loader2,
   MapPin,
   MapPinOff,
-  RotateCcw,
   SearchX,
   SlidersHorizontal,
-  Star,
+  Sparkles,
   TriangleAlert,
-  X,
-  Zap,
+  User,
 } from 'lucide-react';
+import { useInAppNotificationsQuery } from '../../hooks/useQueries';
 import {
-  useDiscoveryFeedQuery,
-  useEntitlementsQuery,
-  useInAppNotificationsQuery,
-  useLikeMutation,
-  usePassMutation,
-} from '../../hooks/useQueries';
-import { normalizeMediaUrl } from '../../services/media/mediaService';
-import { MatchModal } from '../../components/MatchModal';
+  useDiscoveryPassMutation,
+  useDiscoveryV2FeedQuery,
+  type DiscoveryV2Candidate,
+  type InteractionStatus,
+} from '../../hooks/useQuestionQueries';
+import { getPhotoUrl, normalizeMediaUrl } from '../../services/media/mediaService';
 import { FilterBottomSheet } from '../../components/FilterBottomSheet';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
@@ -36,23 +35,21 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { IconButton } from '../../components/ui/IconButton';
 import { AppButton } from '../../components/ui/AppButton';
 import { AppLogo } from '../../components/ui/AppLogo';
-import { BottomSheet } from '../../components/ui/BottomSheet';
-import { RewardedAdSheet } from '../../components/RewardedAdSheet';
+import { VerifiedBadge } from '../../components/ui/Badge';
 import { useAppTranslation } from '../../i18n/appLocale';
+import { getLocalizedInterestLabel } from '../../lib/interestLabels';
 import { nativeHaptics } from '../../native/haptics';
 import { acquireBestLocation } from '../../services/geo/locationQuality';
 import { nativeApp } from '../../native/app';
 import { nativeAppSettings } from '../../native/nativeSettings';
-import { nativeNetwork } from '../../native/network';
 import { apiClient } from '../../services/api/apiClient';
-import {
-  enqueueDiscoveryAction,
-  flushDiscoveryActions,
-  isRetryableDiscoveryError,
-} from '../../services/discovery/discoveryActionQueue';
 import { toast } from '../../stores/useToastStore';
-import { SwipeCard, type SwipeCardHandle, type SwipeCardProfile, type SwipeDirection } from './SwipeCard';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { SPRING, PRESS_SCALE } from '../../motion/tokens';
+import { cn } from '../../lib/utils';
+import { QuestionAnswerSheet, type QuestionSheetOutcome } from '../questions/QuestionAnswerSheet';
+import { QuestionsRequiredGate } from '../questions/QuestionsRequiredGate';
+import { useQuestionText, type QuestionTextKey } from '../questions/questionLocale';
 
 const PAGE_LIMIT = 20;
 const PREFETCH_THRESHOLD = 3;
@@ -73,30 +70,36 @@ function isLocationServicesDisabled(error: unknown): boolean {
   return text.includes('0007') || text.includes('location services') || text.includes('location disabled');
 }
 
-// Module-level (not per-mount) so a remount doesn't forget which profiles were already swiped
+// Module-level (not per-mount) so a remount doesn't forget which profiles were already handled
 // this session. /discover and /discover/:userId are sibling routes (see routes/index.tsx), so
-// opening a full profile or the chat from a fresh match and navigating back unmounts and
-// remounts DiscoverScreen -- a per-mount useRef reset to empty here, while
-// useDiscoveryFeedQuery's first page keeps returning its cached (staleTime 60s) response under
-// the same query key (feedSession always restarts at 0). Without a session-lived dedup set, an
-// already-swiped -- possibly just matched -- profile could silently reappear in the deck.
+// opening a full profile and navigating back unmounts and remounts DiscoverScreen -- a per-mount
+// useRef reset to empty here, while useDiscoveryV2FeedQuery's first page keeps returning its
+// cached (staleTime 60s) response under the same query key (feedSession always restarts at 0).
 // handleReset (explicit rescan) and a location change both intentionally clear this for a truly
 // fresh session.
 const consumedProfileIds = new Set<string>();
 
+/** Interaction states that replace the "answer" action with a read-only status line. */
+const PENDING_STATUS_KEYS: Partial<Record<InteractionStatus, QuestionTextKey>> = {
+  QUESTION_PRESENTED: 'statusAwaiting',
+  OWNER_PENDING: 'statusAwaiting',
+  SUPERLIKE_PENDING: 'statusSuperlikeSent',
+  RETRY_REQUESTED: 'statusRetryRequested',
+  MATCHED: 'statusMatched',
+};
+
 export const DiscoverScreen: React.FC = () => {
   const { t } = useAppTranslation();
-  const [deck, setDeck] = useState<SwipeCardProfile[]>([]);
+  const { qt } = useQuestionText();
+  const [deck, setDeck] = useState<DiscoveryV2Candidate[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [cursor, setCursor] = useState<string | null>(null);
   const [feedSession, setFeedSession] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [exitingCards, setExitingCards] = useState<SwipeCardProfile[]>([]);
-  const [lastSwiped, setLastSwiped] = useState<{ profile: SwipeCardProfile; direction: SwipeDirection } | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [isSuperLikeQuotaOpen, setIsSuperLikeQuotaOpen] = useState(false);
-  const [isRewardedAdOpen, setIsRewardedAdOpen] = useState(false);
+  const [answerTarget, setAnswerTarget] = useState<DiscoveryV2Candidate | null>(null);
+  const [passingId, setPassingId] = useState<string | null>(null);
   // Never call Geolocation.checkPermissions() just to decide the initial gate -- that's still a
   // native location API call the user hasn't asked for. Read only the locally-remembered outcome
   // of a *previous* explicit grant; anything else (never asked, previously chose global) starts
@@ -111,9 +114,6 @@ export const DiscoverScreen: React.FC = () => {
   // opening Discover must never surface anything that looks like an automatic location prompt.
   // Tapping the pill is the explicit user action that reveals the Grant/Global choice.
   const [locationPromptDismissed, setLocationPromptDismissed] = useState(true);
-  const [matchResult, setMatchResult] = useState<{ isOpen: boolean; matchUser?: any; matchId?: string }>({
-    isOpen: false,
-  });
 
   const navigate = useNavigate();
   const {
@@ -123,39 +123,14 @@ export const DiscoverScreen: React.FC = () => {
     isFetching,
     isError,
     refetch,
-  } = useDiscoveryFeedQuery(cursor, PAGE_LIMIT, feedSession);
+  } = useDiscoveryV2FeedQuery(cursor, PAGE_LIMIT, feedSession);
   const { data: notificationsData } = useInAppNotificationsQuery();
-  const { data: entitlements } = useEntitlementsQuery();
-  const likeMutation = useLikeMutation();
-  const passMutation = usePassMutation();
-  const topCardRef = useRef<SwipeCardHandle>(null);
-  const actionLockRef = useRef(false);
+  const passMutation = useDiscoveryPassMutation();
   const locationRequestInFlightRef = useRef(false);
   const retryLocationOnResumeRef = useRef(false);
+  const sheetOutcomeRef = useRef<QuestionSheetOutcome | null>(null);
   const unreadNotificationCount = notificationsData?.unreadCount || 0;
   const currentUser = useAuthStore((state) => state.user);
-  const viewerId = String(currentUser?.id || currentUser?.uid || '');
-
-  useEffect(() => {
-    if (!viewerId) return;
-    let disposed = false;
-    let removeListener: (() => void) | undefined;
-    const flushIfOnline = async () => {
-      const status = await nativeNetwork.getStatus();
-      if (status.connected) await flushDiscoveryActions(viewerId);
-    };
-    flushIfOnline().catch(() => {});
-    nativeNetwork.addStatusListener((status) => {
-      if (status.connected) flushDiscoveryActions(viewerId).catch(() => {});
-    }).then((handle) => {
-      if (disposed) handle.remove();
-      else removeListener = () => handle.remove();
-    }).catch(() => {});
-    return () => {
-      disposed = true;
-      removeListener?.();
-    };
-  }, [viewerId]);
 
   const continueWithGlobalDiscovery = useCallback(() => {
     localStorage.setItem(DISCOVER_LOCATION_KEY, 'global');
@@ -267,8 +242,8 @@ export const DiscoverScreen: React.FC = () => {
   // closed-over values change (e.g. refetch, t), and depending on it directly would re-run a
   // "register once" effect on every one of those renders instead of once per screen visit.
   // Deliberately NOT invoked on mount: opening Discover must never touch Geolocation on its own
-  // (App Store privacy requirement -- map/discover location is opt-in only). The deck above
-  // already renders the ordinary (global) feed with no location involved.
+  // (App Store privacy requirement -- map/discover location is opt-in only). The feed above
+  // already renders the ordinary (global) list with no location involved.
   const resolveDiscoverLocationRef = useRef(resolveDiscoverLocation);
   useEffect(() => {
     resolveDiscoverLocationRef.current = resolveDiscoverLocation;
@@ -310,22 +285,20 @@ export const DiscoverScreen: React.FC = () => {
     };
   }, []);
 
-  // Append newly-fetched pages to the local deck in the order the server returned them.
+  // Append newly-fetched pages in the order the server returned them.
   // Never re-sort/filter locally — the server owns ranking.
   useEffect(() => {
     if (!feedPage) return;
     setDeck((prev) => {
       const seen = new Set(prev.map((p) => p.id));
-      const additions = feedPage.profiles.filter(
-        (p: SwipeCardProfile) => !seen.has(p.id) && !consumedProfileIds.has(p.id)
-      );
+      const additions = feedPage.profiles.filter((p) => !seen.has(p.id) && !consumedProfileIds.has(p.id));
       return [...prev, ...additions];
     });
     setHasMore(feedPage.paging.hasMore);
     setNextCursor(feedPage.paging.nextCursor);
   }, [feedPage]);
 
-  // Prefetch the next page as the deck runs low, instead of refetching on every swipe.
+  // Prefetch the next page as the list runs low, instead of refetching after every profile.
   useEffect(() => {
     if (!hasMore || !nextCursor || isFetching || cursor === nextCursor) return;
     if (deck.length - currentIndex <= PREFETCH_THRESHOLD) {
@@ -333,129 +306,53 @@ export const DiscoverScreen: React.FC = () => {
     }
   }, [currentIndex, deck.length, hasMore, isFetching, cursor, nextCursor]);
 
-  const visibleCards = useMemo(() => deck.slice(currentIndex, currentIndex + 2), [deck, currentIndex]);
-  const currentProfile = visibleCards[0];
-  const renderedCards = useMemo(() => {
-    const visibleInPaintOrder = [...visibleCards].reverse();
-    const visibleIds = new Set(visibleInPaintOrder.map((profile) => profile.id));
-    return [...visibleInPaintOrder, ...exitingCards.filter((profile) => !visibleIds.has(profile.id))];
-  }, [visibleCards, exitingCards]);
+  const visibleProfiles = useMemo(() => deck.slice(currentIndex, currentIndex + 2), [deck, currentIndex]);
+  const currentProfile = visibleProfiles[0];
 
-  // Bound long-session memory: consumed profiles no longer need to stay in the React deck.
-  // Pruning in batches avoids reallocating the array on every swipe.
+  // Bound long-session memory: consumed profiles no longer need to stay in the React list.
   useEffect(() => {
     if (currentIndex < 10) return;
     setDeck((current) => current.slice(currentIndex));
     setCurrentIndex(0);
   }, [currentIndex]);
 
-  // Warm the browser cache for the next card's first photo only -- so the card behind the
-  // current one never shows a blank frame mid-swipe, without preloading the whole deck.
+  // Warm the browser cache for the next profile's first photo only.
   useEffect(() => {
-    const nextProfile = visibleCards[1];
-    const nextPhoto = Array.isArray(nextProfile?.photos)
-      ? (nextProfile.photos[0] as any)?.url || nextProfile.photos[0]
-      : nextProfile?.photoUrl;
+    const nextPhoto = getPhotoUrl(visibleProfiles[1]?.photos?.[0]) || visibleProfiles[1]?.photoUrl;
     if (!nextPhoto) return;
     const img = new Image();
     img.src = normalizeMediaUrl(nextPhoto);
-  }, [visibleCards]);
+  }, [visibleProfiles]);
 
-  const handleSwiped = async (direction: SwipeDirection, profile: SwipeCardProfile) => {
-    nativeHaptics.impact();
-    // Commit immediately, then keep this same keyed card in renderedCards as a non-interactive
-    // exit layer. The next profile becomes top/interactive without a stale zero-position remount.
-    consumedProfileIds.add(profile.id);
-    setExitingCards((current) => (
-      current.some((item) => item.id === profile.id) ? current : [...current, profile].slice(-1)
-    ));
-    setCurrentIndex((i) => i + 1);
-    setLastSwiped({ profile, direction });
-    window.setTimeout(() => handleExitComplete(profile.id), 1200);
+  const advance = useCallback((profileId: string) => {
+    consumedProfileIds.add(profileId);
+    setCurrentIndex((index) => index + 1);
+  }, []);
 
-    if (direction === 'right' || direction === 'up') {
-      try {
-        const res: any = await likeMutation.mutateAsync({
-          targetUserId: profile.id,
-          isSuperLike: direction === 'up',
-        });
-        // The backend returns { status, isMatch, matchId } directly (no `data` wrapper, no
-        // `matchUser` -- it never had one to send), so build the match-modal profile locally.
-        if (res?.isMatch) {
-          setMatchResult({
-            isOpen: true,
-            matchUser: profile,
-            matchId: res.matchId,
-          });
-        }
-      } catch (err: any) {
-        console.error('[LIKE ERROR]', err);
-        // The card has already visually flown off by this point (intentional -- see the
-        // comment above) so a failed request needs an explicit toast, otherwise a rejected
-        // Super Like (e.g. out of credits) silently does nothing and the user never finds out.
-        if (isRetryableDiscoveryError(err) && viewerId) {
-          enqueueDiscoveryAction({ viewerId, targetUserId: profile.id, direction, createdAt: Date.now() });
-          toast.show(t('discoveryQueuedOfflineToast'), 'neutral');
-        } else if (direction === 'up' && err?.code === 'SUPERLIKE_QUOTA_EXHAUSTED') {
-          setIsSuperLikeQuotaOpen(true);
-        } else if (err?.code === 'LIKE_QUOTA_EXHAUSTED' && err?.rawDetails?.canWatchAdForLike) {
-          setIsRewardedAdOpen(true);
-        } else {
-          toast.error(err?.message || t('discoveryActionFailedToast'));
-        }
-      }
-    } else {
-      try {
-        await passMutation.mutateAsync(profile.id);
-      } catch (err: any) {
-        console.error('[PASS ERROR]', err);
-        if (isRetryableDiscoveryError(err) && viewerId) {
-          enqueueDiscoveryAction({ viewerId, targetUserId: profile.id, direction, createdAt: Date.now() });
-          toast.show(t('discoveryQueuedOfflineToast'), 'neutral');
-          return;
-        }
-        toast.error(err?.message || t('discoveryActionFailedToast'));
-      }
-    }
-  };
-
-  const handleRewind = async () => {
-    if (!lastSwiped || currentIndex <= 0) return;
+  // "Şimdilik Geç": a directional, never-expiring discovery pass. The profile leaves the feed on
+  // a plain fade/lift -- deliberately not a swipe-style exit, this route has no gestures at all.
+  const handlePass = async (profile: DiscoveryV2Candidate) => {
+    if (passingId) return;
+    setPassingId(profile.id);
+    void nativeHaptics.impact();
     try {
-      await apiClient.post('/api/discovery/rewind', { targetUserId: lastSwiped.profile.id, direction: lastSwiped.direction });
-      consumedProfileIds.delete(lastSwiped.profile.id);
-      setExitingCards([]);
-      setCurrentIndex((value) => Math.max(0, value - 1));
-      setLastSwiped(null);
-    } catch (err: any) {
-      if (err?.code === 'REWIND_QUOTA_EXHAUSTED') toast.show(t('rewindQuotaToast'), 'neutral');
-      else toast.error(err?.message || t('rewindFailedToast'));
+      await passMutation.mutateAsync(profile.id);
+      advance(profile.id);
+    } catch {
+      toast.error(qt('actionFailed'));
+    } finally {
+      setPassingId(null);
     }
   };
 
-  // Same-frame duplicate-tap guard (e.g. a WebView firing both a touch and a simulated mouse
-  // click for one physical tap) -- released next animation frame, so legitimate rapid
-  // consecutive swipes on the newly-interactive card are never delayed.
-  const handleAction = (direction: SwipeDirection) => {
-    if (actionLockRef.current) return;
-    if (
-      direction === 'up' &&
-      entitlements &&
-      entitlements.isUnlimitedSuperLike !== true &&
-      Number(entitlements?.superlikeCount ?? entitlements?.superLikeCount ?? 0) <= 0
-    ) {
-      setIsSuperLikeQuotaOpen(true);
-      return;
-    }
-    actionLockRef.current = true;
-    topCardRef.current?.triggerSwipe(direction);
-    requestAnimationFrame(() => {
-      actionLockRef.current = false;
-    });
-  };
-
-  const handleExitComplete = (profileId: string) => {
-    setExitingCards((current) => current.filter((profile) => profile.id !== profileId));
+  const handleSheetClose = () => {
+    const outcome = sheetOutcomeRef.current;
+    const profileId = answerTarget?.id;
+    sheetOutcomeRef.current = null;
+    setAnswerTarget(null);
+    // Any resolved outcome (answered, retry asked, Super Like sent, profile gone) removes the
+    // profile from this session's feed; a plain dismissal leaves it in place.
+    if (outcome && profileId) advance(profileId);
   };
 
   const handleReset = () => {
@@ -472,6 +369,7 @@ export const DiscoverScreen: React.FC = () => {
   const isInitialLoading = isLoading && deck.length === 0;
   const feedErrorCode = (feedError as { code?: string } | null)?.code;
   const requiresProfilePhotos = feedErrorCode === 'MIN_PROFILE_PHOTOS';
+  const requiresQuestions = feedErrorCode === 'QUESTIONS_REQUIRED' || currentUser?.questionsRequired === true;
   const hasActiveFilters = Boolean(
     currentUser?.verifiedOnlyPref ||
     currentUser?.recentlyActivePref ||
@@ -515,13 +413,9 @@ export const DiscoverScreen: React.FC = () => {
       action: t('discoverResyncAction'),
     },
   }[locationGate as Exclude<LocationGateState, 'checking' | 'requesting' | 'located'>];
-  const canSuperLike =
-    !entitlements ||
-    entitlements.isUnlimitedSuperLike === true ||
-    Number(entitlements.superlikeCount ?? entitlements.superLikeCount ?? 0) > 0;
 
   return (
-    <div className="relative h-full w-full bg-app text-app flex flex-col justify-between overflow-hidden select-none">
+    <div className="relative h-full w-full bg-app text-app flex flex-col overflow-hidden">
       {/* Top Bar Header */}
       <header className="pt-safe px-4 min-h-[calc(4rem+var(--safe-top))] flex items-center justify-between z-sticky bg-app-80 backdrop-blur-md">
         <AppLogo variant="icon" size="md" />
@@ -552,159 +446,87 @@ export const DiscoverScreen: React.FC = () => {
         </button>
       )}
 
-      {/* Main Swipe / Empty Body */}
-      {/* min-h-0 is required here: without it, a flex item's automatic minimum size is its
-          content's size, so the h-full card box below (or the old fixed h-[65dvh]) could force
-          this flex-1 item taller than the space actually left after the header and action row,
-          silently pushing the action row down into/under the floating bottom nav on shorter
-          viewports instead of the card simply sizing to whatever room truly remains. */}
-      <div className="relative flex-1 min-h-0 w-full max-w-md mx-auto my-auto flex items-center justify-center px-3 py-2">
-        {isInitialLoading ? (
-          <div className="relative w-full h-full max-h-[600px]">
-            <Skeleton variant="media" className="absolute inset-0 aspect-auto rounded-[30px]" />
+      {/* One profile at a time -- no deck, no gestures, no like/pass buttons. */}
+      <div className="relative flex-1 min-h-0 w-full max-w-md mx-auto flex flex-col px-4 pb-[calc(var(--safe-bottom)+var(--nav-footprint)+16px)]">
+        {requiresQuestions ? (
+          <div className="flex flex-1 items-center justify-center">
+            <QuestionsRequiredGate />
+          </div>
+        ) : isInitialLoading ? (
+          <div className="flex-1 pt-3">
+            <Skeleton variant="title" className="mb-3 h-5 w-40" />
+            <Skeleton variant="media" className="h-[58%] min-h-[220px] rounded-[30px]" />
+            <Skeleton variant="text" className="mt-4 h-4 w-2/3" />
+            <Skeleton variant="text" className="mt-2 h-4 w-1/2" />
           </div>
         ) : isError && !currentProfile ? (
-          requiresProfilePhotos ? (
-            <EmptyState
-              icon={<Camera className="h-8 w-8" aria-hidden="true" />}
-              title={t('discoverCompletePhotosTitle')}
-              subtitle={t('discoverCompletePhotosDescription')}
-              actionLabel={t('discoverGoToProfileAction')}
-              onAction={() => navigate('/profile')}
-            />
-          ) : (
-            <ErrorState
-              icon={<TriangleAlert className="h-8 w-8" aria-hidden="true" />}
-              title={feedErrorCode === 'NETWORK_ERROR' || feedErrorCode === 'TIMEOUT' ? t('discoverConnectionErrorTitle') : t('discoverFeedErrorTitle')}
-              message={t('discoverFeedErrorMessage')}
-              onRetry={() => void refetch()}
-            />
-          )
-        ) : !currentProfile ? (
-          <EmptyState
-            icon={<SearchX className="h-8 w-8" aria-hidden="true" />}
-            title={hasActiveFilters ? t('discoverNoMatchTitle') : t('discoverNoProfilesTitle')}
-            subtitle={hasActiveFilters
-              ? t('discoverNoMatchDescription')
-              : t('discoverNoProfilesDescription')}
-            actionLabel={hasActiveFilters ? t('discoverReviewFiltersAction') : t('discoverRescanAction')}
-            onAction={hasActiveFilters ? () => setIsFilterOpen(true) : handleReset}
-          />
-        ) : (
-          <div className="relative w-full h-full max-h-[600px]">
-            {renderedCards.map((profile) => {
-              const isExiting = exitingCards.some((item) => item.id === profile.id);
-              return (
-              <SwipeCard
-                key={profile.id}
-                ref={profile.id === currentProfile.id ? topCardRef : undefined}
-                profile={profile}
-                isTop={profile.id === currentProfile.id}
-                isExiting={isExiting}
-                onSwiped={handleSwiped}
-                onExitComplete={handleExitComplete}
-                canSuperLike={canSuperLike}
-                onSuperLikeUnavailable={() => setIsSuperLikeQuotaOpen(true)}
-                onInfoClick={() => { if (!isExiting) navigate(`/discover/${profile.id}`); }}
+          <div className="flex flex-1 items-center justify-center">
+            {requiresProfilePhotos ? (
+              <EmptyState
+                icon={<Camera className="h-8 w-8" aria-hidden="true" />}
+                title={t('discoverCompletePhotosTitle')}
+                subtitle={t('discoverCompletePhotosDescription')}
+                actionLabel={t('discoverGoToProfileAction')}
+                onAction={() => navigate('/profile')}
               />
-              );
-            })}
+            ) : (
+              <ErrorState
+                icon={<TriangleAlert className="h-8 w-8" aria-hidden="true" />}
+                title={feedErrorCode === 'NETWORK_ERROR' || feedErrorCode === 'TIMEOUT' ? t('discoverConnectionErrorTitle') : t('discoverFeedErrorTitle')}
+                message={t('discoverFeedErrorMessage')}
+                onRetry={() => void refetch()}
+              />
+            )}
           </div>
+        ) : !currentProfile ? (
+          <div className="flex flex-1 items-center justify-center">
+            <EmptyState
+              icon={<SearchX className="h-8 w-8" aria-hidden="true" />}
+              title={hasActiveFilters ? t('discoverNoMatchTitle') : qt('emptyTitle')}
+              subtitle={hasActiveFilters ? t('discoverNoMatchDescription') : qt('emptyDescription')}
+              actionLabel={hasActiveFilters ? t('discoverReviewFiltersAction') : t('discoverRescanAction')}
+              onAction={hasActiveFilters ? () => setIsFilterOpen(true) : handleReset}
+            />
+          </div>
+        ) : (
+          <>
+            <h1 className="shrink-0 py-3 text-heading font-extrabold text-app">{qt('discoverTitle')}</h1>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={currentProfile.id}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -24, scale: 0.98 }}
+                transition={SPRING.soft}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <QuestionProfileCard
+                  profile={currentProfile}
+                  onOpenProfile={() => navigate(`/discover/${currentProfile.id}`)}
+                />
+                <QuestionProfileActions
+                  profile={currentProfile}
+                  passing={passingId === currentProfile.id}
+                  onAnswer={() => setAnswerTarget(currentProfile)}
+                  onViewProfile={() => navigate(`/discover/${currentProfile.id}`)}
+                  onPass={() => void handlePass(currentProfile)}
+                />
+              </motion.div>
+            </AnimatePresence>
+          </>
         )}
       </div>
-
-      {/* Action Control Floating Buttons */}
-      {/* The floating bottom nav is a fixed-position overlay reserving --nav-footprint (see
-          globals.css -- its own rendered height + bottom margin) above
-          env(safe-area-inset-bottom), and paints above this row (z-navigation > z-sticky). A bare
-          fixed mb-20 cleared that on devices with little/no safe-area-inset-bottom but let the
-          nav visually sit on top of these buttons (and their hit-targets) on devices with a
-          taller inset (e.g. the home-indicator area on notched phones). Add an explicit 24px
-          buffer on top of the nav's own footprint so rounding/OS differences in the reported
-          safe-area inset can't fully close the gap. */}
-      {currentProfile && (
-        <div className="flex items-center justify-around max-w-sm mx-auto w-full py-2 mb-[calc(var(--safe-bottom)+var(--nav-footprint)+24px)] z-sticky">
-          <button onClick={handleRewind} disabled={!lastSwiped} aria-label={t('discoverRewindAriaLabel')} className="w-11 h-11 rounded-full bg-surface border border-app text-amber-500 flex items-center justify-center shadow-elevated disabled:opacity-35 active:scale-90 transition-transform"><RotateCcw className="w-5 h-5" /></button>
-          <button
-            onClick={() => handleAction('left')}
-            aria-label={t('discoverPassAriaLabel')}
-            className="w-14 h-14 rounded-full bg-surface border border-app text-[#FF4B55] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
-          >
-            <X className="w-7 h-7 stroke-[2.5]" />
-          </button>
-
-          <button
-            onClick={() => handleAction('up')}
-            aria-label={t('discoverSuperLikeAriaLabel')}
-            className="w-12 h-12 rounded-full bg-surface border border-app text-[#25D9D0] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
-          >
-            <Star className="w-6 h-6 fill-current" />
-          </button>
-
-          <button
-            onClick={() => handleAction('right')}
-            aria-label={t('discoverLikeAriaLabel')}
-            className="w-16 h-16 rounded-full bg-brand-gradient text-white flex items-center justify-center shadow-xl shadow-pink-500/30 active:scale-90 transition-transform"
-          >
-            <Heart className="w-8 h-8 fill-current" />
-          </button>
-
-          <button
-            onClick={() => navigate('/boost')}
-            aria-label={t('discoverBoostAriaLabel')}
-            className="w-12 h-12 rounded-full bg-surface border border-app text-[#F5B942] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
-          >
-            <Zap className="w-6 h-6 fill-current" />
-          </button>
-        </div>
-      )}
 
       {/* Filter Bottom Sheet */}
       <FilterBottomSheet isOpen={isFilterOpen} onClose={() => setIsFilterOpen(false)} onApplied={handleReset} />
 
-      <BottomSheet isOpen={isSuperLikeQuotaOpen} onClose={() => setIsSuperLikeQuotaOpen(false)}>
-        <div className="px-6 pb-6 pt-2 text-center">
-          <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-cyan-500/10 text-[#25D9D0]">
-            <Star className="h-7 w-7 fill-current" />
-          </span>
-          <h2 className="mt-4 text-title text-app">{t('superLikeQuotaTitle')}</h2>
-          <p className="mt-2 text-caption normal-case leading-relaxed text-app-muted">
-            {t('superLikeQuotaDescription')}
-          </p>
-          <div className="mt-5 space-y-2.5">
-            <AppButton
-              fullWidth
-              size="lg"
-              variant="primary"
-              onClick={() => {
-                setIsSuperLikeQuotaOpen(false);
-                navigate('/premium');
-              }}
-            >
-              {t('explorePlusGoldCta')}
-            </AppButton>
-            <AppButton fullWidth size="md" variant="ghost" onClick={() => setIsSuperLikeQuotaOpen(false)}>
-              {t('notNowLabel')}
-            </AppButton>
-          </div>
-        </div>
-      </BottomSheet>
-
-      <RewardedAdSheet
-        isOpen={isRewardedAdOpen}
-        onClose={() => setIsRewardedAdOpen(false)}
-        rewardType="REWARDED_LIKE"
-        title={t('dailyLikesExhaustedTitle')}
-        description={t('dailyLikesExhaustedDescription')}
-        rewardLabel={t('plus5LikesLabel')}
-      />
-
-      {/* Match Result Popup */}
-      <MatchModal
-        isOpen={matchResult.isOpen}
-        onClose={() => setMatchResult({ isOpen: false })}
-        matchedUser={matchResult.matchUser}
-        matchId={matchResult.matchId}
+      <QuestionAnswerSheet
+        isOpen={answerTarget !== null}
+        onClose={handleSheetClose}
+        target={answerTarget ? { id: answerTarget.id, name: answerTarget.name } : null}
+        initialStatus={answerTarget?.questionState?.status || null}
+        onOutcome={(outcome) => { sheetOutcomeRef.current = outcome; }}
+        onQuestionsRequired={() => navigate('/profile/questions')}
       />
 
       {!locationPromptDismissed && (locationGate === 'requesting' || Boolean(locationIssue)) && (
@@ -742,6 +564,129 @@ export const DiscoverScreen: React.FC = () => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+const QuestionProfileCard: React.FC<{ profile: DiscoveryV2Candidate; onOpenProfile: () => void }> = ({
+  profile,
+  onOpenProfile,
+}) => {
+  const { locale } = useAppTranslation();
+  const { qt } = useQuestionText();
+  const photo = getPhotoUrl(profile.photos?.[0]) || profile.photoMediumUrl || profile.photoUrl;
+  const compatibility = typeof profile.compatibility === 'number' ? Math.round(profile.compatibility) : null;
+  const interests = (profile.commonInterests || []).slice(0, 4);
+  const distance = typeof profile.distanceKm === 'number' ? Math.max(1, Math.round(profile.distanceKm)) : null;
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto rounded-[30px] border border-app bg-surface shadow-soft" data-testid="question-profile-card">
+      <button type="button" onClick={onOpenProfile} className="block w-full text-left" aria-label={profile.name}>
+        <div className="relative aspect-[4/5] w-full overflow-hidden rounded-t-[30px] bg-app-secondary">
+          {photo ? (
+            <img src={normalizeMediaUrl(photo)} alt={profile.name} className="h-full w-full object-cover" loading="eager" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-app-muted">
+              <User className="h-12 w-12" aria-hidden="true" />
+            </div>
+          )}
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-4">
+            <div className="flex items-center gap-2">
+              <h2 className="truncate text-heading font-extrabold text-white">
+                {profile.name}{profile.age ? `, ${profile.age}` : ''}
+              </h2>
+              {profile.verified && <VerifiedBadge />}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-caption font-semibold text-white/85">
+              {profile.city && <span className="truncate">{profile.city}</span>}
+              {distance !== null && <span>{qt('distanceTemplate', { km: distance })}</span>}
+              {profile.activeNow && <span>{qt('activeNow')}</span>}
+              {profile.isNewMember && <span>{qt('newMember')}</span>}
+            </div>
+          </div>
+        </div>
+      </button>
+
+      <div className="p-4">
+        {compatibility !== null && (
+          <div className="flex items-center gap-2 rounded-2xl bg-surface-elevated px-3 py-2">
+            <Sparkles className="h-4 w-4 shrink-0 text-brand-primary" aria-hidden="true" />
+            <span className="text-caption font-bold text-app">{qt('compatibilityTemplate', { percent: compatibility })}</span>
+          </div>
+        )}
+        {interests.length > 0 && (
+          <div className="mt-3">
+            <p className="text-caption font-semibold text-app-muted">{qt('commonInterests')}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {interests.map((interest) => (
+                <span key={interest} className="rounded-full border border-app bg-surface-elevated px-3 py-1 text-caption font-semibold text-app">
+                  {getLocalizedInterestLabel(interest, locale)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {profile.bio && (
+          <p className="mt-3 text-caption normal-case leading-relaxed text-app-muted">{profile.bio}</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const QuestionProfileActions: React.FC<{
+  profile: DiscoveryV2Candidate;
+  passing: boolean;
+  onAnswer: () => void;
+  onViewProfile: () => void;
+  onPass: () => void;
+}> = ({ profile, passing, onAnswer, onViewProfile, onPass }) => {
+  const { qt } = useQuestionText();
+  const status = profile.questionState?.status;
+  const pendingKey = status ? PENDING_STATUS_KEYS[status] : undefined;
+
+  return (
+    <div className="shrink-0 pt-3">
+      {pendingKey ? (
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-app bg-surface-elevated px-4 py-3 text-caption font-bold text-app">
+          <CheckCircle2 className="h-4 w-4 text-[#32D583]" aria-hidden="true" />
+          {qt(pendingKey)}
+        </div>
+      ) : (
+        <AppButton
+          fullWidth
+          size="lg"
+          variant="primary"
+          leftIcon={<HelpCircle className="h-4 w-4" />}
+          disabled={passing}
+          onClick={onAnswer}
+        >
+          {qt('answerQuestion')}
+        </AppButton>
+      )}
+      <div className="mt-2 flex gap-2">
+        <motion.button
+          type="button"
+          whileTap={{ scale: PRESS_SCALE }}
+          transition={SPRING.snappy}
+          onClick={onViewProfile}
+          className={cn(
+            'flex-1 rounded-2xl border border-app bg-surface px-4 py-3 text-caption font-bold text-app'
+          )}
+        >
+          {qt('viewProfile')}
+        </motion.button>
+        <motion.button
+          type="button"
+          whileTap={{ scale: PRESS_SCALE }}
+          transition={SPRING.snappy}
+          disabled={passing}
+          onClick={onPass}
+          className="flex-1 rounded-2xl border border-app bg-surface px-4 py-3 text-caption font-bold text-app-muted disabled:opacity-60"
+        >
+          {passing ? <Loader2 className="mx-auto h-4 w-4 animate-spin" aria-hidden="true" /> : qt('skipForNow')}
+        </motion.button>
+      </div>
     </div>
   );
 };

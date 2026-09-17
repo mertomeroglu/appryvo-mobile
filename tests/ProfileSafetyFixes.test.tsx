@@ -15,6 +15,11 @@ vi.mock('../src/hooks/useQueries', () => ({
   useInAppNotificationsQuery: () => ({ data: { unreadCount: 0 } }),
 }));
 
+// The Likes tab became the question inbox; its badge counts pending decisions instead of likes.
+vi.mock('../src/hooks/useQuestionQueries', () => ({
+  useQuestionInboxQuery: () => ({ data: { received: [], sent: [] } }),
+}));
+
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
 const LocationProbe = () => {
@@ -109,7 +114,7 @@ describe('profile navigation interception regression', () => {
     render(
       <MemoryRouter initialEntries={['/profile']}>
         <Routes>
-          {['discover', 'likes', 'map', 'messages', 'profile'].map((path) => (
+          {['discover', 'inbox/questions', 'map', 'messages', 'profile'].map((path) => (
             <Route key={path} path={`/${path}`} element={<LocationProbe />} />
           ))}
         </Routes>
@@ -119,7 +124,7 @@ describe('profile navigation interception regression', () => {
 
     const destinations = [
       ['Discover', '/discover'],
-      ['Likes', '/likes'],
+      ['Questions', '/inbox/questions'],
       ['Map', '/map'],
       ['Messages', '/messages'],
       ['Profile', '/profile'],

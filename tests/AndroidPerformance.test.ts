@@ -31,7 +31,11 @@ describe('Android performance contracts', () => {
   it('bounds composited Discover cards and removes moving backdrop filters', () => {
     const discover = source('features/discovery/DiscoverScreen.tsx');
     const card = source('features/discovery/SwipeCard.tsx');
-    expect(discover).toContain("[...current, profile].slice(-1)");
+    // The swipe deck (which used to bound its own composited stack with .slice(-1)) is gone:
+    // the question flow renders exactly one profile, and AnimatePresence mode="wait" keeps it
+    // that way -- the outgoing card is fully removed before the next one mounts.
+    expect(discover).toContain('<AnimatePresence mode="wait" initial={false}>');
+    expect(discover).not.toContain('SwipeCard');
     expect(card).toContain('discovery-swipe-card');
     expect(card).not.toContain('backdrop-blur');
     expect(card).toContain('failedPhotos.has(currentPhoto)');

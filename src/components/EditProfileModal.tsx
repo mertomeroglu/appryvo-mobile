@@ -13,6 +13,9 @@ import { IconButton } from './ui/IconButton';
 import { Chip, FilterChip } from './ui/Chip';
 import { PhotoCropScreen } from './ui/PhotoCropScreen';
 import { InterestsEditorScreen } from './InterestsEditorScreen';
+import { ProfileQuestionsManager } from '../features/questions/ProfileQuestionsEditor';
+import { useQuestionText } from '../features/questions/questionLocale';
+import { useOwnProfileQuestionsQuery } from '../hooks/useQuestionQueries';
 import { QUERY_KEYS } from '../hooks/useQueries';
 import { LanguageSelector } from './LanguageSelector';
 import { ZodiacIcon, ZODIAC_ACCENT_CLASSES, type ZodiacSign } from './ui/ZodiacIcon';
@@ -79,6 +82,8 @@ function normalizeInitialPhotos(photos: any[] | undefined): PhotoSlot[] {
 export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose, focusSection }) => {
   const user = useAuthStore((s) => s.user);
   const { locale, t } = useAppTranslation();
+  const { qt } = useQuestionText();
+  const { data: ownQuestions } = useOwnProfileQuestionsQuery();
   const RELATIONSHIP_GOALS = RELATIONSHIP_GOAL_KEYS.map((value) => ({ value, label: getRelationshipGoalLabel(value, locale) || value }));
   const SMOKING_OPTIONS = SMOKING_KEYS.map((value) => ({ value, label: getSmokingLabel(value, locale) || value }));
   const DRINKING_OPTIONS = DRINKING_KEYS.map((value) => ({ value, label: getDrinkingLabel(value, locale) || value }));
@@ -101,6 +106,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     return user?.relationshipGoal ? [user.relationshipGoal] : [];
   });
   const [interests, setInterests] = useState<string[]>(user?.interests || []);
+  const [isQuestionsEditorOpen, setIsQuestionsEditorOpen] = useState(false);
   const [heightCm, setHeightCm] = useState(user?.heightCm ? String(user.heightCm) : '');
   const [zodiac, setZodiac] = useState(user?.zodiac || '');
   const [smokingStatus, setSmokingStatus] = useState(user?.smokingStatus || '');
@@ -702,6 +708,26 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
             </button>
           </div>
 
+          {/* Profil Sorularim -- saved through its own endpoints the moment each question is
+              added/edited, so it never rides along with this form's submit (and an unsaved bio
+              draft is never lost by opening it). */}
+          <div className="space-y-2" data-section="profile-questions">
+            <label className="text-micro font-extrabold text-app-muted uppercase">{qt('editorTitle')}</label>
+            <p className="text-micro normal-case text-app-muted">
+              {ownQuestions
+                ? qt('countTemplate', { count: ownQuestions.activeQuestionCount, max: ownQuestions.maxQuestions })
+                : qt('editorEntrySubtitle')}
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsQuestionsEditorOpen(true)}
+              className="w-full flex items-center justify-between rounded-2xl border border-app bg-surface px-4 py-3.5 text-body font-bold text-app active:scale-[0.99] transition-transform"
+            >
+              <span>{qt('editorTitle')}</span>
+              <ChevronRight className="w-5 h-5 text-app-muted" />
+            </button>
+          </div>
+
           <ProfileCreativeEditor city={city} onCityChange={(next, id) => { setCity(next); setCityId(id); }} initialPrompts={user?.prompts} initialVoice={user?.voicePrompt} />
 
           {errorMsg && (
@@ -724,6 +750,25 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
           onUseOriginal={handleUseOriginalPhoto}
           onCancel={handleCropCancel}
         />
+      )}
+
+      {isQuestionsEditorOpen && (
+        <div className="fixed inset-0 z-modal flex flex-col bg-app text-app">
+          <div className="pt-safe flex items-center gap-2 border-b border-app px-4 py-3">
+            <button
+              type="button"
+              aria-label={t('backButtonLabel')}
+              onClick={() => setIsQuestionsEditorOpen(false)}
+              className="rounded-full p-1.5 text-app-muted active:scale-90 transition-transform"
+            >
+              <ChevronRight className="h-5 w-5 rotate-180" />
+            </button>
+            <h3 className="text-heading text-app">{qt('editorTitle')}</h3>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 pb-safe pt-4">
+            <ProfileQuestionsManager />
+          </div>
+        </div>
       )}
 
       {isInterestsEditorOpen && (

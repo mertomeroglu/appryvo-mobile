@@ -1,17 +1,19 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Flame, Globe2, Heart, MessageCircle, User } from 'lucide-react';
+import { Flame, Globe2, HelpCircle, MessageCircle, User } from 'lucide-react';
 import { useUiStore } from '../stores/useUiStore';
-import { useLikesUnreadCountQuery } from '../hooks/useQueries';
 import { useAppTranslation } from '../i18n/appLocale';
+import { useQuestionInboxQuery } from '../hooks/useQuestionQueries';
+import { useQuestionText } from '../features/questions/questionLocale';
 import { preloadProfileExperience } from '../routes/routePreload';
 import { markProfileNavigationStart } from '../services/performance/profilePerformance';
 
 export const FloatingNavBar: React.FC = () => {
   const location = useLocation();
   const unreadCount = useUiStore((s) => s.unreadCount);
-  const { data: unreadLikesCount } = useLikesUnreadCountQuery();
+  const { data: questionInbox } = useQuestionInboxQuery();
   const { t } = useAppTranslation();
+  const { qt } = useQuestionText();
 
   // Hide nav bar on specific child/fullscreen views
   const isHidden = [
@@ -24,6 +26,7 @@ export const FloatingNavBar: React.FC = () => {
     '/settings',
     '/verification',
     '/profile/preview',
+    '/profile/questions',
     '/notifications',
     '/rooms/',
   ].some((p) => location.pathname.startsWith(p));
@@ -32,10 +35,12 @@ export const FloatingNavBar: React.FC = () => {
 
   const navItems = [
     // World/Social Discovery is the primary tab (Apple 4.3(b) remediation) -- Discover
-    // (swipe) is kept as a secondary tab, not the app's leading experience.
+    // (question-based, no swipe) is a secondary tab, not the app's leading experience.
     { path: '/map', label: t('map'), icon: Globe2 },
     { path: '/discover', label: t('discover'), icon: Flame },
-    { path: '/likes', label: t('likes'), icon: Heart, badge: unreadLikesCount },
+    // "Seni Begenenler" is gone with swipe: this tab is now the question inbox, badged with
+    // the decisions waiting on this user (correct answers, retry requests, Super Likes).
+    { path: '/inbox/questions', label: qt('navLabel'), icon: HelpCircle, badge: questionInbox?.received.length },
     {
       // Messages count only, never folded together with the unrelated generic in-app
       // notifications count (admin campaigns, lifecycle events, etc.) -- that count belongs on
@@ -50,7 +55,7 @@ export const FloatingNavBar: React.FC = () => {
   ];
 
   // Height + bottom margin here define --nav-footprint (globals.css) -- any screen that floats
-  // content above this nav (e.g. DiscoverScreen's swipe action row) relies on that constant to
+  // content above this nav (e.g. DiscoverScreen's action buttons) relies on that constant to
   // avoid this z-navigation-layer nav visually covering its buttons. Update both if this changes.
   return (
     <div className="fixed bottom-0 start-0 end-0 z-navigation pb-safe pointer-events-none flex justify-center">

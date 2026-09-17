@@ -1,6 +1,6 @@
 export type PushData = Record<string, unknown>;
 
-const SAFE_ROUTE = /^\/(discover|likes|messages|notifications|profile|verification|premium|boost|frames|passport|confessions)(\/|\?|$)/;
+const SAFE_ROUTE = /^\/(discover|inbox|likes|messages|notifications|profile|verification|premium|boost|frames|passport|confessions)(\/|\?|$)/;
 
 // The app's own custom URL scheme (AndroidManifest.xml custom_url_scheme, aligned with iOS's
 // CFBundleURLSchemes so a share link works identically on both platforms) -- e.g. a share link
@@ -43,7 +43,11 @@ export function resolvePushDestination(data: PushData): string | null {
   if (matchId && ['chat', 'message', 'match', 'gift', 'chat_gift'].includes(type)) {
     return `/chat/${encodeURIComponent(matchId)}`;
   }
-  if (['like', 'super_like', 'match_note', 'someone_liked_you'].includes(type)) return '/likes';
+  // Question matching: every pending decision lives in the question inbox. Legacy like pushes
+  // (older server builds, notifications already queued before the migration) land there too --
+  // /likes itself now redirects to the same place.
+  if (type.startsWith('question_')) return '/inbox/questions';
+  if (['like', 'super_like', 'match_note', 'someone_liked_you'].includes(type)) return '/inbox/questions';
   if (['moderator_message', 'admin', 'system'].includes(type)) return '/messages/ryvo';
   if (type === 'verification_reminder') return '/verification';
   if (type.startsWith('verification_')) return '/profile';

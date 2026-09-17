@@ -56,7 +56,10 @@ describe('Messages communication hub', () => {
 
   it('keeps the five-item bottom navigation and chat-only unread badge semantics', () => {
     const nav = source('components/FloatingNavBar.tsx');
-    expect(nav.match(/path: '\/(discover|likes|map|messages|profile)'/g)).toHaveLength(5);
+    // "Seni Begenenler" became the question inbox (/inbox/questions) when swipe was retired;
+    // the bar itself is still exactly five destinations.
+    expect(nav.match(/path: '\/(discover|inbox\/questions|map|messages|profile)'/g)).toHaveLength(5);
+    expect(nav).not.toContain("path: '/likes'");
     expect(nav).not.toContain("path: '/confessions'");
     // Regression: this previously read `unreadCount + Number(notificationData?.unreadCount || 0)`,
     // folding the generic in-app-notifications count (admin campaigns, lifecycle events, etc.)

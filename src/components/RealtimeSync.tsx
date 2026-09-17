@@ -11,6 +11,8 @@ import { toast } from '../stores/useToastStore';
 import { apiClient } from '../services/api/apiClient';
 import { nativePush } from '../native/push';
 import { QUERY_KEYS } from '../hooks/useQueries';
+import { invalidateQuestionState, QUESTION_QUERY_KEYS } from '../hooks/useQuestionQueries';
+import { questionTextSync } from '../features/questions/questionLocale';
 import { useCallStore } from '../stores/useCallStore';
 import { nativeHaptics } from '../native/haptics';
 import { nativeCallAudio } from '../native/callAudio';
@@ -158,6 +160,38 @@ export const RealtimeSync: React.FC = () => {
       }
     });
 
+    // Question-based matching lives across two surfaces (Discover card state + the question
+    // inbox), so every interaction event just reconciles both caches -- the server stays the
+    // single source of truth for interaction state, and nothing here ever reveals a correct
+    // answer. Pass/decline are deliberately silent for the other side (no event, no toast).
+    const offQuestionCorrect = socketService.on('question:correct-answer', () => {
+      nativeHaptics.impact();
+      invalidateQuestionState(queryClient);
+    });
+
+    const offQuestionRetryRequested = socketService.on('question:retry-requested', () => {
+      invalidateQuestionState(queryClient);
+    });
+
+    const offQuestionRetryApproved = socketService.on('question:retry-approved', () => {
+      invalidateQuestionState(queryClient);
+      toast.success(questionTextSync('statusRetryApproved'));
+    });
+
+    const offQuestionRetryDeclined = socketService.on('question:retry-declined', () => {
+      invalidateQuestionState(queryClient);
+    });
+
+    const offQuestionSuperlike = socketService.on('question:superlike', () => {
+      nativeHaptics.impact();
+      invalidateQuestionState(queryClient);
+    });
+
+    const offQuestionInteraction = socketService.on('question:interaction-updated', (payload: { status?: string }) => {
+      invalidateQuestionState(queryClient);
+      if (payload?.status === 'MATCHED') queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
+    });
+
     // Match creation used to rely on the liker screen's local mutation invalidation. That left
     // the other person with a stale Messages list until a resume/manual refresh. The server now
     // emits match:new to both user rooms; keep the root cache current even when Messages is not
@@ -171,6 +205,10 @@ export const RealtimeSync: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['discovery', 'map'] });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.inboundLikes });
+      // A match now originates from the question inbox (owner accept), so the V2 feed and the
+      // inbox both hold a now-stale entry for this person.
+      queryClient.invalidateQueries({ queryKey: QUESTION_QUERY_KEYS.feedV2 });
+      queryClient.invalidateQueries({ queryKey: QUESTION_QUERY_KEYS.inbox });
     });
 
     const offMatchUpdated = socketService.on('match:updated', (payload: {
@@ -288,6 +326,12 @@ export const RealtimeSync: React.FC = () => {
       offCallEnded();
       offCallBusy();
       offNewMatch();
+      offQuestionCorrect();
+      offQuestionRetryRequested();
+      offQuestionRetryApproved();
+      offQuestionRetryDeclined();
+      offQuestionSuperlike();
+      offQuestionInteraction();
       offMatchUpdated();
       offMatchRemoved();
       offIncomingCall();

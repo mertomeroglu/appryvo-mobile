@@ -15,7 +15,8 @@ import { SocialMapScreen } from '../features/map/SocialMapScreen';
 // Heavy feature routes lazy loaded
 const FullProfileScreen = lazy(() => import('../features/discovery/FullProfileScreen').then((m) => ({ default: m.FullProfileScreen })));
 const DiscoverScreen = lazy(() => import('../features/discovery/DiscoverScreen').then((m) => ({ default: m.DiscoverScreen })));
-const LikesScreen = lazy(() => import('../features/likes/LikesScreen').then((m) => ({ default: m.LikesScreen })));
+const QuestionInboxScreen = lazy(() => import('../features/questions/QuestionInboxScreen').then((m) => ({ default: m.QuestionInboxScreen })));
+const ProfileQuestionsScreen = lazy(() => import('../features/questions/ProfileQuestionsScreen').then((m) => ({ default: m.ProfileQuestionsScreen })));
 const NotificationsScreen = lazy(() => import('../features/notifications/NotificationsScreen').then((m) => ({ default: m.NotificationsScreen })));
 const MessagesScreen = lazy(() => import('../features/chat/MessagesScreen').then((m) => ({ default: m.MessagesScreen })));
 const CallHistoryScreen = lazy(() => import('../features/calls/CallHistoryScreen').then((m) => ({ default: m.CallHistoryScreen })));
@@ -95,13 +96,25 @@ const router = createBrowserRouter([
           { path: 'rooms/:roomId', element: <Suspense fallback={SuspenseFallback}><RoomScreen /></Suspense> },
           { path: 'connect/inbox', element: <Suspense fallback={SuspenseFallback}><ConnectRequestInboxScreen /></Suspense> },
           {
-            path: 'likes',
+            path: 'inbox/questions',
             element: (
               <Suspense fallback={SuspenseFallback}>
-                <LikesScreen />
+                <QuestionInboxScreen />
               </Suspense>
             ),
           },
+          {
+            path: 'profile/questions',
+            element: (
+              <Suspense fallback={SuspenseFallback}>
+                <ProfileQuestionsScreen />
+              </Suspense>
+            ),
+          },
+          // "Seni Begenenler" is retired in the question flow; old in-app links, pushes and
+          // installed shortcuts land on the question inbox instead of a dead route. The legacy
+          // /api/likes/* endpoints stay live for older installed clients.
+          { path: 'likes', element: <Navigate to="/inbox/questions" replace /> },
           {
             path: 'notifications',
             element: (

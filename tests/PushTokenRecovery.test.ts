@@ -76,7 +76,13 @@ describe('P0 push-token recovery', () => {
   it('routes every supported payload type and rejects external routes', () => {
     expect(resolvePushDestination({ type: 'match', matchId: 'match-1' })).toBe('/chat/match-1');
     expect(resolvePushDestination({ type: 'gift', matchId: 'match-1' })).toBe('/chat/match-1');
-    expect(resolvePushDestination({ type: 'match_note' })).toBe('/likes');
+    // Legacy like-style pushes and every question notification land in the question inbox --
+    // /likes itself is now only a redirect.
+    expect(resolvePushDestination({ type: 'match_note' })).toBe('/inbox/questions');
+    expect(resolvePushDestination({ type: 'question_correct' })).toBe('/inbox/questions');
+    expect(resolvePushDestination({ type: 'question_retry_request' })).toBe('/inbox/questions');
+    expect(resolvePushDestination({ type: 'question_superlike' })).toBe('/inbox/questions');
+    expect(resolvePushDestination({ ctaUrl: '/inbox/questions' })).toBe('/inbox/questions');
     expect(resolvePushDestination({ type: 'moderator_message' })).toBe('/messages/ryvo');
     expect(resolvePushDestination({ type: 'VERIFICATION_APPROVED' })).toBe('/profile');
     expect(resolvePushDestination({ type: 'confession_comment' })).toBe('/confessions');

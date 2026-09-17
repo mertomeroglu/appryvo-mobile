@@ -15,20 +15,25 @@ describe('RYVO PATCH 01: discovery/match/like/notification/UI contracts', () => 
     expect(likeMutationBody).toContain('queryClient.invalidateQueries({ queryKey: QUERY_KEYS.inboundLikes })');
   });
 
-  it('issue 2 -- an already-matched profile shows a Message CTA instead of Pass/Like/Super Like', () => {
+  it('issue 2 -- an already-matched profile shows a Message CTA instead of the question actions', () => {
     const screen = source('features/discovery/FullProfileScreen.tsx');
 
     expect(screen).toContain('useMatchesQuery');
     expect(screen).toContain("matches.find((match: any) => match.user?.id === userId)");
     expect(screen).toContain('existingMatch ? (');
     expect(screen).toContain("navigate(`/chat/${existingMatch.id}`)");
-    // The Pass/Super Like/Like row must only render in the *other* branch, not unconditionally.
+    // The question actions ("Soruyu Cevapla" / "Simdilik Gec") replaced the swipe-era
+    // Pass/Super Like/Like row, and must still only render in the *unmatched* branch.
     const matchedBranch = screen.slice(screen.indexOf('existingMatch ? ('), screen.indexOf(') : ('));
-    const unmatchedBranch = screen.slice(screen.indexOf(') : ('), screen.indexOf('{/* Actions */}', screen.indexOf('existingMatch')) + 2000);
-    expect(matchedBranch).not.toContain('handleLike');
+    const unmatchedBranch = screen.slice(screen.indexOf(') : ('));
+    expect(matchedBranch).not.toContain("qt('answerQuestion')");
+    expect(matchedBranch).not.toContain('handlePass');
     expect(unmatchedBranch).toContain('handlePass');
-    expect(unmatchedBranch).toContain('handleLike(true)');
-    expect(unmatchedBranch).toContain('handleLike(false)');
+    expect(unmatchedBranch).toContain("qt('answerQuestion')");
+    expect(unmatchedBranch).toContain("qt('skipForNow')");
+    // The like economy is gone from this screen entirely.
+    expect(screen).not.toContain('handleLike');
+    expect(screen).not.toContain('useLikeMutation');
   });
 
   it('issue 4 -- the Ryvo Gold banner cannot crush its button on narrow screens', () => {
@@ -49,15 +54,12 @@ describe('RYVO PATCH 01: discovery/match/like/notification/UI contracts', () => 
 
   it('issue 5 -- Discover action buttons clear the floating bottom nav including safe-area', () => {
     const screen = source('features/discovery/DiscoverScreen.tsx');
-    const actionBarDiv = screen.slice(
-      screen.indexOf('className="flex items-center justify-around max-w-sm mx-auto w-full'),
-      screen.indexOf('z-sticky">') + 10
-    );
 
     // A bare fixed mb-20 (no safe-area term) is exactly the bug: it ignores
-    // env(safe-area-inset-bottom), which the floating nav itself already accounts for.
-    expect(actionBarDiv).not.toMatch(/\bmb-20\b/);
-    expect(actionBarDiv).toContain('var(--safe-bottom)');
+    // env(safe-area-inset-bottom), which the floating nav itself already accounts for. The
+    // question-flow column that now carries the actions keeps both terms.
+    expect(screen).not.toMatch(/\bmb-20\b/);
+    expect(screen).toContain('pb-[calc(var(--safe-bottom)+var(--nav-footprint)+16px)]');
   });
 
   it('issue 6 -- the match modal renders real photos for every photo shape the API sends, including /api/me\'s', () => {

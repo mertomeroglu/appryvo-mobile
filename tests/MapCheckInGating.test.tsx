@@ -105,6 +105,10 @@ vi.mock('../src/hooks/useQueries', () => ({
   useLikeMutation: () => ({ mutateAsync: vi.fn() }),
   usePassMutation: () => ({ mutateAsync: vi.fn() }),
   useUpdateProfileMutation: () => ({ mutate: updateProfileMutateMock, mutateAsync: vi.fn(), isPending: false }),
+  // Pulled in transitively: the map sheet now opens QuestionAnswerSheet, whose wrong-answer
+  // branch offers a rewarded Super Like via RewardedAdSheet.
+  useInitRewardSessionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useVerifyRewardSessionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 import { SocialMapScreen } from '../src/features/map/SocialMapScreen';

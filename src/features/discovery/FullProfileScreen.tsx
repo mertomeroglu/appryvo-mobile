@@ -7,19 +7,20 @@ import {
   Cigarette,
   Crown,
   Flag,
-  Heart,
+  HelpCircle,
   Languages,
   MapPin,
   MessageCircle,
   Ruler,
   Share2,
-  Star,
   UserMinus,
   Volume2,
   Wine,
-  X,
 } from 'lucide-react';
-import { useDiscoveryUserQuery, useEntitlementsQuery, useLikeMutation, useMatchesQuery, usePassMutation, useFollowStatusQuery } from '../../hooks/useQueries';
+import { useDiscoveryUserQuery, useMatchesQuery, useFollowStatusQuery } from '../../hooks/useQueries';
+import { useDiscoveryPassMutation, useQuestionStatusQuery } from '../../hooks/useQuestionQueries';
+import { QuestionAnswerSheet } from '../questions/QuestionAnswerSheet';
+import { useQuestionText } from '../questions/questionLocale';
 import { FollowButton } from '../../components/FollowButton';
 import { TrustProfileSection } from '../../components/TrustProfileSection';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
@@ -33,7 +34,6 @@ import { AppButton } from '../../components/ui/AppButton';
 import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
 import { ZodiacIcon } from '../../components/ui/ZodiacIcon';
 import { SafetyReportModal } from '../../components/SafetyReportModal';
-import { MatchModal } from '../../components/MatchModal';
 import {
   getRelationshipGoalLabels,
   getSmokingLabel,
@@ -58,18 +58,15 @@ export const FullProfileScreen: React.FC = () => {
   const navigate = useNavigate();
   const { data: user, isLoading, isError, refetch } = useDiscoveryUserQuery(userId);
   const { locale, t } = useAppTranslation();
-  const { data: entitlements } = useEntitlementsQuery();
   const { data: followStatus } = useFollowStatusQuery(userId);
   const { data: matches } = useMatchesQuery();
-  const likeMutation = useLikeMutation();
-  const passMutation = usePassMutation();
+  const { qt } = useQuestionText();
+  const passMutation = useDiscoveryPassMutation();
 
-  // This profile route is shared by Discover/Likes (someone not yet matched) and by
-  // already-matched contexts -- the chat header's "view profile" and the map/stories/
-  // connections list all link here too, for a person who may already be a match. Like/Pass/
-  // Super Like on an existing match is meaningless (and re-liking just no-ops the reciprocal
-  // match server-side), so the action bar must branch on match state instead of always
-  // offering to (re)swipe.
+  // This profile route is shared by Discover/the question inbox (someone not yet matched) and
+  // by already-matched contexts -- the chat header's "view profile" and the map/stories/
+  // connections list all link here too, for a person who may already be a match. Answering a
+  // question for an existing match is meaningless, so the action bar branches on match state.
   const existingMatch = useMemo(
     () => (Array.isArray(matches) ? matches.find((match: any) => match.user?.id === userId) : undefined),
     [matches, userId]
@@ -78,9 +75,24 @@ export const FullProfileScreen: React.FC = () => {
   const [photoIndex, setPhotoIndex] = useState(0);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isBlockOpen, setIsBlockOpen] = useState(false);
-  const [matchResult, setMatchResult] = useState<{ isOpen: boolean; matchUser?: any; matchId?: string }>({
-    isOpen: false,
-  });
+  const [isAnswerOpen, setIsAnswerOpen] = useState(false);
+
+  // Interaction state for this exact person (never a correct answer -- the server only ever
+  // sends status + allowed actions). Skipped once they are already a match.
+  const { data: questionStatus } = useQuestionStatusQuery(existingMatch ? undefined : userId);
+  const pendingStatusLabel = (() => {
+    switch (questionStatus?.interactionStatus) {
+      case 'QUESTION_PRESENTED':
+      case 'OWNER_PENDING':
+        return qt('statusAwaiting');
+      case 'SUPERLIKE_PENDING':
+        return qt('statusSuperlikeSent');
+      case 'RETRY_REQUESTED':
+        return qt('statusRetryRequested');
+      default:
+        return null;
+    }
+  })();
 
   if (isLoading) {
     return (
@@ -108,37 +120,12 @@ export const FullProfileScreen: React.FC = () => {
 
   const photos = normalizePhotos(user);
 
-  const handleLike = async (isSuperLike: boolean) => {
-    if (!userId) return;
-    if (
-      isSuperLike &&
-      entitlements &&
-      entitlements.isUnlimitedSuperLike !== true &&
-      Number(entitlements.superlikeCount ?? entitlements.superLikeCount ?? 0) <= 0
-    ) {
-      navigate('/premium');
-      return;
-    }
-    nativeHaptics.impact();
-    try {
-      const res: any = await likeMutation.mutateAsync({ targetUserId: userId, isSuperLike });
-      // Backend returns { status, isMatch, matchId } directly -- no `data` wrapper, no
-      // `matchUser` (it never sends one; build it from the profile already in hand).
-      if (res?.isMatch) {
-        setMatchResult({ isOpen: true, matchUser: user, matchId: res.matchId });
-      } else {
-        navigate(-1);
-      }
-    } catch (err: any) {
-      console.error('[FULL PROFILE LIKE ERROR]', err);
-      if (isSuperLike && err?.code === 'SUPERLIKE_QUOTA_EXHAUSTED') navigate('/premium');
-    }
-  };
-
   const handlePass = async () => {
     if (!userId) return;
     nativeHaptics.impact();
     try {
+      // "Simdilik Gec": a directional, never-expiring pass -- it only hides this person from
+      // this user's own feed and can be undone from Settings ("Eslesmeleri Sifirla").
       await passMutation.mutateAsync(userId);
     } catch (err) {
       console.error('[FULL PROFILE PASS ERROR]', err);
@@ -454,25 +441,31 @@ export const FullProfileScreen: React.FC = () => {
             </AppButton>
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-5 pb-6">
-            <button
-              onClick={handlePass}
-              className="w-14 h-14 rounded-full bg-surface border border-app text-[#FF4B55] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
+          <div className="space-y-2 px-6 pb-6">
+            {pendingStatusLabel ? (
+              <div className="rounded-2xl border border-app bg-surface-elevated px-4 py-3 text-center text-caption font-bold text-app">
+                {pendingStatusLabel}
+              </div>
+            ) : (
+              <AppButton
+                variant="primary"
+                size="lg"
+                fullWidth
+                leftIcon={<HelpCircle className="w-5 h-5" />}
+                onClick={() => setIsAnswerOpen(true)}
+              >
+                {qt('answerQuestion')}
+              </AppButton>
+            )}
+            <AppButton
+              variant="ghost"
+              size="md"
+              fullWidth
+              disabled={passMutation.isPending}
+              onClick={() => void handlePass()}
             >
-              <X className="w-7 h-7 stroke-[2.5]" />
-            </button>
-            <button
-              onClick={() => handleLike(true)}
-              className="w-12 h-12 rounded-full bg-surface border border-app text-[#25D9D0] flex items-center justify-center shadow-elevated active:scale-90 transition-transform"
-            >
-              <Star className="w-6 h-6 fill-current" />
-            </button>
-            <button
-              onClick={() => handleLike(false)}
-              className="w-16 h-16 rounded-full bg-brand-gradient text-white flex items-center justify-center shadow-xl shadow-pink-500/30 active:scale-90 transition-transform"
-            >
-              <Heart className="w-8 h-8 fill-current" />
-            </button>
+              {qt('skipForNow')}
+            </AppButton>
           </div>
         )}
       </div>
@@ -493,14 +486,12 @@ export const FullProfileScreen: React.FC = () => {
         onSuccess={() => navigate(-1)}
       />
 
-      <MatchModal
-        isOpen={matchResult.isOpen}
-        onClose={() => {
-          setMatchResult({ isOpen: false });
-          navigate(-1);
-        }}
-        matchedUser={matchResult.matchUser}
-        matchId={matchResult.matchId}
+      <QuestionAnswerSheet
+        isOpen={isAnswerOpen}
+        onClose={() => setIsAnswerOpen(false)}
+        target={userId ? { id: userId, name: user.name } : null}
+        initialStatus={questionStatus?.interactionStatus || null}
+        onQuestionsRequired={() => navigate('/profile/questions')}
       />
     </div>
   );

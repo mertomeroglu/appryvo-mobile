@@ -94,8 +94,26 @@ const discoveryFeedQueryMock = vi.fn(() => ({
   isError: false,
   refetch: vi.fn(),
 }));
+// Discovery now runs through the question-based V2 feed; the location contracts below are
+// unchanged by that swap, so the same stable-reference double just moves to the new hook.
+vi.mock('../src/hooks/useQuestionQueries', () => ({
+  useDiscoveryV2FeedQuery: (...args: unknown[]) => discoveryFeedQueryMock(...args),
+  useDiscoveryPassMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useQuestionStatusQuery: () => ({ data: undefined }),
+  useQuestionInboxQuery: () => ({ data: undefined, refetch: vi.fn() }),
+  useOwnProfileQuestionsQuery: () => ({ data: undefined }),
+  useQuestionPresetsQuery: () => ({ data: undefined }),
+  useStartQuestionAttemptMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useAnswerQuestionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useInteractionActionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useQuestionSuperlikeMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useResetDiscoveryPassesMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCreateProfileQuestionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateProfileQuestionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteProfileQuestionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReorderProfileQuestionsMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}));
 vi.mock('../src/hooks/useQueries', () => ({
-  useDiscoveryFeedQuery: (...args: unknown[]) => discoveryFeedQueryMock(...args),
   useEntitlementsQuery: () => ({ data: undefined }),
   useInAppNotificationsQuery: () => ({ data: undefined }),
   useLikeMutation: () => ({ mutateAsync: vi.fn() }),

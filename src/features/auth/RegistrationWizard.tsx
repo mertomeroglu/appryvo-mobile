@@ -20,6 +20,8 @@ import { SPRING, PRESS_SCALE } from '../../motion/tokens';
 import { pageTransition } from '../../motion/variants';
 import { getRelationshipGoalLabel } from '../../lib/profileLabels';
 import { INTEREST_CATEGORIES, INTEREST_MIN, INTEREST_MAX } from '../../lib/interests';
+import { ProfileQuestionsDraftEditor, type DraftProfileQuestion } from '../questions/ProfileQuestionsEditor';
+import { questionErrorKey, useQuestionText } from '../questions/questionLocale';
 import { RELIGION_OPTIONS, RELIGION_LABEL_KEY } from '../../lib/religions';
 import { nativeKeyboard } from '../../native/keyboard';
 import { dismissKeyboardOnBackgroundPointerDown } from '../../hooks/useKeyboardViewport';
@@ -40,6 +42,21 @@ const EMAIL_FORMAT_REGEX = /^\S+@\S+\.\S+$/;
 const BASIC_STEP_INDEX = REGISTRATION_STEPS.findIndex((s) => s.id === 'basic');
 const USERNAME_STEP_INDEX = REGISTRATION_STEPS.findIndex((s) => s.id === 'username');
 const BIRTHDATE_STEP_INDEX = REGISTRATION_STEPS.findIndex((s) => s.id === 'birthdate');
+const PROFILE_QUESTIONS_STEP_INDEX = REGISTRATION_STEPS.findIndex((s) => s.id === 'profileQuestions');
+// Server-side validation codes for the questions submitted with the account (see
+// profile_question_service.js) -- each one sends the wizard back to that step instead of
+// showing a dead error on the photos step.
+const PROFILE_QUESTION_ERROR_CODES = new Set([
+  'PROFILE_QUESTIONS_COUNT',
+  'PROFILE_QUESTIONS_LIMIT',
+  'PROFILE_QUESTIONS_DUPLICATE',
+  'QUESTION_TEXT_LENGTH',
+  'QUESTION_OPTION_LENGTH',
+  'QUESTION_OPTIONS_IDENTICAL',
+  'QUESTION_CORRECT_OPTION_REQUIRED',
+  'QUESTION_PRESET_INVALID',
+  'CONTACT_INFO_NOT_ALLOWED',
+]);
 
 // Mirrors auth_controller.js's server-side computation exactly (same year/month/day logic) so
 // the client's pre-submit check and the server's authoritative check never disagree.
@@ -137,6 +154,7 @@ interface RegistrationWizardProps {
 
 export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, onComplete }) => {
   const { t, locale } = useAppTranslation();
+  const { qt } = useQuestionText();
   const RELATIONSHIP_GOALS = RELATIONSHIP_GOAL_KEYS.map((value) => ({
     value,
     label: getRelationshipGoalLabel(value, locale) || value,
@@ -173,6 +191,7 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   const [religion, setReligion] = useState<string | null>(null);
   const [relationshipGoal, setRelationshipGoal] = useState('OPEN_TO_EXPLORING');
   const [interests, setInterests] = useState<string[]>([]);
+  const [profileQuestions, setProfileQuestions] = useState<DraftProfileQuestion[]>([]);
 
   // Photos keep local previews, but only server-confirmed temporary uploads count toward signup.
   const [photos, setPhotos] = useState<DraftPhoto[]>([]);
@@ -521,6 +540,13 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         religion: religion ?? undefined,
         relationshipGoal,
         interests,
+        profileQuestions: profileQuestions.map(({ questionText, optionA, optionB, correctOption, presetId }) => ({
+          questionText,
+          optionA,
+          optionB,
+          correctOption,
+          ...(presetId ? { presetId } : {}),
+        })),
         photoUploadTokens,
         targetLang: locale,
       });
@@ -548,6 +574,10 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         setBirthDateError(t('minAgeRequirementMessage'));
         setDirection('back');
         setStepIndex(BIRTHDATE_STEP_INDEX);
+      } else if (code && PROFILE_QUESTION_ERROR_CODES.has(code)) {
+        setErrorMsg(qt(questionErrorKey(code)));
+        setDirection('back');
+        setStepIndex(PROFILE_QUESTIONS_STEP_INDEX);
       } else {
         setErrorMsg(message);
       }
@@ -967,6 +997,31 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                   fullWidth
                   rightIcon={<ChevronRight className="w-5 h-5" />}
                   disabled={interests.length < INTEREST_MIN}
+                  onClick={goNext}
+                  className="shrink-0"
+                >
+                  {t('continueButton')}
+                </AppButton>
+              </div>
+            )}
+
+            {/* PROFILE QUESTIONS -- created with the account itself; discovery is question-based
+                and the server rejects a registration without at least one. */}
+            {step.id === 'profileQuestions' && (
+              <div className="flex-1 min-h-0 flex flex-col max-w-sm mx-auto w-full">
+                <div className="shrink-0">
+                  <h2 className="text-title text-app">{qt('regHeading')}</h2>
+                  <p className="text-caption text-app-muted mt-1 normal-case">{qt('regSubheading')}</p>
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar my-5">
+                  <ProfileQuestionsDraftEditor value={profileQuestions} onChange={setProfileQuestions} />
+                </div>
+                <AppButton
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  rightIcon={<ChevronRight className="w-5 h-5" />}
+                  disabled={profileQuestions.length === 0}
                   onClick={goNext}
                   className="shrink-0"
                 >

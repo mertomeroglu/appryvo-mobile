@@ -66,24 +66,33 @@ describe('P0 Discover recovery contract', () => {
     expect(screen).toContain('setCursor(nextCursor)');
   });
 
-  it('commits a swipe optimistically and retains a stable keyed exit layer', () => {
-    const card = source('features/discovery/SwipeCard.tsx');
+  it('shows one profile at a time with a keyed, gesture-free exit transition', () => {
     const screen = source('features/discovery/DiscoverScreen.tsx');
 
-    expect(card.indexOf('onSwiped(direction, profile)')).toBeLessThan(card.indexOf("animate(x, targetX"));
-    expect(screen).toContain('key={profile.id}');
-    expect(screen).toContain('isExiting={isExiting}');
+    // Question-based discovery replaced the swipe deck: exactly one candidate is on screen, it
+    // leaves through an AnimatePresence transition (never a drag), and a handled profile is
+    // never handed out again in the same session.
+    expect(screen).toContain('key={currentProfile.id}');
+    expect(screen).toContain('<AnimatePresence mode="wait" initial={false}>');
     expect(screen).toContain('consumedProfileIds.has(p.id)');
+    expect(screen).not.toContain('SwipeCard');
+    expect(screen).not.toContain('drag=');
+    expect(screen).not.toContain('enqueueDiscoveryAction');
   });
 
-  it('uses the same central trigger for buttons and blocks unavailable super likes', () => {
+  it('offers exactly the three question-flow actions and no like/pass/rewind buttons', () => {
     const screen = source('features/discovery/DiscoverScreen.tsx');
 
-    expect(screen).toContain("handleAction('left')");
-    expect(screen).toContain("handleAction('right')");
-    expect(screen).toContain("handleAction('up')");
-    expect(screen).toContain("topCardRef.current?.triggerSwipe(direction)");
-    expect(screen).toContain("navigate('/premium')");
+    expect(screen).toContain("qt('answerQuestion')");
+    expect(screen).toContain("qt('viewProfile')");
+    expect(screen).toContain("qt('skipForNow')");
+    expect(screen).toContain('passMutation.mutateAsync(profile.id)');
+    expect(screen).toContain('<QuestionAnswerSheet');
+    // Blocked feeds send people to the question editor, never to a swipe upsell.
+    expect(screen).toContain('<QuestionsRequiredGate />');
+    expect(screen).not.toContain('handleAction(');
+    expect(screen).not.toContain('useLikeMutation');
+    expect(screen).not.toContain('handleRewind');
   });
 
   it('keeps photo taps inside Framer gesture arbitration', () => {

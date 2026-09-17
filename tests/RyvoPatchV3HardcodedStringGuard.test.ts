@@ -19,6 +19,8 @@ const EXCLUDED_FILES = new Set([
   // Connect Pass owns the same kind of scoped, fully locale-aware Record<AppLocale, ...>
   // dictionary as roomsLocale.ts, for the same reason (ship independently of appLocale.ts).
   'features/connect/connectLocale.ts',
+  // Question matching ships its own scoped nine-locale dictionary (same pattern as connectLocale).
+  'features/questions/questionLocale.ts',
   'lib/profileLabels.ts',
   'lib/languages.ts',
   'lib/interests.ts',

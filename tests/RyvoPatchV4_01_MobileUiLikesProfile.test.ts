@@ -114,29 +114,26 @@ describe('RYVO PATCH V4 / PROMPT 01: mobile UI/UX core fixes', () => {
     expect(nav).toContain('--nav-footprint');
 
     const discover = source('features/discovery/DiscoverScreen.tsx');
-    expect(discover).toContain('mb-[calc(var(--safe-bottom)+var(--nav-footprint)+24px)]');
-    // The old hard-coded guess must be gone.
+    // The swipe action row is gone (question flow), but the column that now holds the question
+    // actions must still clear the floating nav through the same shared constant.
+    expect(discover).toContain('pb-[calc(var(--safe-bottom)+var(--nav-footprint)+16px)]');
+    // The old hard-coded guesses must stay gone.
     expect(discover).not.toContain('mb-[calc(var(--safe-bottom)+6rem)]');
-    // The existing regression guard from patch 01 must still pass structurally too.
-    const actionBarDiv = discover.slice(
-      discover.indexOf('className="flex items-center justify-around max-w-sm mx-auto w-full'),
-      discover.indexOf('z-sticky">') + 10
-    );
-    expect(actionBarDiv).not.toMatch(/\bmb-20\b/);
-    expect(actionBarDiv).toContain('var(--safe-bottom)');
+    expect(discover).not.toMatch(/\bmb-20\b/);
   });
 
-  it('B -- the swipe-card container cannot overflow its flex-1 slot on short viewports', () => {
+  it('B -- the profile card container cannot overflow its flex-1 slot on short viewports', () => {
     const discover = source('features/discovery/DiscoverScreen.tsx');
-    // min-h-0 is required so an oversized child can't force this flex item taller than the
-    // space actually left after the header + action row, which used to push the action row
-    // (and therefore the nav-collision buffer) down past where it was calculated to fit.
-    expect(discover).toContain('flex-1 min-h-0 w-full max-w-md mx-auto my-auto');
-    // Viewport-relative dvh guessing replaced with the flex layout's own resolved size (the JSX
-    // itself, not just an explanatory comment referencing the old value, must be free of it).
+    // min-h-0 is required so an oversized child (long bio, many shared interests) can't force
+    // this flex item taller than the space actually left after the header + action buttons,
+    // which used to push the actions (and the nav-collision buffer) past where they fit.
+    expect(discover).toContain('flex-1 min-h-0 w-full max-w-md mx-auto flex flex-col');
+    // The card itself scrolls internally instead of growing the column.
+    expect(discover).toContain('min-h-0 flex-1 overflow-y-auto');
+    // Viewport-relative dvh guessing stays replaced by the flex layout's own resolved size (the
+    // JSX itself, not just an explanatory comment referencing the old value, must be free of it).
     const jsxOnly = discover.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\/\/.*$/gm, '');
     expect(jsxOnly).not.toContain('h-[65dvh]');
-    expect(discover.match(/className="relative w-full h-full max-h-\[600px\]"/g)?.length).toBe(2);
   });
 
   // -----------------------------------------------------------------------------------------

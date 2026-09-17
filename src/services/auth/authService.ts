@@ -18,6 +18,14 @@ export interface RegisterPayload {
   job?: string;
   bio?: string;
   interests?: string[];
+  /** 1-3 profile questions created with the account (question-based discovery requires them). */
+  profileQuestions?: {
+    questionText: string;
+    optionA: string;
+    optionB: string;
+    correctOption: 'A' | 'B';
+    presetId?: string;
+  }[];
   relationshipGoal?: string;
   latitude?: number;
   longitude?: number;

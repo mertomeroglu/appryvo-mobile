@@ -9,6 +9,7 @@ export type RegistrationStepId =
   | 'interestedIn'
   | 'relationshipGoal'
   | 'interests'
+  | 'profileQuestions'
   | 'photos';
 
 import type { AppMessageKey } from '../../i18n/appLocale';
@@ -29,6 +30,10 @@ export const REGISTRATION_STEPS: RegistrationStepConfig[] = [
   { id: 'interestedIn', labelKey: 'regStepInterestedInLabel' },
   { id: 'relationshipGoal', labelKey: 'regStepRelationshipGoalLabel' },
   { id: 'interests', labelKey: 'regStepInterestsLabel' },
+  // Every account owns 1-3 profile questions from day one -- discovery is question-based, so
+  // there is no usable feed without them (the server enforces the same rule via /auth/register
+  // and questionsRequired on /me).
+  { id: 'profileQuestions', labelKey: 'regStepProfileQuestionsLabel' },
   { id: 'photos', labelKey: 'regStepPhotosLabel' },
 ];
 

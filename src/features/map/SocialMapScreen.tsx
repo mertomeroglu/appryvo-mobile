@@ -18,12 +18,11 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 setWorkerUrl('/maplibre-gl-worker.mjs');
 import Supercluster, { type PointFeature } from 'supercluster';
 import './SocialMapScreen.css';
-import { Search, Compass, ShieldCheck, LocateFixed, Sparkles, Crown, MapPin, EyeOff, Users, MessageCircle, MoreHorizontal, ChevronRight } from 'lucide-react';
+import { Search, Compass, ShieldCheck, LocateFixed, Sparkles, Crown, HelpCircle, MapPin, EyeOff, Users, MessageCircle, MoreHorizontal, ChevronRight } from 'lucide-react';
 import {
   useDiscoveryMapQuery,
   useDiscoveryUserQuery,
   useFramesQuery,
-  useLikeMutation,
   useMeQuery,
   usePassMutation,
   useUpdateProfileMutation,
@@ -68,6 +67,9 @@ import { APP_LOCALE_LABELS, useAppTranslation, translateSync, type AppLocale, ty
 import { communityRoomsService, type CommunityRoom, type RoomCategory } from '../../services/rooms/communityRoomsService';
 import { FollowButton } from '../../components/FollowButton';
 import { ConnectButton } from '../connect/ConnectButton';
+import { QuestionAnswerSheet } from '../questions/QuestionAnswerSheet';
+import { useQuestionText } from '../questions/questionLocale';
+import { useQuestionStatusQuery } from '../../hooks/useQuestionQueries';
 
 const ROOM_CATEGORY_KEY: Record<RoomCategory, Parameters<typeof roomsText>[1]> = {
   GENERAL: 'categoryGeneral', TRAVEL: 'categoryTravel', FOOD_CAFE: 'categoryFoodCafe', MUSIC: 'categoryMusic',
@@ -380,6 +382,7 @@ export const SocialMapScreen: React.FC = () => {
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [joiningRoom, setJoiningRoom] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(DEFAULT_ZOOM);
+  const [questionTarget, setQuestionTarget] = useState<{ id: string; name: string } | null>(null);
   const [matchResult, setMatchResult] = useState<{ isOpen: boolean; matchUser?: any; matchId?: string }>({
     isOpen: false,
   });
@@ -393,6 +396,27 @@ export const SocialMapScreen: React.FC = () => {
     ?? resolveGenderFilter(me?.genderFilter, me?.targetGender);
   const { data: mapUsers, isLoading: isMapUsersLoading } = useDiscoveryMapQuery(bbox, 150, genderFilter);
   const { data: selectedUserDetail, isFetching: isDetailFetching } = useDiscoveryUserQuery(selectedUser?.id);
+  const { qt } = useQuestionText();
+  // Read-only interaction state for the person in the sheet -- the map never starts, resumes or
+  // reveals anything about a question beyond "where this stands".
+  const { data: mapQuestionStatus } = useQuestionStatusQuery(selectedUser?.id);
+  const mapQuestionStatusLabel = (() => {
+    switch (mapQuestionStatus?.interactionStatus) {
+      case 'QUESTION_PRESENTED':
+      case 'ANSWER_WRONG':
+        return qt('statusAnswered');
+      case 'OWNER_PENDING':
+        return qt('statusAwaiting');
+      case 'SUPERLIKE_PENDING':
+        return qt('statusSuperlikeSent');
+      case 'RETRY_REQUESTED':
+        return qt('statusRetryRequested');
+      case 'MATCHED':
+        return qt('statusMatched');
+      default:
+        return null;
+    }
+  })();
   const { data: framesData } = useFramesQuery();
   const frameCatalog = useMemo<ProfileFrameRecord[]>(
     () => Array.isArray(framesData?.frames) ? framesData.frames : [],
@@ -1334,11 +1358,24 @@ export const SocialMapScreen: React.FC = () => {
                 </div>
               )}
 
-              {/* V3: the map's direct-contact sheet no longer offers Like/SuperLike as the main
-                  action -- Discover's own swipe screen keeps that flow untouched. Here it's
-                  View Profile / Follow / Connect (40-coin paid intro), matching the room
+              {/* The map sheet never had Like/SuperLike and still doesn't: it offers the same
+                  question action Discover does (or the current interaction's read-only state),
+                  then View Profile / Follow / Connect (40-coin paid intro), matching the room
                   member-preview sheet exactly (see RoomScreen.tsx's MemberProfileSheet). */}
               <div className="space-y-2 pt-1">
+                {mapQuestionStatusLabel ? (
+                  <div className="w-full rounded-2xl border border-app bg-surface-elevated py-3 text-center text-caption font-extrabold text-app">
+                    {mapQuestionStatusLabel}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setQuestionTarget({ id: selectedUser.id, name: selectedUser.name })}
+                    className="w-full flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-brand-gradient text-caption font-extrabold text-white active:scale-[0.98] transition-transform"
+                  >
+                    <HelpCircle className="w-4 h-4" />
+                    {qt('answerQuestion')}
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     closeSheet();
@@ -1356,6 +1393,14 @@ export const SocialMapScreen: React.FC = () => {
           ) : null}
         </div>
       </BottomSheet>
+
+      <QuestionAnswerSheet
+        isOpen={questionTarget !== null}
+        onClose={() => setQuestionTarget(null)}
+        target={questionTarget}
+        initialStatus={mapQuestionStatus?.interactionStatus || null}
+        onQuestionsRequired={() => navigate('/profile/questions')}
+      />
 
       <MatchModal
         isOpen={matchResult.isOpen}

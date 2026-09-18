@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Crown, LockKeyhole, MapPin, ShieldCheck, Sparkles, SlidersHorizontal, Users, X, Zap } from 'lucide-react';
+import { Check, Crown, LockKeyhole, ShieldCheck, Sparkles, SlidersHorizontal, Users, X, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useEntitlementsQuery, useMeQuery, useUpdateProfileMutation, type MapGenderFilter } from '../hooks/useQueries';
 import { RELATIONSHIP_GOAL_LABELS } from '../lib/profileLabels';
@@ -34,7 +34,6 @@ function resolveGenderFilter(saved?: string | null, registrationChoice?: string 
 }
 
 const DEFAULTS = {
-  maxDistance: 50,
   minAge: 18,
   maxAge: 45,
   verifiedOnly: false,
@@ -78,7 +77,6 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
   const updateProfile = useUpdateProfileMutation();
   const hasAdvancedFilters = entitlements?.advancedFilters === true;
 
-  const [maxDistance, setMaxDistance] = useState(DEFAULTS.maxDistance);
   const [minAge, setMinAge] = useState(DEFAULTS.minAge);
   const [maxAge, setMaxAge] = useState(DEFAULTS.maxAge);
   const [verifiedOnly, setVerifiedOnly] = useState(DEFAULTS.verifiedOnly);
@@ -93,7 +91,6 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
   // never a client-only cosmetic filter.
   useEffect(() => {
     if (!me) return;
-    setMaxDistance(me.maxDistancePref ?? DEFAULTS.maxDistance);
     const savedMinAge = Math.max(18, Math.min(99, me.minAgePref ?? DEFAULTS.minAge));
     const savedMaxAge = Math.max(savedMinAge, Math.min(99, me.maxAgePref ?? DEFAULTS.maxAge));
     setMinAge(savedMinAge);
@@ -118,7 +115,6 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
       await updateProfile.mutateAsync({
         minAgePref: minAge,
         maxAgePref: maxAge,
-        maxDistancePref: maxDistance,
         verifiedOnlyPref: hasAdvancedFilters ? verifiedOnly : false,
         recentlyActivePref: hasAdvancedFilters ? recentlyActive : false,
         newMembersPref: hasAdvancedFilters ? newMembers : false,
@@ -133,7 +129,6 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
   };
 
   const handleReset = () => {
-    setMaxDistance(DEFAULTS.maxDistance);
     setMinAge(DEFAULTS.minAge);
     setMaxAge(DEFAULTS.maxAge);
     setVerifiedOnly(DEFAULTS.verifiedOnly);
@@ -174,33 +169,10 @@ export const FilterBottomSheet: React.FC<FilterBottomSheetProps> = ({ isOpen, on
           </div>
         </div>
 
-        {/* Distance -- this is the user's own preferred ceiling, capped at 150km (never higher):
-            it sets the server-side tier-1 radius directly (discovery_engine.js), which only ever
-            widens to a 150-300km fallback annulus on the server when tier 1 has nothing left to
-            show, never automatically beyond 300km. See the RYVO PATCH V2 04 report. */}
-        <div className="space-y-2">
-          <div className="flex justify-between text-caption font-semibold">
-            <span className="text-app-muted">{t('maxDistanceLabel')}</span>
-            <span className="text-pink-500 font-bold">{maxDistance} km</span>
-          </div>
-          <input
-            type="range"
-            min={1}
-            max={150}
-            value={maxDistance}
-            onChange={(e) => setMaxDistance(Number(e.target.value))}
-            className="w-full accent-pink-500"
-          />
-          <div className="flex items-center gap-1.5 text-micro font-semibold normal-case text-app-muted">
-            <MapPin className="h-3.5 w-3.5 shrink-0" />
-            <span>{t('maxDistanceHint')}</span>
-          </div>
-        </div>
-
         {/* Age range */}
         <DualRangeSlider min={18} max={99} valueMin={minAge} valueMax={maxAge} onChange={(a, b) => { setMinAge(a); setMaxAge(b); }} />
 
-        {/* Paid, server-enforced discovery filters. Base age/distance remain free. */}
+        {/* Paid, server-enforced discovery filters. Base age filtering remains free. */}
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
             <span className="text-caption font-semibold text-app-muted">{t('filterAdvancedFiltersLabel')}</span>

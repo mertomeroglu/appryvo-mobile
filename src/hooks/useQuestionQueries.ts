@@ -175,7 +175,9 @@ export interface QuestionPreset {
 }
 
 export const QUESTION_QUERY_KEYS = {
-  feedV2: ['discovery', 'v2', 'feed'] as const,
+  // Versioned so a client upgraded from radius-based Discovery cannot reuse a persisted/stale
+  // query result assembled under the old distance ceiling.
+  feedV2: ['discovery', 'v2', 'feed', 'global-v1'] as const,
   inbox: ['questions', 'inbox'] as const,
   status: (userId: string) => ['questions', 'status', userId] as const,
   ownQuestions: ['questions', 'profile', 'me'] as const,

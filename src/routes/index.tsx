@@ -67,7 +67,7 @@ const router = createBrowserRouter([
         // SessionGate enforces: no session -> /auth, authenticated -> app. All onboarding
         // Required registration fields and photos are collected inside the registration
         // wizard. Device location is opt-in, requested later on World/Map (check-in) or
-        // Discover (distance sorting) — see src/features/auth/RegistrationWizard.tsx and
+        // Discover (global compatibility/activity ranking) — see src/features/auth/RegistrationWizard.tsx and
         // src/app/SessionGate.tsx. World/Map is the default landing route (Apple 4.3(b)).
         element: <SessionGate />,
         children: [

@@ -20,6 +20,7 @@ import { Avatar } from './ui/Avatar';
 import { IconButton } from './ui/IconButton';
 import { ActionSheet, type ActionSheetAction } from './ui/ActionSheet';
 import { useAppTranslation } from '../i18n/appLocale';
+import { SyntheticContentBadge } from './SyntheticContentBadge';
 
 const STORY_DURATION_MS = 5000;
 
@@ -254,6 +255,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({ stories, startIndex, s
         <div className="flex items-center gap-3">
           <Avatar src={story.userPhoto ? normalizeMediaUrl(story.userPhoto) : undefined} name={story.userName} size="sm" />
           <span className="text-caption font-black text-white">{isOwn ? t('myStoryLabel') : story.userName}</span>
+          {story.isDemo && <SyntheticContentBadge />}
           {story.isPromoted && (
             <span className="rounded-full bg-amber-400/90 px-2 py-0.5 text-[10px] font-extrabold uppercase text-black">{t('sponsoredLabel')}</span>
           )}

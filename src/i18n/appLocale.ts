@@ -67,7 +67,7 @@ export const PHOTO_PICKER_LABELS: Record<AppLocale, readonly [string, string, st
   zh: ['选择照片', '拍摄照片', '从相册选择', '取消'],
 };
 
-export const PRODUCT_DEFAULT_LOCALE: AppLocale = 'tr';
+export const PRODUCT_DEFAULT_LOCALE: AppLocale = 'en';
 export const UNSUPPORTED_DEVICE_FALLBACK_LOCALE: AppLocale = 'en';
 export const APP_LOCALE_STORAGE_KEY = 'ryvo_app_locale';
 
@@ -3815,15 +3815,14 @@ interface InitialLocaleState {
 
 export function resolveInitialLocale(
   persistedLocale?: string | null,
-  deviceLocale?: string | null,
+  _deviceLocale?: string | null,
 ): InitialLocaleState {
   const persisted = matchSupportedLocale(persistedLocale);
   if (persisted) return { locale: persisted, needsLanguageSelection: false };
 
-  const device = matchSupportedLocale(deviceLocale);
-  if (device) return { locale: device, needsLanguageSelection: false };
-
-  return { locale: UNSUPPORTED_DEVICE_FALLBACK_LOCALE, needsLanguageSelection: true };
+  // Fresh installs are deterministic: English is rendered before the user makes a choice.
+  // Device language may be offered later, but never silently replaces the product default.
+  return { locale: PRODUCT_DEFAULT_LOCALE, needsLanguageSelection: false };
 }
 
 function readPersistedLocale(): string | null {

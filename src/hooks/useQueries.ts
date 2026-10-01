@@ -190,6 +190,7 @@ export interface StoryItem {
   userId: string;
   userName: string;
   userPhoto?: string;
+  isDemo?: boolean;
   mediaUrl: string;
   caption?: string;
   expiresAt: string;

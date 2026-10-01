@@ -34,6 +34,8 @@ export interface QuestionPerson {
   age?: number | null;
   city?: string;
   verified?: boolean;
+  isDemo?: boolean;
+  isOfficialSystem?: boolean;
   photoUrl?: string;
   photoThumbnailUrl?: string;
   photoMediumUrl?: string;
@@ -152,6 +154,8 @@ export interface QuestionFeedItem {
     name: string;
     city?: string;
     verified?: boolean;
+    isDemo?: boolean;
+    isOfficialSystem?: boolean;
     photoThumbnailUrl?: string;
   };
   sharedInterestCount: number;

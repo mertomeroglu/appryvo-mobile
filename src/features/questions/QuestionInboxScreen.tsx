@@ -27,6 +27,7 @@ import {
 } from '../../hooks/useQuestionQueries';
 import { QuestionAnswerSheet, type QuestionAnswerTarget } from './QuestionAnswerSheet';
 import { questionErrorKey, useQuestionText, type QuestionTextKey } from './questionLocale';
+import { SyntheticContentBadge } from '../../components/SyntheticContentBadge';
 import { ConnectionMadeSheet } from '../social/ConnectionMadeSheet';
 
 type InboxTab = 'received' | 'sent';
@@ -135,7 +136,11 @@ export const QuestionInboxScreen: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <Avatar src={personPhoto(item.person)} name={item.person.name} size="md" />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-body font-bold text-app">{item.person.name}</p>
+                    <p className="flex items-center gap-1.5 truncate text-body font-bold text-app">
+                      <span className="truncate">{item.person.name}</span>
+                      {item.person.isDemo && <SyntheticContentBadge />}
+                      {item.person.isOfficialSystem && <SyntheticContentBadge kind="official" />}
+                    </p>
                     {item.person.city && <p className="truncate text-caption text-app-muted">{item.person.city}</p>}
                   </div>
                   {typeof item.sameAnswer === 'boolean' && (
@@ -194,7 +199,11 @@ export const QuestionInboxScreen: React.FC = () => {
               <div className="flex items-center gap-3">
                 <Avatar src={personPhoto(item.person)} name={item.person.name} size="md" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-body font-bold text-app">{item.person.name}</p>
+                  <p className="flex items-center gap-1.5 truncate text-body font-bold text-app">
+                    <span className="truncate">{item.person.name}</span>
+                    {item.person.isDemo && <SyntheticContentBadge />}
+                    {item.person.isOfficialSystem && <SyntheticContentBadge kind="official" />}
+                  </p>
                   <p className="truncate text-caption text-app-muted">{qt(statusKey)}</p>
                 </div>
               </div>

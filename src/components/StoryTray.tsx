@@ -8,6 +8,7 @@ import { Avatar } from './ui/Avatar';
 import { StoryViewer } from './StoryViewer';
 import { StoryComposer } from './StoryComposer';
 import { useAppTranslation } from '../i18n/appLocale';
+import { SyntheticContentBadge } from './SyntheticContentBadge';
 
 /** Social layer at the top of the Messages hub (not a bottom-nav tab): own story / "Hikaye Ekle"
  * first, then organic stories from followed users, then any promoted ("Sponsorlu") placements --
@@ -80,6 +81,7 @@ export const StoryTray: React.FC = () => {
                 </span>
               </span>
               <span className="w-full text-micro font-bold text-app truncate normal-case">{story.userName}</span>
+              {story.isDemo && <SyntheticContentBadge className="px-1.5 text-[8px]" />}
               {story.isPromoted && (
                 <span className="rounded-full bg-amber-400/20 px-1.5 py-0 text-[8px] font-extrabold uppercase text-amber-600">{t('sponsoredLabel')}</span>
               )}

@@ -16,6 +16,7 @@ import { communityRoomsService, type CommunityRoom } from '../../services/rooms/
 import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { useAppTranslation } from '../../i18n/appLocale';
 import { QuestionAnswerSheet, type QuestionAnswerTarget } from '../questions/QuestionAnswerSheet';
+import { SyntheticContentBadge } from '../../components/SyntheticContentBadge';
 import { useSocialText } from '../social/socialLocale';
 
 const HOME_ROOMS_LIMIT = 8;
@@ -96,6 +97,8 @@ export const HomeFeedScreen: React.FC = () => {
                     <p className="flex items-center gap-1 truncate text-caption font-bold text-app">
                       {st('askedByTemplate', { name: item.author.name })}
                       {item.author.verified && <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-sky-500" aria-hidden="true" />}
+                      {item.author.isDemo && <SyntheticContentBadge />}
+                      {item.author.isOfficialSystem && <SyntheticContentBadge kind="official" />}
                     </p>
                     {item.author.city && <p className="truncate text-micro text-app-muted">{item.author.city}</p>}
                   </div>

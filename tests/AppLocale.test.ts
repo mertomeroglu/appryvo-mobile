@@ -25,10 +25,14 @@ describe('app localization', () => {
     expect(matchSupportedLocale('ja-JP')).toBeNull();
   });
 
-  it('prompts for unsupported device languages and uses a safe English fallback', () => {
+  it('uses English for every fresh install regardless of device language', () => {
     expect(resolveInitialLocale(null, 'ja-JP')).toEqual({
       locale: 'en',
-      needsLanguageSelection: true,
+      needsLanguageSelection: false,
+    });
+    expect(resolveInitialLocale(null, 'tr-TR')).toEqual({
+      locale: 'en',
+      needsLanguageSelection: false,
     });
   });
 

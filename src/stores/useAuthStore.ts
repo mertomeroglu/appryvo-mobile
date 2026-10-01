@@ -20,6 +20,8 @@ interface UserProfile {
   photos?: any[];
   isPremium?: boolean;
   verified?: boolean;
+  isDemo?: boolean;
+  isOfficialSystem?: boolean;
   /** Canonical face/profile badge state. `verified` remains its compatibility alias. */
   faceVerified?: boolean;
   /** Email ownership is independent from face/profile verification. */

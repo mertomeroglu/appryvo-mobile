@@ -20,6 +20,7 @@ import {
 import { useDiscoveryUserQuery, useMatchesQuery, useFollowStatusQuery } from '../../hooks/useQueries';
 import { useQuestionStatusQuery } from '../../hooks/useQuestionQueries';
 import { QuestionAnswerSheet } from '../questions/QuestionAnswerSheet';
+import { SyntheticContentBadge } from '../../components/SyntheticContentBadge';
 import { useQuestionText } from '../questions/questionLocale';
 import { FollowButton } from '../../components/FollowButton';
 import { TrustProfileSection } from '../../components/TrustProfileSection';
@@ -210,6 +211,8 @@ export const FullProfileScreen: React.FC = () => {
                 {formatDisplayAge(user.age) !== undefined && <span className="text-2xl font-bold text-gray-300">{formatDisplayAge(user.age)}</span>}
                 {user.verified && <VerifiedBadge size={24} />}
                 {user.isPremium && <Crown className="w-6 h-6 text-[#F5B942] fill-current" />}
+                {user.isDemo && <SyntheticContentBadge />}
+                {user.isOfficialSystem && <SyntheticContentBadge kind="official" />}
               </div>
               {user.city && (
                 <div className="flex items-center gap-1.5 text-xs text-gray-300 mt-1">

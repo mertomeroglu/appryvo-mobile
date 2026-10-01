@@ -15,6 +15,7 @@ import { AppLogo } from '../../components/ui/AppLogo';
 import { StoryTray } from '../../components/StoryTray';
 import { buildOfficialRyvoThread, officialMessageTimestamp } from './officialRyvo';
 import { useAppTranslation } from '../../i18n/appLocale';
+import { SyntheticContentBadge } from '../../components/SyntheticContentBadge';
 
 const ConfessionsScreen = lazy(() => import('../social/ConfessionsScreen').then((module) => ({
   default: module.ConfessionsScreen,
@@ -99,6 +100,8 @@ export const ConversationRow: React.FC<ConversationRowProps> = ({ match, online,
               <span className={`truncate text-body text-app ${unreadCount > 0 ? 'font-black' : 'font-bold'}`}>
                 {user.name}
               </span>
+              {(match.isDemo || user.isDemo) && <SyntheticContentBadge kind="conversation" />}
+              {user.isOfficialSystem && <SyntheticContentBadge kind="official" />}
               {online && (
                 <span className="flex shrink-0 items-center gap-1 text-micro font-bold normal-case text-success">
                   <span className="h-1.5 w-1.5 rounded-full bg-success" />

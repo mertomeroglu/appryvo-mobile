@@ -10,19 +10,19 @@ function readSource(relativePath: string) {
   return readFileSync(resolve(process.cwd(), relativePath), 'utf8');
 }
 
-describe('RYVO PATCH V2 04/05 issues 2/3 -- locale priority is manual > device, GPS-free, country-free', () => {
+describe('RYVO PATCH V2 04/05 issues 2/3 -- locale priority is manual > English default, GPS-free, country-free', () => {
   it('a manually persisted locale always wins over the device locale', () => {
     expect(resolveInitialLocale('en', 'tr-TR').locale).toBe('en');
     expect(resolveInitialLocale('tr', 'en-US').locale).toBe('tr');
   });
 
-  it('falls back to the device locale only when nothing was manually persisted', () => {
-    expect(resolveInitialLocale(null, 'en-US')).toEqual({ locale: 'en', needsLanguageSelection: false });
+  it('defaults a fresh install to English even on a supported non-English device', () => {
+    expect(resolveInitialLocale(null, 'tr-TR')).toEqual({ locale: 'en', needsLanguageSelection: false });
   });
 
-  it('an unsupported device locale (e.g. Turkish device but unsupported region tag) does not get forced to Turkish -- it flags selection needed instead', () => {
+  it('an unsupported device locale also receives the deterministic English default', () => {
     const result = resolveInitialLocale(null, 'xx-YY');
-    expect(result.needsLanguageSelection).toBe(true);
+    expect(result.needsLanguageSelection).toBe(false);
     expect(result.locale).toBe('en');
   });
 

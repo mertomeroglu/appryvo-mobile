@@ -15,17 +15,8 @@ describe('critical product fixes V6', () => {
     expect(isUsableLocation(fix(38.4237, 27.1428, 12, 31_000), now)).toBe(false);
   });
 
-  it('keeps MapLibre coordinates lng/lat and isolates marker animation from its root', () => {
-    const map = source('features/map/SocialMapScreen.tsx');
-    const css = source('features/map/SocialMapScreen.css');
-    expect(map).toContain('.setLngLat([lng, lat])');
-    expect(map).toContain('class="ryvo-room-marker-root"');
-    expect(css).toContain('.ryvo-room-marker.is-selected { transform:scale(1.12)');
-  });
-
   it('reports the immutable selected message and never falls back to original locked media', () => {
     expect(source('features/chat/ChatScreen.tsx')).toContain("targetType={reportedMessageId ? 'MESSAGE' : 'USER'}");
-    expect(source('features/likes/LikesScreen.tsx')).toContain('isBlurred ? primaryPhoto || user.photoBlurUrl : primaryPhoto || user.photoUrl');
   });
 
   it('exposes canonical city, prompt, voice, follower removal and block controls', () => {

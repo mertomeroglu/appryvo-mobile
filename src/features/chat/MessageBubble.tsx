@@ -226,8 +226,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   }, {});
 
   // Swipe-to-reply: drag right only, reveal the Reply affordance behind the bubble, commit past
-  // threshold on release. Same physical-drag idiom as SwipeCard (a motion value driving style,
-  // an imperative animate() to spring back) -- never a fixed-duration tween for a drag gesture.
+  // threshold on release. A motion value drives style and an imperative animate() springs back -- never a fixed-duration tween for a drag gesture.
   const reduceMotion = useReducedMotion();
   const dragX = useMotionValue(0);
   const replyIconOpacity = useTransform(dragX, [12, REPLY_SWIPE_THRESHOLD], [0, 1]);

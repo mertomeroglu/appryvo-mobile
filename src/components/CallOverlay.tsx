@@ -358,7 +358,7 @@ export const CallOverlay: React.FC = () => {
             {/* A denied camera/mic permission has no in-call retry path -- unlike a dropped
                 connection, hanging up again changes nothing until the OS permission itself is
                 granted. Mirrors the existing openLocationSettings/openPermissionSettings pattern
-                (DiscoverScreen.tsx/SocialMapScreen.tsx) instead of leaving the user with only a
+                (SocialMapScreen.tsx) instead of leaving the user with only a
                 hangup button and a message telling them what's wrong but not how to fix it. */}
             {activeCall.error === 'PERMISSION_DENIED' && (
               <AppButton

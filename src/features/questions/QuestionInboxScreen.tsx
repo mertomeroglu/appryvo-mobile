@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, Crown, Inbox, Send, Sparkles } from 'lucide-react';
+import { ArrowLeft, Inbox, Send } from 'lucide-react';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { IconButton } from '../../components/ui/IconButton';
 import { FilterChip } from '../../components/ui/Chip';
@@ -10,12 +10,12 @@ import { AppButton } from '../../components/ui/AppButton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { Skeleton } from '../../components/ui/Skeleton';
-import { MatchModal } from '../../components/MatchModal';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { ApiException } from '../../services/api/apiClient';
 import { toast } from '../../stores/useToastStore';
 import { useAppTranslation } from '../../i18n/appLocale';
 import { SPRING } from '../../motion/tokens';
+import { cn } from '../../lib/utils';
 import {
   useInteractionActionMutation,
   useQuestionInboxQuery,
@@ -27,6 +27,7 @@ import {
 } from '../../hooks/useQuestionQueries';
 import { QuestionAnswerSheet, type QuestionAnswerTarget } from './QuestionAnswerSheet';
 import { questionErrorKey, useQuestionText, type QuestionTextKey } from './questionLocale';
+import { ConnectionMadeSheet } from '../social/ConnectionMadeSheet';
 
 type InboxTab = 'received' | 'sent';
 
@@ -35,25 +36,26 @@ function personPhoto(person: QuestionPerson): string | undefined {
   return url ? normalizeMediaUrl(url) : undefined;
 }
 
-function personSubtitle(person: QuestionPerson): string {
-  return [person.age ? String(person.age) : null, person.city || null].filter(Boolean).join(' · ');
-}
-
+// Legacy states (ANSWER_WRONG, SUPERLIKE_PENDING) are shown with the same neutral labels as
+// current ones: nothing on this screen calls an answer right or wrong.
 const SENT_STATUS_KEYS: Partial<Record<InteractionStatus, QuestionTextKey>> = {
   QUESTION_PRESENTED: 'statusAwaiting',
-  ANSWER_WRONG: 'statusWrong',
+  ANSWER_WRONG: 'statusAnswered',
   OWNER_PENDING: 'statusAwaiting',
   RETRY_REQUESTED: 'statusRetryRequested',
   RETRY_APPROVED: 'statusRetryApproved',
   RETRY_DECLINED: 'statusClosed',
-  SUPERLIKE_PENDING: 'statusSuperlikeSent',
-  MATCHED: 'statusMatched',
+  SUPERLIKE_PENDING: 'statusAwaiting',
+  MATCHED: 'statusConnected',
   CLOSED: 'statusClosed',
   EXPIRED: 'statusClosed',
   CANCELLED: 'statusClosed',
 };
 
-/** Replaces "Seni Begenenler": every pending decision that belongs to the question flow. */
+/**
+ * Answers to my questions (I decide whether to connect) and the answers I sent. Accepting an
+ * answer creates a mutual connection; only then can the two people message each other.
+ */
 export const QuestionInboxScreen: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useAppTranslation();
@@ -61,7 +63,7 @@ export const QuestionInboxScreen: React.FC = () => {
   const [tab, setTab] = useState<InboxTab>('received');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [answerTarget, setAnswerTarget] = useState<{ target: QuestionAnswerTarget; status: InteractionStatus } | null>(null);
-  const [matchResult, setMatchResult] = useState<{ isOpen: boolean; person?: QuestionPerson; matchId?: string }>({ isOpen: false });
+  const [connection, setConnection] = useState<{ person: QuestionPerson; conversationId: string } | null>(null);
 
   const inbox = useQuestionInboxQuery();
   const action = useInteractionActionMutation();
@@ -81,7 +83,7 @@ export const QuestionInboxScreen: React.FC = () => {
     try {
       const result = await action.mutateAsync({ interactionId: item.interactionId, action: endpoint });
       if (ownerAction === 'ACCEPT' && result?.matchId) {
-        setMatchResult({ isOpen: true, person: item.person, matchId: result.matchId });
+        setConnection({ person: item.person, conversationId: result.matchId });
       } else if (ownerAction === 'RETRY_APPROVE') {
         toast.success(qt('retryApprovedToast'));
       }
@@ -94,13 +96,12 @@ export const QuestionInboxScreen: React.FC = () => {
 
   const receivedMessage = (item: ReceivedInboxItem) => {
     const name = item.person.name;
-    if (item.status === 'SUPERLIKE_PENDING') return qt('cardSuperlikeTemplate', { name });
     if (item.status === 'RETRY_REQUESTED') return qt('cardRetryTemplate', { name });
-    return qt('cardCorrectTemplate', { name });
+    return qt('cardAnswerTemplate', { name });
   };
 
   const actionLabel = (ownerAction: OwnerAction, status: ReceivedInboxItem['status']): string => {
-    if (ownerAction === 'ACCEPT') return qt('match');
+    if (ownerAction === 'ACCEPT') return qt('connect');
     if (ownerAction === 'PASS') return qt('pass');
     if (ownerAction === 'RETRY_APPROVE') return status === 'RETRY_REQUESTED' ? qt('accept') : qt('giveAnotherChance');
     return qt('decline');
@@ -135,21 +136,28 @@ export const QuestionInboxScreen: React.FC = () => {
                   <Avatar src={personPhoto(item.person)} name={item.person.name} size="md" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-body font-bold text-app">{item.person.name}</p>
-                    <p className="truncate text-caption text-app-muted">{personSubtitle(item.person)}</p>
+                    {item.person.city && <p className="truncate text-caption text-app-muted">{item.person.city}</p>}
                   </div>
-                  {item.viaSuperlike && <Sparkles className="h-5 w-5 shrink-0 text-brand-primary" aria-hidden="true" />}
-                  {item.priority && (
-                    <span className="flex shrink-0 items-center gap-1 rounded-full bg-brand-gradient px-2.5 py-1 text-[11px] font-bold text-white">
-                      <Crown className="h-3 w-3" aria-hidden="true" />
-                      {qt('goldPriority')}
+                  {typeof item.sameAnswer === 'boolean' && (
+                    <span
+                      className={cn(
+                        'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold',
+                        item.sameAnswer ? 'bg-brand-primary/15 text-brand-primary' : 'bg-surface-elevated text-app-muted'
+                      )}
+                      data-testid="question-inbox-same-answer"
+                    >
+                      {qt(item.sameAnswer ? 'sameAnswerBadge' : 'differentAnswerBadge')}
                     </span>
                   )}
                 </div>
                 <p className="mt-3 text-body normal-case leading-relaxed text-app">{receivedMessage(item)}</p>
                 {item.questionText && (
-                  <p className="mt-2 rounded-2xl bg-surface-elevated p-3 text-caption normal-case text-app-muted">
-                    {qt('questionLabel')}: {item.questionText}
-                  </p>
+                  <div className="mt-2 space-y-1 rounded-2xl bg-surface-elevated p-3 text-caption normal-case">
+                    <p className="text-app-muted">{qt('questionLabel')}: {item.questionText}</p>
+                    {item.answerText && (
+                      <p className="font-semibold text-app">{qt('theirAnswerLabel')}: {item.answerText}</p>
+                    )}
+                  </div>
                 )}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {item.actions.map((ownerAction) => (
@@ -181,7 +189,6 @@ export const QuestionInboxScreen: React.FC = () => {
           const statusKey = SENT_STATUS_KEYS[item.status] || 'statusAwaiting';
           const canAnswer = item.nextActions.includes('ANSWER');
           const canRetry = item.nextActions.includes('REQUEST_RETRY');
-          const canSuperlike = item.nextActions.includes('SUPERLIKE');
           return (
             <li key={item.interactionId} className="rounded-3xl border border-app bg-surface p-4" data-testid="question-inbox-sent">
               <div className="flex items-center gap-3">
@@ -191,7 +198,7 @@ export const QuestionInboxScreen: React.FC = () => {
                   <p className="truncate text-caption text-app-muted">{qt(statusKey)}</p>
                 </div>
               </div>
-              {(canAnswer || canRetry || canSuperlike || item.status === 'MATCHED') && (
+              {(canAnswer || canRetry || item.status === 'MATCHED') && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {canAnswer && (
                     <AppButton
@@ -202,13 +209,13 @@ export const QuestionInboxScreen: React.FC = () => {
                       {qt('answerNewQuestion')}
                     </AppButton>
                   )}
-                  {!canAnswer && (canRetry || canSuperlike) && (
+                  {!canAnswer && canRetry && (
                     <AppButton
                       size="sm"
                       variant="secondary"
                       onClick={() => setAnswerTarget({ target: { id: item.person.id, name: item.person.name }, status: item.status })}
                     >
-                      {canRetry ? qt('requestRetry') : qt('superlikeShow')}
+                      {qt('requestRetry')}
                     </AppButton>
                   )}
                   {item.status === 'MATCHED' && (
@@ -253,11 +260,11 @@ export const QuestionInboxScreen: React.FC = () => {
         onQuestionsRequired={() => navigate('/profile/questions')}
       />
 
-      <MatchModal
-        isOpen={matchResult.isOpen}
-        onClose={() => setMatchResult({ isOpen: false })}
-        matchedUser={matchResult.person ? { name: matchResult.person.name, photoUrl: personPhoto(matchResult.person) } : null}
-        matchId={matchResult.matchId}
+      <ConnectionMadeSheet
+        isOpen={connection !== null}
+        onClose={() => setConnection(null)}
+        person={connection ? { name: connection.person.name, photoUrl: personPhoto(connection.person) } : null}
+        conversationId={connection?.conversationId}
       />
     </div>
   );

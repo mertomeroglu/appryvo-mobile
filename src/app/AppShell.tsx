@@ -13,7 +13,6 @@ import { useCallStore } from '../stores/useCallStore';
 import { ProfileFrameCatalogProvider } from '../components/ui/FramedAvatar';
 import { VpnAccessGuard } from '../components/VpnAccessGuard';
 import { preloadProfileExperience } from '../routes/routePreload';
-import { nativeAdMob } from '../native/admob';
 import { BillingService } from '../native/iap';
 
 // Lazy-loaded: pulls in the WebRTC media layer (webrtcService/callService)
@@ -51,12 +50,6 @@ export const AppShell: React.FC = () => {
       cleanup?.();
     };
   }, [initTheme, restoreSession]);
-
-  useEffect(() => {
-    // Rewarded ads (Discover's daily-like exhaustion path) need the SDK + consent flow ready
-    // before the first ad request; init is idempotent and never blocks app usage on failure.
-    if (isAuthenticated) void nativeAdMob.initialize();
-  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated) return;

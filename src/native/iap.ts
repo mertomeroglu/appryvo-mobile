@@ -15,8 +15,6 @@ import {
   type SubscriptionTier,
 } from '../services/billing/catalog';
 
-export const BOOST_PRODUCT_ID = 'ryvo_boost_single';
-
 export interface SubscriptionVerifyPayload {
   platform: 'APPLE' | 'GOOGLE';
   purchaseToken: string;
@@ -280,19 +278,6 @@ export const BillingService = {
       await reconcileTransactions();
     }
     return apiClient.get('/api/subscriptions/restore');
-  },
-
-  async getBoostProduct(): Promise<Product | null> {
-    if (!Capacitor.isNativePlatform()) return null;
-    const result = await withNativeBillingLock(() => NativePurchases.getProducts({ productIdentifiers: [BOOST_PRODUCT_ID], productType: PURCHASE_TYPE.INAPP }));
-    return result.products.find((product) => product.identifier === BOOST_PRODUCT_ID) || null;
-  },
-
-  async purchaseBoost() {
-    const transaction = await withNativeBillingLock(() => NativePurchases.purchaseProduct({ productIdentifier: BOOST_PRODUCT_ID, productType: PURCHASE_TYPE.INAPP, quantity: 1, isConsumable: false, autoAcknowledgePurchases: false, appAccountToken: appAccountToken() }));
-    const response = await apiClient.post('/api/subscriptions/verify', verificationPayload(transaction, BOOST_PRODUCT_ID));
-    await markCompleted(transaction, '/api/subscriptions/complete');
-    return response;
   },
 
   async getFrameProduct(productId: string): Promise<Product | null> {

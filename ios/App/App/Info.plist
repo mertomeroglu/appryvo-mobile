@@ -14,7 +14,7 @@
 		<string>ru</string>
 		<string>ar</string>
 		<string>hi</string>
-		<string>zh</string>
+		<string>zh-Hans</string>
 	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Ryvo</string>
@@ -80,15 +80,15 @@
 
 	<!-- Native Permissions Descriptions -->
 	<key>NSCameraUsageDescription</key>
-	<string>Profil fotoğrafı çekmek ve yüz doğrulaması gerçekleştirmek için kamera izni gereklidir.</string>
+	<string>Profil fotoğrafı çekmek, sohbetlerde ve hikâyelerde fotoğraf paylaşmak, görüntülü arama yapmak ve isteğe bağlı yüz doğrulamasını tamamlamak için kameranız kullanılır.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Profilinize ve sohbetlerinize fotoğraf yüklemek için galeri erişim izni gereklidir.</string>
+	<string>Profilinize, sohbetlerinize ve hikâyelerinize eklemek için seçtiğiniz fotoğraflara erişilir.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Medyaları kaydetmek için izin gereklidir.</string>
+	<string>Kaydetmeyi seçtiğiniz fotoğraf ve medyaları galerinize eklemek için izin gerekir.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Yakınınızdaki profilleri görüntülemek ve haritada konumunuzu göstermek için konum izni gereklidir.</string>
+	<string>Şehrinizi belirlemek ve bölgenizdeki topluluk odalarını ve etkinlikleri göstermek için konumunuz kullanılır.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Sesli mesajlar ve sesli aramalar gerçekleştirmek için mikrofon erişimi gereklidir.</string>
+	<string>Sesli mesaj kaydetmek, sesli ve görüntülü aramalara ve sesli odalara katılmak için mikrofonunuz kullanılır.</string>
 
 	<!-- Production AdMob Application ID -->
 	<key>GADApplicationIdentifier</key>

@@ -19,9 +19,13 @@ describe('edit profile production rules', () => {
     expect(editor).not.toContain('const [name, setName]');
   });
 
-  it('enforces one or two relationship goals and provides third-selection feedback', () => {
+  it('keeps relationship goals optional (0-2) and provides third-selection feedback', () => {
     const editor = source('src/components/EditProfileModal.tsx');
-    expect(editor).toContain('relationshipGoals.length < 1 || relationshipGoals.length > 2');
+    expect(editor).toContain('if (relationshipGoals.length > 2) {');
+    expect(editor).not.toContain('relationshipGoals.length < 1');
+    // An explicit empty list stays empty instead of preselecting the legacy 'NOT_SURE' value.
+    expect(editor).toContain('if (Array.isArray(user?.relationshipGoals)) return user.relationshipGoals.slice(0, 2);');
+    expect(messages.tr.relationshipGoalSelectionHint).toBe('İsteğe bağlı. En fazla 2 seçim yapabilirsin.');
     expect(editor).toContain("toast.show(t('relationshipGoalMaxToast')");
     expect(messages.tr.relationshipGoalMaxToast).toBe('En fazla 2 ilişki hedefi seçebilirsin.');
     expect(editor).toContain('relationshipGoals,');

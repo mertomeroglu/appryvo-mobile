@@ -11,20 +11,18 @@ import {
   LifeBuoy,
   LogOut,
   Mail,
-  MapPin,
   Moon,
   Shield,
   ShieldCheck,
   Smartphone,
   Sun,
-  RotateCcw,
   Trash2,
   UserX,
   Coins,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useThemeStore, type ThemeMode } from '../../theme/themeStore';
-import { useMeQuery, useNotificationsPreferenceMutation, useUpdateProfileMutation, useWalletQuery } from '../../hooks/useQueries';
+import { useMeQuery, useNotificationsPreferenceMutation, useWalletQuery } from '../../hooks/useQueries';
 import { apiClient } from '../../services/api/apiClient';
 import { IconButton } from '../../components/ui/IconButton';
 import { AppLogo } from '../../components/ui/AppLogo';
@@ -37,9 +35,6 @@ import { CHAT_TRANSLATION_LANGUAGES, getLocalizedChatLanguageLabel } from '../..
 import { PRIVACY_POLICY, TERMS_OF_SERVICE, type LegalDocument } from '../../lib/legalContent';
 import { CoinStoreSheet } from '../coins/CoinStoreSheet';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
-import { AppButton } from '../../components/ui/AppButton';
-import { useResetDiscoveryPassesMutation } from '../../hooks/useQuestionQueries';
-import { useQuestionText } from '../questions/questionLocale';
 import { localReengagement } from '../../services/notifications/localReengagement';
 import {
   APP_LOCALE_LABELS,
@@ -127,33 +122,15 @@ export const SettingsScreen: React.FC = () => {
   const [isAppLanguageOpen, setIsAppLanguageOpen] = useState(false);
   const [coinStoreOpen, setCoinStoreOpen] = useState(false);
   const [legalDoc, setLegalDoc] = useState<LegalDocument | null>(null);
-  const [isResetPassesOpen, setIsResetPassesOpen] = useState(false);
   const notificationsMutation = useNotificationsPreferenceMutation();
   const { data: me } = useMeQuery();
   const { data: wallet } = useWalletQuery();
-  const updateProfileMutation = useUpdateProfileMutation();
   const locale = useAppLocaleStore((state) => state.locale);
   const setLocale = useAppLocaleStore((state) => state.setLocale);
   const { t } = useAppTranslation();
-  const { qt } = useQuestionText();
-  const resetPassesMutation = useResetDiscoveryPassesMutation();
 
-  const mapVisible = me?.mapVisible === true;
   const hideFollowersFollowing = me?.hideFollowersFollowing === true;
   const isPremium = me?.isPremium === true;
-
-  const handleToggleMapVisible = (next: boolean) => {
-    if (!next) {
-      updateProfileMutation.mutate({ mapVisible: false }, {
-        onError: () => toast.error(t('settingsMapVisibilityFailedError')),
-      });
-      return;
-    }
-    // Turning visibility back on always requires a fresh manual check-in with a real location
-    // fix from the map screen itself (see SocialMapScreen's checkInToMap) -- never a silent
-    // settings toggle reusing old coordinates. This switch can only ever turn visibility off.
-    navigate('/map');
-  };
 
   const handleToggleFollowPrivacy = async (next: boolean) => {
     if (!isPremium && next) {
@@ -192,20 +169,6 @@ export const SettingsScreen: React.FC = () => {
     } catch {
       setUser({ ...user, chatLanguage: previous });
       toast.error(t('settingsChatLanguageFailedError'));
-    }
-  };
-
-  // Only clears this user's own "Simdilik Gec" (discovery_passes) rows. Matches, chats,
-  // blocks and reports are untouched -- the modal copy promises exactly that.
-  const handleResetPasses = async () => {
-    try {
-      const result = await resetPassesMutation.mutateAsync();
-      setIsResetPassesOpen(false);
-      toast.success(result.resetCount > 0
-        ? qt('resetSuccessTemplate', { count: result.resetCount })
-        : qt('resetNone'));
-    } catch {
-      toast.error(qt('actionFailed'));
     }
   };
 
@@ -306,19 +269,6 @@ export const SettingsScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Discovery */}
-        <div>
-          <SectionLabel>{t('discover')}</SectionLabel>
-          <div className="space-y-2.5">
-            <ListRow
-              icon={<RotateCcw className="w-5 h-5" />}
-              label={qt('resetRowTitle')}
-              onClick={() => setIsResetPassesOpen(true)}
-            />
-            <p className="px-1 text-caption normal-case leading-relaxed text-app-muted">{qt('resetRowDescription')}</p>
-          </div>
-        </div>
-
         {/* Privacy & Safety */}
         <div>
           <SectionLabel>{t('settingsPrivacySafetySectionLabel')}</SectionLabel>
@@ -327,13 +277,6 @@ export const SettingsScreen: React.FC = () => {
               icon={<UserX className="w-5 h-5" />}
               label={t('blockedUsersTitle')}
               onClick={() => navigate('/settings/blocked')}
-            />
-            <ToggleRow
-              icon={<MapPin className="w-5 h-5" />}
-              label={t('settingsShowOnMapLabel')}
-              checked={mapVisible}
-              disabled={updateProfileMutation.isPending}
-              onChange={handleToggleMapVisible}
             />
             <ToggleRow
               icon={<Shield className="w-5 h-5" />}
@@ -382,20 +325,6 @@ export const SettingsScreen: React.FC = () => {
 
       <LegalModal document={legalDoc} onClose={() => setLegalDoc(null)} />
 
-      <Modal isOpen={isResetPassesOpen} onClose={() => setIsResetPassesOpen(false)}>
-        <div className="p-5">
-          <h2 className="text-title text-app">{qt('resetModalTitle')}</h2>
-          <p className="mt-2 text-caption normal-case leading-relaxed text-app-muted">{qt('resetModalDescription')}</p>
-          <div className="mt-5 flex gap-2">
-            <AppButton fullWidth variant="ghost" disabled={resetPassesMutation.isPending} onClick={() => setIsResetPassesOpen(false)}>
-              {qt('resetCancel')}
-            </AppButton>
-            <AppButton fullWidth variant="primary" loading={resetPassesMutation.isPending} onClick={() => void handleResetPasses()}>
-              {qt('resetConfirm')}
-            </AppButton>
-          </div>
-        </div>
-      </Modal>
       <CoinStoreSheet isOpen={coinStoreOpen} onClose={() => setCoinStoreOpen(false)} />
 
       <Modal isOpen={isAppLanguageOpen} onClose={() => setIsAppLanguageOpen(false)}>

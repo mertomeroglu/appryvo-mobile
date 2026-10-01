@@ -3,33 +3,29 @@ import path from 'node:path';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { MatchModal } from '../src/components/MatchModal';
+import { ConnectionMadeSheet } from '../src/features/social/ConnectionMadeSheet';
 import { ConversationRow } from '../src/features/chat/MessagesScreen';
 import { useAppLocaleStore } from '../src/i18n/appLocale';
 
 const source = (relativePath: string) => fs.readFileSync(path.join(process.cwd(), 'src', relativePath), 'utf8');
 
 describe('match to live chat flow', () => {
-  it('offers both post-match choices and opens the new conversation', () => {
-    // RYVO PATCH V2 04: MatchModal now renders real, locale-aware copy (previously hardcoded
-    // Turkish) -- jsdom's default navigator.language resolves to 'en-US', so without pinning the
-    // locale here this test would (correctly, per the new locale-priority logic) render English
-    // instead of the Turkish text this test asserts. Pinned to 'tr' to keep testing the same
-    // strings as before; the underlying flow being tested (match -> chat) is locale-independent.
+  it('an accepted connection shows a neutral sheet that opens the new conversation', () => {
     useAppLocaleStore.getState().setLocale('tr');
     const onClose = vi.fn();
     render(
-      <MemoryRouter initialEntries={['/discover']}>
+      <MemoryRouter initialEntries={['/inbox/questions']}>
         <Routes>
-          <Route path="/discover" element={<MatchModal isOpen onClose={onClose} matchedUser={{ name: 'Kontrollü Üye' }} matchId="match-42" />} />
+          <Route path="/inbox/questions" element={<ConnectionMadeSheet isOpen onClose={onClose} person={{ name: 'Kontrollü Üye' }} conversationId="match-42" />} />
           <Route path="/chat/:matchId" element={<div>Canlı sohbet açıldı</div>} />
         </Routes>
       </MemoryRouter>
     );
 
-    expect(screen.getByText('Yeni Eşleşme')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Keşfe Devam Et' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Mesaj Yaz' }));
+    expect(screen.getByText('Bağlantı kuruldu')).toBeTruthy();
+    expect(screen.queryByText('Yeni Eşleşme')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Sonra' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Sohbete başla/ }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Canlı sohbet açıldı')).toBeTruthy();
   });

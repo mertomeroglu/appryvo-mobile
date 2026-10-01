@@ -41,6 +41,29 @@ export const getPhotoUrl = (photo: unknown): string | undefined => {
   return undefined;
 };
 
+const HELD_MODERATION_STATUSES = new Set(['PENDING', 'REVIEW_REQUIRED', 'REJECTED']);
+
+/** True when the server is holding this upload for moderation (others see a placeholder). */
+export const isPhotoUnderReview = (photo: unknown): boolean => {
+  if (!photo || typeof photo !== 'object') return false;
+  const status = (photo as Record<string, unknown>).moderationStatus;
+  return typeof status === 'string' && HELD_MODERATION_STATUSES.has(status);
+};
+
+/**
+ * URL for showing the signed-in user their *own* photo. Held photos come with a short-lived
+ * signed `reviewPreview` (the public URL serves a placeholder until approved). Never use this for
+ * photo identity/comparison -- that stays on getPhotoUrl.
+ */
+export const getOwnPhotoDisplayUrl = (photo: unknown): string | undefined => {
+  if (photo && typeof photo === 'object') {
+    const preview = (photo as Record<string, unknown>).reviewPreview as Record<string, unknown> | undefined;
+    const candidate = preview && (preview.medium || preview.large || preview.original);
+    if (typeof candidate === 'string') return candidate;
+  }
+  return getPhotoUrl(photo);
+};
+
 export const normalizeMediaUrl = (url?: string | null): string => {
   if (!url) return `${API_BASE_URL}/media/public/default-avatar.png`;
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('file://') || url.startsWith('data:') || url.startsWith('blob:')) {

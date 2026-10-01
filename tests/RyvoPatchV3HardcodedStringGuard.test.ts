@@ -21,6 +21,8 @@ const EXCLUDED_FILES = new Set([
   'features/connect/connectLocale.ts',
   // Question matching ships its own scoped nine-locale dictionary (same pattern as connectLocale).
   'features/questions/questionLocale.ts',
+  // Social shell (Home feed, nav, connection sheet, Premium benefits) -- same pattern.
+  'features/social/socialLocale.ts',
   'lib/profileLabels.ts',
   'lib/languages.ts',
   'lib/interests.ts',

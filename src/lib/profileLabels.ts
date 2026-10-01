@@ -1,8 +1,8 @@
 import type { AppLocale } from '../i18n/appLocale';
 import { PRODUCT_DEFAULT_LOCALE } from '../i18n/appLocale';
 
-// Canonical label maps for enum fields shared by profile-facing screens (SwipeCard,
-// FullProfileScreen, RegistrationWizard, EditProfileModal). Object KEYS must match the backend's
+// Canonical label maps for enum fields shared by profile-facing screens (FullProfileScreen,
+// RegistrationWizard, EditProfileModal). Object KEYS must match the backend's
 // validated enum values exactly (see PUT /api/profile in server/api/src/user_controller.js) --
 // a mismatched key here silently drops the field server-side instead of rendering a label. The
 // display TEXT is locale-aware (see the `_BY_LOCALE` maps below); every getter takes an explicit

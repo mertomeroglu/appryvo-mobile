@@ -28,5 +28,8 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // Source-tree policy guards and jsdom module loading can exceed Vitest's 5s
+    // default on Windows even though their assertions complete successfully.
+    testTimeout: 15_000,
   },
 });

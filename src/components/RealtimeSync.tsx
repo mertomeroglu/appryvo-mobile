@@ -11,7 +11,7 @@ import { toast } from '../stores/useToastStore';
 import { apiClient } from '../services/api/apiClient';
 import { nativePush } from '../native/push';
 import { QUERY_KEYS } from '../hooks/useQueries';
-import { invalidateQuestionState, QUESTION_QUERY_KEYS } from '../hooks/useQuestionQueries';
+import { invalidateQuestionState } from '../hooks/useQuestionQueries';
 import { questionTextSync } from '../features/questions/questionLocale';
 import { useCallStore } from '../stores/useCallStore';
 import { nativeHaptics } from '../native/haptics';
@@ -63,9 +63,9 @@ export const RealtimeSync: React.FC = () => {
       queryClient.setQueryData(QUERY_KEYS.me, freshUser);
       logLive('query-invalidated', QUERY_KEYS.me.join('.'));
     }
-    // QUERY_KEYS.entitlements is a separate cached query (used by e.g. the Super Like button)
+    // QUERY_KEYS.entitlements is a separate cached query (used by e.g. the question quota)
     // with its own 2-minute staleTime -- an admin entitlement reset (or any other server-side
-    // change to boost/superlike/premium state) emits the same generic user:updated event this
+    // change to premium state) emits the same generic user:updated event this
     // function already reconciles /api/me from, but /api/me and /api/entitlements are two
     // different endpoints/caches. Without this, the entitlements UI could keep showing a stale
     // count for up to 2 minutes (or indefinitely, since refetchOnWindowFocus is disabled) after
@@ -162,9 +162,9 @@ export const RealtimeSync: React.FC = () => {
 
     // Question-based matching lives across two surfaces (Discover card state + the question
     // inbox), so every interaction event just reconciles both caches -- the server stays the
-    // single source of truth for interaction state, and nothing here ever reveals a correct
-    // answer. Pass/decline are deliberately silent for the other side (no event, no toast).
-    const offQuestionCorrect = socketService.on('question:correct-answer', () => {
+    // single source of truth for interaction state. Pass/decline are deliberately silent for
+    // the other side (no event, no toast).
+    const offQuestionAnswerReceived = socketService.on('question:answer-received', () => {
       nativeHaptics.impact();
       invalidateQuestionState(queryClient);
     });
@@ -182,33 +182,17 @@ export const RealtimeSync: React.FC = () => {
       invalidateQuestionState(queryClient);
     });
 
-    const offQuestionSuperlike = socketService.on('question:superlike', () => {
-      nativeHaptics.impact();
-      invalidateQuestionState(queryClient);
-    });
-
     const offQuestionInteraction = socketService.on('question:interaction-updated', (payload: { status?: string }) => {
       invalidateQuestionState(queryClient);
       if (payload?.status === 'MATCHED') queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
     });
 
-    // Match creation used to rely on the liker screen's local mutation invalidation. That left
-    // the other person with a stale Messages list until a resume/manual refresh. The server now
-    // emits match:new to both user rooms; keep the root cache current even when Messages is not
-    // mounted yet.
-    const offNewMatch = socketService.on('match:new', (payload: { matchedUserId?: string }) => {
-      if (payload?.matchedUserId) {
-        queryClient.setQueriesData<any[]>({ queryKey: ['discovery', 'map'] }, (current) => (
-          Array.isArray(current) ? current.filter((user) => String(user?.id || user?.uid) !== String(payload.matchedUserId)) : current
-        ));
-      }
-      queryClient.invalidateQueries({ queryKey: ['discovery', 'map'] });
+    // The server emits match:new (a new connection / conversation) to both user rooms; keep
+    // the conversation list current even when Messages is not mounted yet. A connection comes
+    // from the question inbox (owner accept), so the question feed and inbox are stale too.
+    const offNewMatch = socketService.on('match:new', () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.inboundLikes });
-      // A match now originates from the question inbox (owner accept), so the V2 feed and the
-      // inbox both hold a now-stale entry for this person.
-      queryClient.invalidateQueries({ queryKey: QUESTION_QUERY_KEYS.feedV2 });
-      queryClient.invalidateQueries({ queryKey: QUESTION_QUERY_KEYS.inbox });
+      invalidateQuestionState(queryClient);
     });
 
     const offMatchUpdated = socketService.on('match:updated', (payload: {
@@ -326,11 +310,10 @@ export const RealtimeSync: React.FC = () => {
       offCallEnded();
       offCallBusy();
       offNewMatch();
-      offQuestionCorrect();
+      offQuestionAnswerReceived();
       offQuestionRetryRequested();
       offQuestionRetryApproved();
       offQuestionRetryDeclined();
-      offQuestionSuperlike();
       offQuestionInteraction();
       offMatchUpdated();
       offMatchRemoved();
@@ -339,8 +322,8 @@ export const RealtimeSync: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  // App-resume reconciliation: background -> foreground brings own-user state, matches, and
-  // inbound likes current. Deliberately narrow (not a full app reload) -- sockets can drop
+  // App-resume reconciliation: background -> foreground brings own-user state, conversations
+  // and the question inbox current. Deliberately narrow (not a full app reload) -- sockets can drop
   // while backgrounded, so realtime alone isn't enough to guarantee freshness on return.
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -352,9 +335,7 @@ export const RealtimeSync: React.FC = () => {
       reconcileProfile();
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
       logLive('query-invalidated', QUERY_KEYS.matches.join('.'));
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.inboundLikes });
-      logLive('query-invalidated', QUERY_KEYS.inboundLikes.join('.'));
-      queryClient.invalidateQueries({ queryKey: ['discovery', 'likes', 'unread-count'] });
+      invalidateQuestionState(queryClient);
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications });
       if (authenticatedUserId) {
         pushRegistrationService.ensureCurrentUser(authenticatedUserId)

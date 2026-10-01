@@ -20,14 +20,14 @@ describe('Final Stability V7', () => {
 
   it('keeps residence labels distinct from live map/GPS concepts in every locale', () => {
     const localeSource = fs.readFileSync(path.resolve('src/i18n/appLocale.ts'), 'utf8');
-    const swipeSource = fs.readFileSync(path.resolve('src/features/discovery/SwipeCard.tsx'), 'utf8');
+    const previewSource = fs.readFileSync(path.resolve('src/features/profile/ProfilePreviewScreen.tsx'), 'utf8');
     expect(localeSource).toContain("profileCityLabel: 'Yaşadığın Yer'");
     expect(localeSource).toContain("profileResidenceOtherLabel: 'Yaşadığı Yer'");
     expect(localeSource).toContain("profileCityLabel: 'Lives in'");
     for (const label of ['Vive en', 'Vit à', 'Mora em', 'Живёт в', 'يقيم في', 'निवास स्थान', '居住在']) {
       expect(localeSource).toContain(`profileResidenceOtherLabel: '${label}'`);
     }
-    expect(swipeSource).toContain("t('profileResidenceOtherLabel')");
+    expect(previewSource).toContain("t('profileResidenceOtherLabel')");
     expect(localeSource).toContain("settingsShowOnMapLabel: 'Show on Map'");
   });
 });

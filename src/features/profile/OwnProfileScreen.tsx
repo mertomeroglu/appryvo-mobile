@@ -4,22 +4,24 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { useFramesQuery, useFollowStatusQuery, useWalletQuery } from '../../hooks/useQueries';
 import { computeProfileCompletion } from '../../lib/profileCompletion';
 import { formatDisplayAge } from '../../lib/profileLabels';
-import { getPhotoUrl } from '../../services/media/mediaService';
+import { getOwnPhotoDisplayUrl } from '../../services/media/mediaService';
 import { normalizeCountryCode } from '../../lib/countryFlags';
 import { ProfileAvatarFrame } from '../../components/ui/FramedAvatar';
 import { BottomSheet } from '../../components/ui/BottomSheet';
 import { VerifiedBadge } from '../../components/ui/Badge';
 import { AppLogo } from '../../components/ui/AppLogo';
-import { PASSPORT_LABELS, useAppLocaleStore, useAppTranslation } from '../../i18n/appLocale';
+import { useAppLocaleStore, useAppTranslation } from '../../i18n/appLocale';
+import { useQuestionText } from '../questions/questionLocale';
+import { useSocialText } from '../social/socialLocale';
 import { preloadEditProfileModal } from '../../routes/routePreload';
 import { measureProfileMilestone } from '../../services/performance/profilePerformance';
 import {
   Crown,
-  Zap,
+  HelpCircle,
   ShieldCheck,
   Settings,
   Frame,
-  Compass,
+  MessagesSquare,
   Edit3,
   Eye,
   ChevronRight,
@@ -27,7 +29,8 @@ import {
   CheckCircle2,
   Users,
   Share2,
-  MailCheck,
+  MailCheck,
+
 } from 'lucide-react';
 import { nativeShare } from '../../native/share';
 import { CoinStoreSheet } from '../coins/CoinStoreSheet';
@@ -78,6 +81,8 @@ export const OwnProfileScreen: React.FC = () => {
   const [coinStoreOpen, setCoinStoreOpen] = useState(false);
   const [isRealtimeOnline, setIsRealtimeOnline] = useState(() => socketService.isConnected());
   const locale = useAppLocaleStore((state) => state.locale);
+  const { qt } = useQuestionText();
+  const { st } = useSocialText();
   const shellReadyRef = useRef(false);
   const dataReadyRef = useRef(false);
   const interactiveReadyRef = useRef(false);
@@ -93,7 +98,7 @@ export const OwnProfileScreen: React.FC = () => {
   const { data: followStatus } = useFollowStatusQuery(user?.id);
   const { data: wallet } = useWalletQuery();
 
-  const photoUrl = getPhotoUrl(user?.photos?.[0]) || user?.photoUrl;
+  const photoUrl = getOwnPhotoDisplayUrl(user?.photos?.[0]) || user?.photoUrl;
   const { percent: completion, missing: missingFields } = useMemo(() => computeProfileCompletion(user), [user]);
   const showFlag = user?.showCountryFlag !== false && !!normalizeCountryCode(user?.countryCode);
   const activeFrameName =
@@ -297,8 +302,8 @@ export const OwnProfileScreen: React.FC = () => {
       <div className="mt-6">
         <SectionLabel>{t('ownProfileMoreSectionLabel')}</SectionLabel>
         <div className="space-y-2.5">
-          <ProfileRow icon={<Zap className="w-5 h-5" />} label={t('ownProfileBoostAction')} onClick={() => navigate('/boost')} />
-          <ProfileRow icon={<Compass className="w-5 h-5" />} label={t('ownProfilePassportLocationTemplate').replace('{passport}', PASSPORT_LABELS[locale])} onClick={() => navigate('/passport')} />
+          <ProfileRow icon={<HelpCircle className="w-5 h-5" />} label={qt('editorEntrySubtitle')} onClick={() => navigate('/profile/questions')} />
+          <ProfileRow icon={<MessagesSquare className="w-5 h-5" />} label={st('navRooms')} onClick={() => navigate('/map')} />
         </div>
       </div>
 
@@ -352,7 +357,7 @@ export const OwnProfileScreen: React.FC = () => {
           />
         </Suspense>
       )}
-    
+
       <EmailOtpModal
         isOpen={isEmailOtpOpen}
         onClose={() => setIsEmailOtpOpen(false)}

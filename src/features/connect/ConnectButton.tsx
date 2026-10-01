@@ -15,11 +15,10 @@ interface ConnectButtonProps {
   className?: string;
 }
 
-/** Shared Connect Pass control for the map user-preview sheet and the room member-preview
- * sheet -- the two surfaces where a person can be contacted without a mutual match (Discover's
- * own swipe screen keeps its separate Like/SuperLike flow untouched). Renders View
- * Profile-adjacent state: Connect (send a paid private intro) / Request Sent / Message (already
- * matched, no charge). Renders nothing for your own id (mirrors FollowButton's own contract). */
+/** Connect Pass control for the room member-preview sheet. Sends a connection REQUEST with a
+ * short intro; no chat exists until the recipient accepts it (block/report still apply).
+ * States: Connect (send a paid intro request) / Request Sent / Message (already connected, no
+ * charge). Renders nothing for your own id (mirrors FollowButton's own contract). */
 export const ConnectButton: React.FC<ConnectButtonProps> = ({ userId, locale, sourceType, sourceRoomId, size = 'md', className }) => {
   const navigate = useNavigate();
   const [status, setStatus] = useState<ConnectStatus | null>(null);

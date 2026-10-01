@@ -6,12 +6,11 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FloatingNavBar } from '../src/components/FloatingNavBar';
 import { SplashScreen } from '../src/components/ui/SplashScreen';
-import { PASSPORT_LABELS, messages, useAppLocaleStore } from '../src/i18n/appLocale';
+import { messages, useAppLocaleStore } from '../src/i18n/appLocale';
 import { computeProfileCompletion } from '../src/lib/profileCompletion';
 import { useAuthStore } from '../src/stores/useAuthStore';
 
 vi.mock('../src/hooks/useQueries', () => ({
-  useLikesUnreadCountQuery: () => ({ data: 0 }),
   useInAppNotificationsQuery: () => ({ data: { unreadCount: 0 } }),
 }));
 
@@ -73,17 +72,6 @@ describe('profile completion behavior', () => {
   });
 });
 
-describe('localized Passport copy', () => {
-  it('uses Pasaport in Turkish and a proper localized label in every supported locale', () => {
-    expect(PASSPORT_LABELS).toEqual({
-      tr: 'Pasaport', en: 'Passport', es: 'Pasaporte', fr: 'Passeport', pt: 'Passaporte',
-      ru: 'Паспорт', ar: 'جواز السفر', hi: 'पासपोर्ट', zh: '护照',
-    });
-    expect(source('src/features/passport/PassportScreen.tsx')).not.toContain('>Passport Modu<');
-    expect(source('src/features/profile/OwnProfileScreen.tsx')).not.toContain('label="Passport lokasyonu"');
-  });
-});
-
 describe('destructive account re-authentication', () => {
   it('sends the password to the server and never compares it in the client', () => {
     const modal = source('src/components/SafetyReportModal.tsx');
@@ -114,7 +102,7 @@ describe('profile navigation interception regression', () => {
     render(
       <MemoryRouter initialEntries={['/profile']}>
         <Routes>
-          {['discover', 'inbox/questions', 'map', 'messages', 'profile'].map((path) => (
+          {['home', 'inbox/questions', 'map', 'messages', 'profile'].map((path) => (
             <Route key={path} path={`/${path}`} element={<LocationProbe />} />
           ))}
         </Routes>
@@ -123,9 +111,9 @@ describe('profile navigation interception regression', () => {
     );
 
     const destinations = [
-      ['Discover', '/discover'],
+      ['Home', '/home'],
       ['Questions', '/inbox/questions'],
-      ['Map', '/map'],
+      ['Rooms', '/map'],
       ['Messages', '/messages'],
       ['Profile', '/profile'],
     ] as const;

@@ -1,16 +1,31 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/useAuthStore';
+import { AGE_VERIFICATION_REQUIRED_EVENT } from '../services/security/ageVerification';
+import { AgeVerificationScreen } from '../features/auth/AgeVerificationScreen';
 
 /**
  * Route-level session gate. Enforces:
  *   no session    -> /auth
  *   authenticated -> app (redirected away from /auth if already logged in)
+ *   authenticated without a birth date on file -> AgeVerificationScreen (18+ gate), nothing else
  */
 export const SessionGate: React.FC = () => {
   const sessionChecked = useAuthStore((s) => s.sessionChecked);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const ageVerificationRequired = useAuthStore((s) => s.user?.ageVerificationRequired === true);
   const location = useLocation();
+
+  // Any API call answered with AGE_VERIFICATION_REQUIRED flips the gate on, even if the cached
+  // profile predates the server-side state.
+  useEffect(() => {
+    const onRequired = () => {
+      const { user, setUser } = useAuthStore.getState();
+      if (user && user.ageVerificationRequired !== true) setUser({ ...user, ageVerificationRequired: true });
+    };
+    window.addEventListener(AGE_VERIFICATION_REQUIRED_EVENT, onRequired);
+    return () => window.removeEventListener(AGE_VERIFICATION_REQUIRED_EVENT, onRequired);
+  }, []);
 
   if (!sessionChecked) {
     // Top-level AppShell SplashScreen overlay covers the viewport until sessionChecked is true
@@ -29,6 +44,10 @@ export const SessionGate: React.FC = () => {
     return isAuthRoute
       ? <Outlet />
       : <Navigate to="/auth" replace state={{ from: `${location.pathname}${location.search}` }} />;
+  }
+
+  if (ageVerificationRequired) {
+    return <AgeVerificationScreen />;
   }
 
   if (isAuthRoute) {

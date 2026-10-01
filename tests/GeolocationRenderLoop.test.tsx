@@ -67,35 +67,6 @@ describe('iOS runaway geolocation / render loop fix', () => {
     expect(lastSeenT).toBe(tAfterFirstRender);
   });
 
-  it('registers the App lifecycle listener exactly once and never resolves location on mount', () => {
-    const screen = source('features/discovery/DiscoverScreen.tsx');
-
-    // The location-gate callback still legitimately depends on t/refetch (it calls t() and
-    // refetch() internally), so it is still recreated when either changes -- but the effect that
-    // used to depend directly on it no longer does; it registers once and reads the latest
-    // implementation through a ref instead.
-    expect(screen).toContain('const resolveDiscoverLocationRef = useRef(resolveDiscoverLocation);');
-    expect(screen).toContain('resolveDiscoverLocationRef.current = resolveDiscoverLocation;');
-
-    // No effect may call resolveDiscoverLocation unconditionally on mount -- Discover must never
-    // touch Geolocation just because it rendered.
-    expect(screen).not.toContain('void resolveDiscoverLocationRef.current(false);');
-    expect(screen).not.toMatch(/useEffect\(\(\) => \{\s*void resolveDiscoverLocation/);
-
-    const listenerEffectStart = screen.indexOf('nativeApp.addStateChangeListener');
-    expect(listenerEffectStart).toBeGreaterThan(-1);
-    const listenerEffectSlice = screen.slice(listenerEffectStart, listenerEffectStart + 900);
-    // Resuming must only retry location when a pending explicit "sent to Settings" flag is set,
-    // and that flag must be consumed (cleared) as part of the same check.
-    expect(listenerEffectSlice).toContain('state.isActive && retryLocationOnResumeRef.current');
-    expect(listenerEffectSlice).toContain('retryLocationOnResumeRef.current = false;');
-    expect(listenerEffectSlice).toContain('resolveDiscoverLocationRef.current(false, true, false)');
-    expect(listenerEffectSlice).toContain('}, []);');
-    // The App listener's own effect must not re-subscribe every time resolveDiscoverLocation is
-    // recreated (e.g. on every t/refetch change).
-    expect(listenerEffectSlice).not.toContain('[resolveDiscoverLocation]');
-  });
-
   it('never auto-requests location on Map screen mount -- check-in stays a single explicit action', () => {
     const map = source('features/map/SocialMapScreen.tsx');
 
@@ -107,30 +78,9 @@ describe('iOS runaway geolocation / render loop fix', () => {
       expect(match[0]).not.toContain('checkInToMap');
     }
 
-    expect(map).toContain('const checkInToMap = useCallback(async () => {');
-    expect(map).toContain('const hideFromMap = useCallback(() => {');
-    // Hiding never re-requests GPS.
-    const hideStart = map.indexOf('const hideFromMap = useCallback(() => {');
-    const hideBody = map.slice(hideStart, map.indexOf('}, [updateProfileMutation]);', hideStart));
-    expect(hideBody).not.toContain('acquireLocalLocation');
-    expect(hideBody).not.toContain('getCurrentPosition');
+    // The people map (and its "show me on the map" check-in/hide toggle) is gone: rooms only.
+    expect(map).not.toContain('checkInToMap');
+    expect(map).not.toContain('hideFromMap');
   });
 
-  it('falls back to initials instead of a broken image when a map marker photo fails to decode (e.g. malformed WEBP)', () => {
-    const map = source('features/map/SocialMapScreen.tsx');
-
-    expect(map).toContain("onerror=\"this.style.display='none'\"");
-    // Both the avatar marker and the cluster face images must render an initials layer
-    // underneath so a failed decode reveals a fallback instead of a broken-image glyph, and the
-    // onerror handler only ever hides the element once (no retry loop).
-    const avatarIconStart = map.indexOf('export function avatarMarkerHtml');
-    const avatarIconBody = map.slice(avatarIconStart, map.indexOf('export function buildSocialClusterHtml'));
-    expect(avatarIconBody).toContain('initialsTag');
-    expect((avatarIconBody.match(/onerror=/g) || []).length).toBeGreaterThanOrEqual(1);
-
-    const clusterStart = map.indexOf('export function buildSocialClusterHtml');
-    const clusterBody = map.slice(clusterStart, map.indexOf('function selfLocationHtml'));
-    expect(clusterBody).toContain('initialsTag');
-    expect(clusterBody).toContain("onerror=\"this.style.display='none'\"");
-  });
 });

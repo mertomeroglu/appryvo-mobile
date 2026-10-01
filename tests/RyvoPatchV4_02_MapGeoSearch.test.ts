@@ -40,7 +40,8 @@ describe('RYVO PATCH V4 / PROMPT 02: map/geo/search', () => {
     expect(screen).toMatch(/const MIN_ZOOM = 2;/);
     expect(screen).toMatch(/const MAX_ZOOM = 15;/);
     expect(screen).toMatch(/minZoom: MIN_ZOOM,\s*\n\s*maxZoom: MAX_ZOOM,/);
-    expect(screen).toMatch(/maxZoom: MAX_ZOOM,\s*\r?\n\s*\}\);\s*\r?\n\s*index\.load\(points\);/);
+    // Cluster expansion clicks can never overshoot the map's own ceiling.
+    expect(screen).toContain('Math.min(expansionZoom, MAX_ZOOM)');
   });
 
   it('A -- light and dark map both get a real vector style treatment, not a CSS filter over raster tiles', () => {
@@ -77,37 +78,6 @@ describe('RYVO PATCH V4 / PROMPT 02: map/geo/search', () => {
     expect(style).not.toContain("'source-layer': 'contour'");
   });
 
-  // -----------------------------------------------------------------------------------------
-  // B) Map visibility realtime primary, 15s poll fallback, no auto-GPS.
-  // -----------------------------------------------------------------------------------------
-  it('B -- SocialMapScreen subscribes to the map:viewers realtime channel on mount and unsubscribes on unmount', () => {
-    const screen = source('features/map/SocialMapScreen.tsx');
-    expect(screen).toContain("socketService.emit('map:subscribe')");
-    expect(screen).toContain("socketService.emit('map:unsubscribe')");
-    expect(screen).toContain("socketService.on('map:visibility-changed'");
-  });
-
-  it('B -- both visible:true and visible:false trigger an invalidate/refetch, never trusting the event for coordinates', () => {
-    const screen = source('features/map/SocialMapScreen.tsx');
-    const handlerStart = screen.indexOf("socketService.on('map:visibility-changed'");
-    // Bounded by the enclosing effect's own dependency array, not a bare "});" -- the
-    // invalidateQueries(...) call itself ends in "});", which would truncate the slice early.
-    const handlerEnd = screen.indexOf('}, [queryClient]);', handlerStart);
-    const handlerBody = screen.slice(handlerStart, handlerEnd);
-    expect(handlerBody).toContain("queryClient.invalidateQueries({ queryKey: ['discovery', 'map'] })");
-    // No branch-specific coordinate handling -- the payload only ever has {userId, visible}.
-    expect(handlerBody).not.toMatch(/latitude|longitude|\.lat\b|\.lng\b/);
-  });
-
-  it('B -- the 15s poll fallback is still present alongside the realtime primary path', () => {
-    const queries = source('hooks/useQueries.ts');
-    const fnStart = queries.indexOf('export function useDiscoveryMapQuery');
-    const fnEnd = queries.indexOf('\n}', fnStart);
-    const fnBody = queries.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('refetchInterval: 15 * 1000');
-    expect(fnBody).toContain('placeholderData: keepPreviousData');
-  });
-
   it('B -- no automatic GPS acquisition on map mount, resume, language change, or socket reconnect', () => {
     const screen = source('features/map/SocialMapScreen.tsx');
     // acquireLocalLocation must only be reachable from explicit user actions (checkInToMap /
@@ -126,12 +96,6 @@ describe('RYVO PATCH V4 / PROMPT 02: map/geo/search', () => {
     expect(socketEffectBody).not.toContain('getCurrentPosition');
   });
 
-  it('B -- DiscoverScreen resume listener never touches GPS on a normal (non-retry) app resume', () => {
-    const screen = source('features/discovery/DiscoverScreen.tsx');
-    expect(screen).toContain('retryLocationOnResumeRef');
-    expect(screen).toMatch(/Resuming the app must NEVER touch GPS on its own/);
-  });
-
   // -----------------------------------------------------------------------------------------
   // C) RYVO PATCH V5 01: Passport and Map now share one city-search service instead of each
   //    carrying their own copy-pasted fetch + DTO mapping -- field mapping, no GPS/visibility
@@ -145,18 +109,8 @@ describe('RYVO PATCH V4 / PROMPT 02: map/geo/search', () => {
     expect(service).toContain('entry?.country');
   });
 
-  it('C -- selecting a Passport city never requests GPS and never touches map visibility', () => {
-    const screen = source('features/passport/PassportScreen.tsx');
-    expect(screen).not.toMatch(/getCurrentPosition|acquireLocalLocation|nativeLocation/);
-    expect(screen).not.toMatch(/mapVisible|map_visible/);
-    expect(screen).toContain("apiClient.post('/api/user/passport'");
-  });
-
-  it('C -- both Passport and Map search have loading and error states, not a silent empty result on failure', () => {
-    const passport = source('features/passport/PassportScreen.tsx');
+  it('C -- Map search has loading and error states, not a silent empty result on failure', () => {
     const map = source('features/map/SocialMapScreen.tsx');
-    expect(passport).toContain('isSearching');
-    expect(passport).toContain('searchError');
     expect(map).toContain('isSearchingCities');
     expect(map).toContain('citySearchError');
   });

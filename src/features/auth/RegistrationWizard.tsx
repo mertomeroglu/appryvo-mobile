@@ -18,10 +18,10 @@ import { RegistrationHeader } from './RegistrationHeader';
 import { REGISTRATION_STEPS } from './registrationSteps';
 import { SPRING, PRESS_SCALE } from '../../motion/tokens';
 import { pageTransition } from '../../motion/variants';
-import { getRelationshipGoalLabel } from '../../lib/profileLabels';
 import { INTEREST_CATEGORIES, INTEREST_MIN, INTEREST_MAX } from '../../lib/interests';
 import { ProfileQuestionsDraftEditor, type DraftProfileQuestion } from '../questions/ProfileQuestionsEditor';
 import { questionErrorKey, useQuestionText } from '../questions/questionLocale';
+import { useSocialText } from '../social/socialLocale';
 import { RELIGION_OPTIONS, RELIGION_LABEL_KEY } from '../../lib/religions';
 import { nativeKeyboard } from '../../native/keyboard';
 import { dismissKeyboardOnBackgroundPointerDown } from '../../hooks/useKeyboardViewport';
@@ -83,7 +83,6 @@ const minBirthDate = isoDateYearsAgo(MAX_REGISTRATION_AGE);
 const maxBirthDate = isoDateYearsAgo(MIN_REGISTRATION_AGE);
 // Canonical set + order of the five selectable relationship goals (see profileLabels.ts) --
 // labels are resolved per the app's current locale so this list is never Turkish-only.
-const RELATIONSHIP_GOAL_KEYS = ['LONG_TERM', 'SHORT_TERM', 'FRIENDSHIP', 'OPEN_TO_EXPLORING', 'NOT_SURE'] as const;
 
 const inputClass =
   'w-full h-14 bg-input-app border border-app rounded-2xl ps-12 pe-4 text-body font-semibold text-app placeholder:text-app-muted focus:outline-none focus:border-pink-500 transition-colors';
@@ -155,10 +154,7 @@ interface RegistrationWizardProps {
 export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, onComplete }) => {
   const { t, locale } = useAppTranslation();
   const { qt } = useQuestionText();
-  const RELATIONSHIP_GOALS = RELATIONSHIP_GOAL_KEYS.map((value) => ({
-    value,
-    label: getRelationshipGoalLabel(value, locale) || value,
-  }));
+  const { st } = useSocialText();
 
   const [stepIndex, setStepIndex] = useState(0);
   const [direction, setDirection] = useState<'forward' | 'back'>('forward');
@@ -182,14 +178,14 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
   const [usernameHint, setUsernameHint] = useState('');
 
   // Identity
-  const [birthDate, setBirthDate] = useState('2000-01-01');
+  // Deliberately empty: a neutral age gate never pre-fills (or hints at) an adult date.
+  const [birthDate, setBirthDate] = useState('');
   const [birthDateError, setBirthDateError] = useState('');
-  const [gender, setGender] = useState('FEMALE');
-  const [targetGender, setTargetGender] = useState('MALE');
+  // Optional and never pre-selected: null = the user chose not to say (nothing is sent).
+  const [gender, setGender] = useState<string | null>(null);
   // Optional, and deliberately not its own wizard step -- it rides inside the interests step so
   // the number of screens between "start" and "account created" does not grow. null = skipped.
   const [religion, setReligion] = useState<string | null>(null);
-  const [relationshipGoal, setRelationshipGoal] = useState('OPEN_TO_EXPLORING');
   const [interests, setInterests] = useState<string[]>([]);
   const [profileQuestions, setProfileQuestions] = useState<DraftProfileQuestion[]>([]);
 
@@ -535,10 +531,8 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
         name,
         username,
         birthDate,
-        gender,
-        targetGender,
+        gender: gender ?? undefined,
         religion: religion ?? undefined,
-        relationshipGoal,
         interests,
         profileQuestions: profileQuestions.map(({ questionText, optionA, optionB, correctOption, presetId }) => ({
           questionText,
@@ -884,52 +878,18 @@ export const RegistrationWizard: React.FC<RegistrationWizardProps> = ({ onExit, 
                     { value: 'MALE', label: t('genderOptionMale') },
                     { value: 'OTHER', label: t('genderOptionOther') },
                   ].map((opt) => (
-                    <SelectionCard key={opt.value} label={opt.label} selected={gender === opt.value} onSelect={() => setGender(opt.value)} />
+                    <SelectionCard key={opt.value} label={opt.label} selected={gender === opt.value} onSelect={() => setGender(gender === opt.value ? null : opt.value)} />
                   ))}
                 </div>
-                <AppButton variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />} onClick={goNext}>
-                  {t('continueButton')}
-                </AppButton>
-              </div>
-            )}
-
-            {/* INTERESTED IN */}
-            {step.id === 'interestedIn' && (
-              <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
-                <div>
-                  <h2 className="text-title text-app">{t('interestedInStepHeading')}</h2>
-                  <p className="text-caption text-app-muted mt-1 normal-case">{t('interestedInStepSubheading')}</p>
+                <p className="text-caption text-app-muted normal-case leading-relaxed" data-testid="gender-optional-hint">{st('regGenderOptionalHint')}</p>
+                <div className="space-y-2">
+                  <AppButton variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />} disabled={!gender} onClick={goNext}>
+                    {t('continueButton')}
+                  </AppButton>
+                  <AppButton variant="ghost" size="lg" fullWidth data-testid="gender-skip" onClick={() => { setGender(null); goNext(); }}>
+                    {st('regSkipAction')}
+                  </AppButton>
                 </div>
-                <div className="space-y-3">
-                  {[
-                    { value: 'FEMALE', label: t('interestedInOptionFemale') },
-                    { value: 'MALE', label: t('interestedInOptionMale') },
-                    { value: 'EVERYONE', label: t('interestedInOptionEveryone') },
-                  ].map((opt) => (
-                    <SelectionCard key={opt.value} label={opt.label} selected={targetGender === opt.value} onSelect={() => setTargetGender(opt.value)} />
-                  ))}
-                </div>
-                <AppButton variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />} onClick={goNext}>
-                  {t('continueButton')}
-                </AppButton>
-              </div>
-            )}
-
-            {/* RELATIONSHIP GOAL */}
-            {step.id === 'relationshipGoal' && (
-              <div className="space-y-6 my-auto max-w-sm mx-auto w-full">
-                <div>
-                  <h2 className="text-title text-app">{t('relationshipGoalStepHeading')}</h2>
-                  <p className="text-caption text-app-muted mt-1 normal-case">{t('relationshipGoalStepSubheading')}</p>
-                </div>
-                <div className="space-y-3">
-                  {RELATIONSHIP_GOALS.map((opt) => (
-                    <SelectionCard key={opt.value} label={opt.label} selected={relationshipGoal === opt.value} onSelect={() => setRelationshipGoal(opt.value)} />
-                  ))}
-                </div>
-                <AppButton variant="primary" size="lg" fullWidth rightIcon={<ChevronRight className="w-5 h-5" />} onClick={goNext}>
-                  {t('continueButton')}
-                </AppButton>
               </div>
             )}
 

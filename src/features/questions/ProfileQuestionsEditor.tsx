@@ -37,7 +37,7 @@ export function validateQuestionInput(input: Partial<ProfileQuestionInput>): Que
   if (text.length < 3 || text.length > 160) return 'errTextLength';
   if (a.length < 1 || a.length > 80 || b.length < 1 || b.length > 80) return 'errOptionLength';
   if (a.toLocaleLowerCase() === b.toLocaleLowerCase()) return 'errIdentical';
-  if (input.correctOption !== 'A' && input.correctOption !== 'B') return 'errCorrectRequired';
+  if (input.correctOption !== 'A' && input.correctOption !== 'B') return 'errOwnAnswerRequired';
   return null;
 }
 
@@ -212,7 +212,7 @@ export const ProfileQuestionFormSheet: React.FC<ProfileQuestionFormSheetProps> =
                 <div className="mt-1 text-right text-[11px] text-app-muted">{form.questionText.trim().length}/160</div>
                 {(['A', 'B'] as const).map((option) => {
                   const key = option === 'A' ? 'optionA' : 'optionB';
-                  const isCorrect = form.correctOption === option;
+                  const isOwnAnswer = form.correctOption === option;
                   return (
                     <div key={option} className="mt-3">
                       <label className="mb-1.5 block text-caption font-semibold text-app-muted">
@@ -231,11 +231,11 @@ export const ProfileQuestionFormSheet: React.FC<ProfileQuestionFormSheetProps> =
                           whileTap={{ scale: PRESS_SCALE }}
                           transition={SPRING.snappy}
                           onClick={() => { setForm((f) => ({ ...f, correctOption: option })); setError(null); }}
-                          aria-pressed={isCorrect}
-                          aria-label={`${qt('correctOptionLabel')} ${option}`}
+                          aria-pressed={isOwnAnswer}
+                          aria-label={`${qt('ownAnswerLabel')} ${option}`}
                           className={cn(
                             'flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border transition-colors',
-                            isCorrect ? 'border-transparent bg-brand-gradient text-white' : 'border-app bg-surface text-app-muted'
+                            isOwnAnswer ? 'border-transparent bg-brand-gradient text-white' : 'border-app bg-surface text-app-muted'
                           )}
                         >
                           <Check className="h-5 w-5" />
@@ -245,7 +245,7 @@ export const ProfileQuestionFormSheet: React.FC<ProfileQuestionFormSheetProps> =
                   );
                 })}
                 <p className="mt-3 text-caption normal-case text-app-muted">
-                  {qt('correctOptionLabel')}: {form.correctOption || '—'} · {qt('correctHint')}
+                  {qt('ownAnswerLabel')}: {form.correctOption || '—'} · {qt('ownAnswerHint')}
                 </p>
                 {form.presetId && <p className="mt-1 text-caption normal-case text-app-muted">{qt('presetEditedHint')}</p>}
                 {error && <p className="mt-3 text-caption font-semibold text-[#FF4B55]" role="alert">{qt(error)}</p>}

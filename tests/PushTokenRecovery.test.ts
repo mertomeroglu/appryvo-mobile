@@ -87,7 +87,8 @@ describe('P0 push-token recovery', () => {
     expect(resolvePushDestination({ type: 'VERIFICATION_APPROVED' })).toBe('/profile');
     expect(resolvePushDestination({ type: 'confession_comment' })).toBe('/confessions');
     expect(resolvePushDestination({ eventType: 'PREMIUM_EXPIRING' })).toBe('/premium');
-    expect(resolvePushDestination({ eventType: 'BOOST_ENDING' })).toBe('/boost');
+    // Boost is retired; a late BOOST_ENDING push from an old server lands on Profile.
+    expect(resolvePushDestination({ eventType: 'BOOST_ENDING' })).toBe('/profile');
     expect(resolvePushDestination({ type: 'incoming_call', matchId: 'match-1' })).toBe('/chat/match-1');
     expect(resolvePushDestination({ ctaUrl: 'https://evil.example/profile' })).toBeNull();
     expect(resolvePushDestination({ ctaUrl: 'https://appryvo.online/messages' })).toBe('/messages');

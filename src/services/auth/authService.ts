@@ -10,8 +10,10 @@ export interface RegisterPayload {
   name: string;
   username?: string;
   birthDate: string;
-  gender: string;
-  targetGender: string;
+  /** Optional -- omitted when the user skips the gender step. */
+  gender?: string;
+  /** Legacy field; the current wizard never sends it. */
+  targetGender?: string;
   /** Optional; collected inside the wizard's interests step and skippable there. */
   religion?: string;
   city?: string;

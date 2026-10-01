@@ -75,17 +75,15 @@ describe('RYVO PATCH V2 04/05 issue 1 -- hardcoded-string sweep (bounded scope, 
     useAppLocaleStore.getState().setLocale('tr');
   });
 
-  it('BlockedUsersScreen, SupportScreen, MatchModal, and the filter sheet\'s distance controls no longer hardcode their user-facing strings', () => {
+  it('BlockedUsersScreen and SupportScreen no longer hardcode their user-facing strings; the distance filter sheet is gone', () => {
     for (const file of [
       'src/features/profile/BlockedUsersScreen.tsx',
       'src/features/support/SupportScreen.tsx',
-      'src/components/MatchModal.tsx',
     ]) {
       const source = readSource(file);
       expect(source).toMatch(/useAppTranslation/);
     }
-    const filterSheet = readSource('src/components/FilterBottomSheet.tsx');
-    expect(filterSheet).toMatch(/t\('maxDistanceLabel'\)/);
-    expect(filterSheet).toMatch(/t\('maxDistanceHint'\)/);
+    // The discovery filter sheet (age slider, distance radius) no longer exists at all.
+    expect(() => readSource('src/components/FilterBottomSheet.tsx')).toThrow();
   });
 });

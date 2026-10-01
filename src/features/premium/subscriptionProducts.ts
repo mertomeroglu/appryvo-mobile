@@ -1,4 +1,4 @@
-import type { AppMessageKey } from '../../i18n/appLocale';
+import type { SocialTextKey } from '../social/socialLocale';
 import {
   SUBSCRIPTION_PRODUCTS,
   getStoreProductId,
@@ -25,32 +25,25 @@ export function normalizePublicTier(value: unknown): SubscriptionTier | 'FREE' {
   return 'FREE';
 }
 
-/** Feature list rendered on PremiumScreen. Each entry is either an AppMessageKey (translated
- * via t()) or the literal sentinel 'Passport' -- PremiumScreen swaps that one for
- * PASSPORT_LABELS[locale] instead, since the Passport feature's display name is itself already
- * a full per-locale label map (see appLocale.ts). */
-export const PUBLIC_PLAN_FEATURES: Record<SubscriptionTier, readonly (AppMessageKey | 'Passport')[]> = {
-  // Swipe-era entitlements (unlimited likes, rewind, "see who likes you", priority likes) are
-  // deliberately absent: none of them exist in question-based matching. What a subscription
-  // actually lifts now is the FREE tier's 10 new question interactions per rolling 24h.
-  PLUS: [
-    'planFeatureUnlimitedQuestionAnswers',
-    'planFeaturePlusAdFree',
-    'filterAdvancedFiltersLabel',
-    'Passport',
-    'planFeaturePlusSuperLike',
-    'planFeaturePlusBoost',
-  ],
-  GOLD: [
-    'planFeatureGoldAllPlusFeatures',
-    'planFeatureUnlimitedQuestionAnswers',
-    'planFeatureGoldPriorityMeeting',
-    'planFeatureGoldSuperLike',
-    'planFeatureGoldBoost',
-    'planFeatureGoldIncognito',
-    'planFeatureGoldBadge',
-  ],
-};
+/** The only plan on sale. */
+export const SELLABLE_TIER: SubscriptionTier = 'PLUS';
+
+/**
+ * Ryvo Plus benefits rendered on PremiumScreen (socialLocale keys). Every entry maps to a
+ * server-enforced entitlement -- nothing here is decorative:
+ *  - question answers: FREE is limited to 10 new question interactions per rolling 24h;
+ *  - confessions: FREE reads are limited to 10 per day;
+ *  - hideFollowersFollowing: the profile setting is premium-gated server-side;
+ *  - badge: premium badge shown on the profile.
+ * Ryvo Gold is no longer sold; existing Gold members keep their benefits until the end of the
+ * paid period (see goldLegacyNotice).
+ */
+export const PLUS_PLAN_FEATURES: readonly SocialTextKey[] = [
+  'premiumFeatureQuestions',
+  'premiumFeatureConfessions',
+  'premiumFeatureHideFollowLists',
+  'premiumFeatureBadge',
+];
 
 export function calculateStoreDiscount(weeklyPrice: number, offerPrice: number, weeks: number) {
   if (![weeklyPrice, offerPrice, weeks].every((value) => Number.isFinite(value) && value > 0)) return 0;

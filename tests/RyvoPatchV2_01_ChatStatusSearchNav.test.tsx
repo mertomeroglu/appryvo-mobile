@@ -132,11 +132,4 @@ describe('RYVO PATCH V2 01/05 issue 3 — Passport search results actually rende
     expect(source).toMatch(/entry\?\.longitude/);
   });
 
-  it('PassportScreen consumes the shared service instead of its own duplicated fetch/DTO logic', () => {
-    const source = readSource('src/features/passport/PassportScreen.tsx');
-    expect(source).toContain("import { searchCities, type GeoCityResult } from '../../services/geo/cityService';");
-    expect(source).not.toMatch(/city\.lat\b/);
-    expect(source).not.toMatch(/city\.lng\b/);
-    expect(source).not.toContain("apiClient.get(`/api/geo/search-cities");
-  });
 });

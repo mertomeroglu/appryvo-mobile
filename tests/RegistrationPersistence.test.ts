@@ -25,17 +25,6 @@ describe('registration photo persistence', () => {
     expect(badge).not.toMatch(/[🇦-🇿]/u);
   });
 
-  it('separates permission denial from disabled location services and retries on resume', () => {
-    const discover = source('src/features/discovery/DiscoverScreen.tsx');
-    expect(discover).toContain("'permissionDenied'");
-    expect(discover).toContain("'servicesDisabled'");
-    expect(discover).toContain("t('discoverOpenLocationSettingsAction')");
-    expect(discover).toContain('addStateChangeListener');
-    expect(discover).toContain("t('discoverContinueGlobalAction')");
-    expect(messages.tr.discoverOpenLocationSettingsAction).toBe('Konum Ayarlarını Aç');
-    expect(messages.tr.discoverContinueGlobalAction).toBe('Global Keşfet ile Devam Et');
-  });
-
   it('enforces the 100-210 height domain without printing it below the input', () => {
     const edit = source('src/components/EditProfileModal.tsx');
     expect(edit).toContain('parsedHeight < 100 || parsedHeight > 210');

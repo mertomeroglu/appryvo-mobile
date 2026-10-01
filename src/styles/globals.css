@@ -10,7 +10,7 @@
     /* FloatingNavBar's own rendered footprint above env(safe-area-inset-bottom): its nav element
        (48px icon buttons + 12px vertical padding + ~2px border ~= 62px) plus its 16px bottom
        margin. Kept as a single named constant because any screen that floats content above the
-       nav (e.g. DiscoverScreen's swipe action row) needs this exact number to avoid the nav
+       nav (e.g. the map's bottom controls) needs this exact number to avoid the nav
        overlapping/occluding that content -- if FloatingNavBar.tsx's own sizing ever changes,
        update this value too instead of leaving other screens' clearance to silently drift. */
     --nav-footprint: 78px;

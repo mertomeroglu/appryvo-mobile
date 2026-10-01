@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Capacitor } from '@capacitor/core';
 import { AtSign, Briefcase, Camera as CameraIcon, ChevronRight, LockKeyhole, Plus, Ruler, Sparkles, User, X } from 'lucide-react';
 import { apiClient } from '../services/api/apiClient';
-import { mediaService, normalizeMediaUrl, getPhotoUrl } from '../services/media/mediaService';
+import { mediaService, normalizeMediaUrl, getPhotoUrl, getOwnPhotoDisplayUrl, isPhotoUnderReview } from '../services/media/mediaService';
 import { nativeCamera } from '../native/camera';
 import { useAuthStore } from '../stores/useAuthStore';
 import { toast } from '../stores/useToastStore';
@@ -64,8 +64,12 @@ const MIN_PHOTOS = 2;
 
 interface PhotoSlot {
   id: string;
+  /** Canonical public URL -- what is saved and compared. */
   url: string;
   uploading: boolean;
+  /** What the owner sees: a signed/local preview while the photo is held for moderation. */
+  previewUrl?: string;
+  underReview?: boolean;
 }
 
 function normalizeInitialPhotos(photos: any[] | undefined): PhotoSlot[] {
@@ -75,6 +79,8 @@ function normalizeInitialPhotos(photos: any[] | undefined): PhotoSlot[] {
       id: `existing-${i}`,
       url: getPhotoUrl(p) || '',
       uploading: false,
+      previewUrl: getOwnPhotoDisplayUrl(p),
+      underReview: isPhotoUnderReview(p),
     }))
     .filter((p) => p.url);
 }
@@ -99,10 +105,10 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
   const [job, setJob] = useState(user?.job || '');
   const [city, setCity] = useState(user?.city || '');
   const [cityId, setCityId] = useState<number | undefined>(undefined);
+  // An empty relationshipGoals list is an explicit "not stated" -- do not fall back to the legacy
+  // single value (which is 'NOT_SURE' for those users) and preselect an answer they never gave.
   const [relationshipGoals, setRelationshipGoals] = useState<string[]>(() => {
-    if (Array.isArray(user?.relationshipGoals) && user.relationshipGoals.length > 0) {
-      return user.relationshipGoals.slice(0, 2);
-    }
+    if (Array.isArray(user?.relationshipGoals)) return user.relationshipGoals.slice(0, 2);
     return user?.relationshipGoal ? [user.relationshipGoal] : [];
   });
   const [interests, setInterests] = useState<string[]>(user?.interests || []);
@@ -151,7 +157,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       job: user?.job || '',
       city: user?.city || '',
       relationshipGoals:
-        Array.isArray(user?.relationshipGoals) && user.relationshipGoals.length > 0
+        Array.isArray(user?.relationshipGoals)
           ? user.relationshipGoals.slice(0, 2)
           : user?.relationshipGoal
             ? [user.relationshipGoal]
@@ -226,7 +232,12 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       const res = await mediaService.uploadMedia(file, 'profile');
       const url = res?.data?.url;
       if (!url) throw new Error('Upload failed');
-      setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, url, uploading: false } : p)));
+      // New public photos are held until a moderator approves them; show the owner their local
+      // copy meanwhile (the public URL serves a placeholder).
+      const underReview = isPhotoUnderReview(res?.data);
+      const previewUrl = underReview ? URL.createObjectURL(file) : undefined;
+      setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, url, uploading: false, previewUrl, underReview } : p)));
+      if (underReview) toast.show(t('photoUnderReviewToast'), 'neutral');
     } catch {
       setPhotos((prev) => prev.filter((p) => p.id !== id));
       toast.error(t('photoUploadFailedToast'));
@@ -316,7 +327,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       setErrorMsg(t('minPhotosRequiredError'));
       return;
     }
-    if (relationshipGoals.length < 1 || relationshipGoals.length > 2) {
+    // "What I'm looking for" is optional: an empty list means "not stated" and hides it.
+    if (relationshipGoals.length > 2) {
       setErrorMsg(t('relationshipGoalCountError'));
       return;
     }
@@ -464,12 +476,17 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
                   ) : (
                     <>
                       <img
-                        src={normalizeMediaUrl(photo.url)}
+                        src={normalizeMediaUrl(photo.previewUrl || photo.url)}
                         alt={t('profilePhotoAlt')}
                         loading="lazy"
                         decoding="async"
                         className="w-full h-full object-cover"
                       />
+                      {photo.underReview && (
+                        <span className="absolute bottom-1 start-1 end-1 rounded-lg bg-black/65 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">
+                          {t('photoUnderReviewBadge')}
+                        </span>
+                      )}
                       <button
                         type="button"
                         onClick={() => removePhoto(photo.id)}

@@ -18,14 +18,13 @@ import {
   Wine,
 } from 'lucide-react';
 import { useDiscoveryUserQuery, useMatchesQuery, useFollowStatusQuery } from '../../hooks/useQueries';
-import { useDiscoveryPassMutation, useQuestionStatusQuery } from '../../hooks/useQuestionQueries';
+import { useQuestionStatusQuery } from '../../hooks/useQuestionQueries';
 import { QuestionAnswerSheet } from '../questions/QuestionAnswerSheet';
 import { useQuestionText } from '../questions/questionLocale';
 import { FollowButton } from '../../components/FollowButton';
 import { TrustProfileSection } from '../../components/TrustProfileSection';
 import { normalizeMediaUrl } from '../../services/media/mediaService';
 import { VerifiedBadge } from '../../components/ui/Badge';
-import { nativeHaptics } from '../../native/haptics';
 import { nativeShare } from '../../native/share';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { ErrorState } from '../../components/ui/ErrorState';
@@ -61,12 +60,11 @@ export const FullProfileScreen: React.FC = () => {
   const { data: followStatus } = useFollowStatusQuery(userId);
   const { data: matches } = useMatchesQuery();
   const { qt } = useQuestionText();
-  const passMutation = useDiscoveryPassMutation();
 
-  // This profile route is shared by Discover/the question inbox (someone not yet matched) and
-  // by already-matched contexts -- the chat header's "view profile" and the map/stories/
-  // connections list all link here too, for a person who may already be a match. Answering a
-  // question for an existing match is meaningless, so the action bar branches on match state.
+  // This profile route is shared by the Home question feed / question inbox (someone not yet
+  // connected) and by already-connected contexts -- the chat header's "view profile", rooms,
+  // stories and the connections list all link here too. Answering a question for an existing
+  // connection is meaningless, so the action bar branches on connection state.
   const existingMatch = useMemo(
     () => (Array.isArray(matches) ? matches.find((match: any) => match.user?.id === userId) : undefined),
     [matches, userId]
@@ -77,8 +75,8 @@ export const FullProfileScreen: React.FC = () => {
   const [isBlockOpen, setIsBlockOpen] = useState(false);
   const [isAnswerOpen, setIsAnswerOpen] = useState(false);
 
-  // Interaction state for this exact person (never a correct answer -- the server only ever
-  // sends status + allowed actions). Skipped once they are already a match.
+  // Interaction state for this exact person (the server only sends status + allowed actions).
+  // Skipped once they are already connected.
   const { data: questionStatus } = useQuestionStatusQuery(existingMatch ? undefined : userId);
   const pendingStatusLabel = (() => {
     switch (questionStatus?.interactionStatus) {
@@ -86,7 +84,7 @@ export const FullProfileScreen: React.FC = () => {
       case 'OWNER_PENDING':
         return qt('statusAwaiting');
       case 'SUPERLIKE_PENDING':
-        return qt('statusSuperlikeSent');
+        return qt('statusAwaiting');
       case 'RETRY_REQUESTED':
         return qt('statusRetryRequested');
       default:
@@ -119,20 +117,6 @@ export const FullProfileScreen: React.FC = () => {
   }
 
   const photos = normalizePhotos(user);
-
-  const handlePass = async () => {
-    if (!userId) return;
-    nativeHaptics.impact();
-    try {
-      // "Simdilik Gec": a directional, never-expiring pass -- it only hides this person from
-      // this user's own feed and can be undone from Settings ("Eslesmeleri Sifirla").
-      await passMutation.mutateAsync(userId);
-    } catch (err) {
-      console.error('[FULL PROFILE PASS ERROR]', err);
-    } finally {
-      navigate(-1);
-    }
-  };
 
   const voicePromptUrl = user.voicePrompt?.url;
   const prompts: any[] = Array.isArray(user.prompts) ? user.prompts : [];
@@ -227,11 +211,10 @@ export const FullProfileScreen: React.FC = () => {
                 {user.verified && <VerifiedBadge size={24} />}
                 {user.isPremium && <Crown className="w-6 h-6 text-[#F5B942] fill-current" />}
               </div>
-              {(user.city || typeof user.distanceKm === 'number') && (
+              {user.city && (
                 <div className="flex items-center gap-1.5 text-xs text-gray-300 mt-1">
                   <MapPin className="w-4 h-4 text-pink-500" />
-                  {user.city && <span>{user.city}</span>}
-                  {typeof user.distanceKm === 'number' && <span>• {t('fullProfileDistanceAwayTemplate').replace('{distance}', String(user.distanceKm))}</span>}
+                  <span>{user.city}</span>
                 </div>
               )}
             </div>
@@ -457,15 +440,6 @@ export const FullProfileScreen: React.FC = () => {
                 {qt('answerQuestion')}
               </AppButton>
             )}
-            <AppButton
-              variant="ghost"
-              size="md"
-              fullWidth
-              disabled={passMutation.isPending}
-              onClick={() => void handlePass()}
-            >
-              {qt('skipForNow')}
-            </AppButton>
           </div>
         )}
       </div>

@@ -35,7 +35,6 @@ interface UserProfile {
   profileCompletion?: number;
   pushNotificationsEnabled?: boolean;
   boostCount?: number;
-  superlikeCount?: number;
   heightCm?: number;
   smokingStatus?: string;
   drinkingStatus?: string;
@@ -47,6 +46,8 @@ interface UserProfile {
   chatLanguage?: string | null;
   countryCode?: string | null;
   showCountryFlag?: boolean;
+  /** No birth date on file: the server keeps the account behind the 18+ gate until one is saved. */
+  ageVerificationRequired?: boolean;
   [key: string]: any;
 }
 

@@ -81,10 +81,8 @@ describe('normalized profile-frame geometry', () => {
       'src/features/profile/OwnProfileScreen.tsx',
       'src/features/frames/ProfileFramesScreen.tsx',
       'src/features/discovery/FullProfileScreen.tsx',
-      'src/features/map/SocialMapScreen.tsx',
       'src/features/chat/MessagesScreen.tsx',
       'src/features/chat/ChatScreen.tsx',
-      'src/components/MatchModal.tsx',
     ];
     for (const file of consumers) {
       expect(source(file)).toMatch(/ProfileAvatarFrame|getProfileFramePlacement/);

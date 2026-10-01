@@ -1,13 +1,13 @@
 // Single source of truth for the registration wizard's step order and progress indicator.
 // ALL of these run before the account is actually created — see RegistrationWizard.tsx.
-// Location is intentionally requested later, when the user first opens Discover.
+// Location is never part of signup; it is only asked for when the user checks in to a room.
+// There is no "who are you looking for" or "relationship goal" step: Ryvo is a community/
+// question app, and gender itself is optional (see the gender step's skip action).
 export type RegistrationStepId =
   | 'basic'
   | 'username'
   | 'birthdate'
   | 'gender'
-  | 'interestedIn'
-  | 'relationshipGoal'
   | 'interests'
   | 'profileQuestions'
   | 'photos';
@@ -27,8 +27,6 @@ export const REGISTRATION_STEPS: RegistrationStepConfig[] = [
   { id: 'username', labelKey: 'regStepUsernameLabel' },
   { id: 'birthdate', labelKey: 'regStepBirthdateLabel' },
   { id: 'gender', labelKey: 'regStepGenderLabel' },
-  { id: 'interestedIn', labelKey: 'regStepInterestedInLabel' },
-  { id: 'relationshipGoal', labelKey: 'regStepRelationshipGoalLabel' },
   { id: 'interests', labelKey: 'regStepInterestsLabel' },
   // Every account owns 1-3 profile questions from day one -- discovery is question-based, so
   // there is no usable feed without them (the server enforces the same rule via /auth/register

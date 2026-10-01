@@ -1,6 +1,6 @@
 export type PushData = Record<string, unknown>;
 
-const SAFE_ROUTE = /^\/(discover|inbox|likes|messages|notifications|profile|verification|premium|boost|frames|passport|confessions)(\/|\?|$)/;
+const SAFE_ROUTE = /^\/(home|map|rooms|discover|inbox|likes|messages|notifications|profile|verification|premium|frames|confessions)(\/|\?|$)/;
 
 // The app's own custom URL scheme (AndroidManifest.xml custom_url_scheme, aligned with iOS's
 // CFBundleURLSchemes so a share link works identically on both platforms) -- e.g. a share link
@@ -53,7 +53,8 @@ export function resolvePushDestination(data: PushData): string | null {
   if (type.startsWith('verification_')) return '/profile';
   if (['social', 'confession', 'confession_comment'].includes(type)) return '/confessions';
   if (type === 'premium' || type === 'premium_expiring') return '/premium';
-  if (type === 'boost' || type === 'boost_ending') return '/boost';
+  // Boost is retired; notifications queued before that open Profile.
+  if (type === 'boost' || type === 'boost_ending') return '/profile';
   if (['incoming_call', 'missed_call', 'call'].includes(type)) return matchId ? `/chat/${encodeURIComponent(matchId)}` : '/messages';
   return safeRoute(data.route) || safeRoute(data.ctaUrl);
 }

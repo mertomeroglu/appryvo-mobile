@@ -32,19 +32,6 @@ describe('mobile onboarding and discovery flow contracts', () => {
     expect(wizard).not.toContain("apiClient.put('/api/profile', { photos: uploadedUrls }");
   });
 
-  it('requests device location in Discover and retains a global fallback', () => {
-    const discover = source('features/discovery/DiscoverScreen.tsx');
-
-    expect(discover).toContain('acquireBestLocation()');
-    expect(discover).toContain('latitude: lat');
-    expect(discover).toContain('longitude: lng');
-    expect(discover).not.toContain("apiClient.post('/api/user/location', { lat, lng })");
-    expect(discover).toContain("t('discoverContinueGlobalAction')");
-    expect(messages.tr.discoverContinueGlobalAction).toBe('Global Keşfet ile Devam Et');
-    expect(discover).toContain('onClick={continueWithGlobalDiscovery}');
-    expect(discover).not.toContain('Yukarı kaydırarak Süper Beğeni gönderebilirsin.');
-  });
-
   it('keeps confession submit idempotent and surfaces empty-content validation', () => {
     const confessions = source('features/social/ConfessionsScreen.tsx');
 
@@ -73,10 +60,9 @@ describe('profile and monetization UI contracts', () => {
     expect(settings).not.toContain('targetCountry');
   });
 
-  it('renders flat flags, Plus/Gold periods, and the revised Boost copy', () => {
+  it('renders flat flags and Plus periods; Boost no longer exists', () => {
     const flag = source('components/ui/CountryFlagBadge.tsx');
     const premium = source('features/premium/PremiumScreen.tsx');
-    const boost = source('features/boost/BoostScreen.tsx');
 
     expect(flag).toContain('rounded-full');
     expect(flag).not.toContain("flag-icons/css/flag-icons.min.css");
@@ -96,13 +82,7 @@ describe('profile and monetization UI contracts', () => {
     expect(messages.tr.missingStorePriceLoading).toBe('Mağaza fiyatı yükleniyor.');
     expect(messages.tr.refreshPricesAction).toBe('Fiyatları yenile');
     expect(premium).not.toContain('Rehber fiyat');
-    expect(boost).toContain("t('boostHeroTitle')");
-    expect(boost).toContain("t('boostHeroDescription')");
-    expect(boost).not.toContain('10 Kat Daha Fazla Görüntülenme');
-    expect(boost).toContain('ProfileAvatarFrame');
-    expect(boost).toContain("t('boostExplorePlusGoldAction')");
-    expect(boost).toContain("t('boostGoldTierLabel')");
-    expect(boost).toContain("t('boostActiveWithTimeTemplate')");
+    expect(() => source('features/boost/BoostScreen.tsx')).toThrow();
     expect(premium).toContain('snap-mandatory');
     expect(premium).toContain('data-period={id}');
     expect(premium).toContain('aria-pressed={selected}');

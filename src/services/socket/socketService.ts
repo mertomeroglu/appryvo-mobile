@@ -2,6 +2,7 @@ import { io, Socket } from 'socket.io-client';
 import { API_BASE_URL } from '../api/apiClient';
 import { secureStorage } from '../../native/secureStorage';
 import { translateSync } from '../../i18n/appLocale';
+import { notifyAgeVerificationRequired } from '../security/ageVerification';
 
 type EventListenerMap = Map<string, Set<(...args: any[]) => void>>;
 const DEBUG = import.meta.env.DEV;
@@ -120,6 +121,12 @@ export class SocketService {
 
     this.socket.on('connect_error', (err) => {
       if (DEBUG) console.warn('[SOCKET CONNECT ERROR]', err.message);
+      // Handshake refused because the account has no birth date on file: surface the 18+ gate
+      // instead of silently running without realtime.
+      if ((err as { data?: { code?: string } })?.data?.code === 'AGE_VERIFICATION_REQUIRED') {
+        notifyAgeVerificationRequired();
+        this.disconnect();
+      }
     });
   }
 

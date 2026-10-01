@@ -1,5 +1,4 @@
 import {
-  keepPreviousData,
   type InfiniteData,
   useInfiniteQuery,
   useMutation,
@@ -16,20 +15,10 @@ export interface MapBbox {
   west: number;
 }
 
-/**
- * What the map's gender filter row can ask for. Mirrors MAP_GENDER_FILTERS in the API's
- * discovery_engine.js -- 'OTHER' means the "Diğer" gender here, never "no preference"
- * (that is 'ALL'), because the server's gender enum overloads the same word.
- */
-export type MapGenderFilter = 'ALL' | 'FEMALE' | 'MALE' | 'OTHER';
-
 // Query Keys Constant
 export const QUERY_KEYS = {
   me: ['user', 'me'],
   entitlements: ['user', 'entitlements'],
-  discoveryFeed: ['discovery', 'feed'],
-  discoveryMap: (bbox?: MapBbox | null, gender?: MapGenderFilter | null) => ['discovery', 'map', bbox?.north, bbox?.south, bbox?.east, bbox?.west, gender ?? null],
-  inboundLikes: ['discovery', 'likes', 'inbound'],
   matches: ['matches'],
   messages: (matchId: string) => ['matches', matchId, 'messages'],
   confessions: ['social', 'confessions'],
@@ -67,16 +56,6 @@ export function useEntitlementsQuery() {
   });
 }
 
-export interface DiscoveryFeedPage<TProfile = any> {
-  profiles: TProfile[];
-  paging: {
-    limit: number;
-    hasMore: boolean;
-    nextCursor: string | null;
-  };
-  algorithmVersion?: string;
-}
-
 export interface ConfessionItem {
   id: string;
   text: string;
@@ -103,94 +82,12 @@ export interface ConfessionsPage {
   };
 }
 
-export function useDiscoveryFeedQuery(cursor: string | null, limit = 20, sessionKey = 0) {
-  return useQuery({
-    queryKey: [...QUERY_KEYS.discoveryFeed, sessionKey, cursor, limit],
-    queryFn: () => {
-      const params = new URLSearchParams({ limit: String(limit) });
-      if (cursor) params.set('cursor', cursor);
-      return apiClient.get(`/api/discovery/feed?${params.toString()}`).then((res) => ({
-        profiles: Array.isArray(res?.data) ? res.data : [],
-        paging: {
-          limit: Number(res?.paging?.limit) || limit,
-          hasMore: res?.paging?.hasMore === true,
-          nextCursor: typeof res?.paging?.nextCursor === 'string' ? res.paging.nextCursor : null,
-        },
-        algorithmVersion: res?.algorithmVersion,
-      } as DiscoveryFeedPage));
-    },
-    staleTime: 1 * 60 * 1000,
-  });
-}
-
 export function useDiscoveryUserQuery(userId?: string) {
   return useQuery({
     queryKey: ['discovery', 'users', userId],
     queryFn: () => apiClient.get(`/api/discovery/users/${userId}`).then((res) => res?.data),
     enabled: !!userId,
     staleTime: 60 * 1000,
-  });
-}
-
-// The backend only filters by viewport (north/south/east/west) — it never reads lat/lng/radius —
-// so the map query is keyed on the current viewport bounds, refetched as the user pans/zooms.
-/**
- * `gender` is NOT sent to the server -- the filter lives on the profile (users.gender_filter,
- * shared with Discover), and the map route reads it there. It is part of the query key only so
- * that saving a new filter refetches the markers instead of serving the previous filter's cache.
- */
-export function useDiscoveryMapQuery(bbox?: MapBbox | null, limit = 80, gender?: MapGenderFilter | null) {
-  return useQuery({
-    queryKey: QUERY_KEYS.discoveryMap(bbox, gender),
-    queryFn: () => {
-      const params = new URLSearchParams();
-      if (bbox) {
-        params.set('north', String(bbox.north));
-        params.set('south', String(bbox.south));
-        params.set('east', String(bbox.east));
-        params.set('west', String(bbox.west));
-      }
-      params.set('limit', String(limit));
-      return apiClient.get(`/api/discovery/map?${params.toString()}`).then((res) => res?.data);
-    },
-    enabled: !!bbox,
-    // A user who taps "Gizlen" (hide) is removed from GET /api/discovery/map's result
-    // immediately server-side, but this query previously had no refetch trigger at all beyond
-    // the bbox changing (panning/zooming) -- the app disables the QueryClient's global
-    // refetchOnWindowFocus (main.tsx), and there was no refetchInterval either. A viewer who
-    // simply holds the map still would keep seeing a since-hidden user's marker indefinitely,
-    // not just briefly stale. Polling every 15s while the map is actually mounted (this query is
-    // only `enabled` once the screen has a bbox, and React Query stops polling once it's
-    // unmounted/inactive) bounds that exposure window instead of leaving it open-ended.
-    staleTime: 15 * 1000,
-    refetchInterval: 15 * 1000,
-    placeholderData: keepPreviousData,
-  });
-}
-
-export function useInboundLikesQuery() {
-  return useQuery({
-    queryKey: QUERY_KEYS.inboundLikes,
-    queryFn: () => apiClient.get('/api/discovery/likes/inbound').then((res) => res?.data),
-    staleTime: 30 * 1000,
-  });
-}
-
-export function useLikesUnreadCountQuery() {
-  return useQuery({
-    queryKey: ['discovery', 'likes', 'unread-count'],
-    queryFn: () => apiClient.get('/api/discovery/likes/unread-count').then((res) => res?.data?.count ?? 0),
-    staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
-    refetchOnWindowFocus: true,
-  });
-}
-
-export function useMarkLikesSeenMutation() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => apiClient.post('/api/discovery/likes/mark-seen'),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['discovery', 'likes', 'unread-count'] }),
   });
 }
 
@@ -659,43 +556,6 @@ export function useMarkOfficialNotificationsReadMutation() {
 }
 
 // Mutations
-
-export function useLikeMutation() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    // Field name must match the backend's exact casing (`isSuperLike`, capital L) -- it reads
-    // req.body via destructuring, so a mismatched key silently becomes undefined/false instead
-    // of erroring, which previously made every Super Like save as a regular Like.
-    mutationFn: (payload: { targetUserId: string; isSuperLike?: boolean }) =>
-      apiClient.post('/api/discovery/like', payload),
-    // Not invalidating discoveryFeed here: the client pages through an already-fetched
-    // batch locally (see DiscoverScreen), and invalidating per-swipe used to replace that
-    // batch out from under the in-progress deck. The server already excludes interacted
-    // users from future fetches, so eager refetch isn't needed to stay correct.
-    onSuccess: (_data, variables) => {
-      // Liking someone no longer removes their marker: the map answers "who is around me", not
-      // "who have I not decided on yet", so it keeps showing people you have already liked (the
-      // server stopped excluding them too). Only the refetch below stays, so the marker can pick
-      // up any state the like changed.
-      queryClient.invalidateQueries({ queryKey: ['discovery', 'map'] });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.matches });
-      // Liking someone who is already in "Seni Beğenenler" always creates a mutual match
-      // (they already liked us -- see the reciprocal check in POST /discovery/like), so they
-      // must drop out of that list immediately rather than waiting for its 30s staleTime or a
-      // socket round-trip to invalidate it.
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.inboundLikes });
-      if (variables.isSuperLike) {
-        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.entitlements });
-      }
-    },
-  });
-}
-
-export function usePassMutation() {
-  return useMutation({
-    mutationFn: (targetUserId: string) => apiClient.post('/api/discovery/pass', { targetUserId }),
-  });
-}
 
 export function useNotificationsPreferenceMutation() {
   return useMutation({

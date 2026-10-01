@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateStoreDiscount,
   normalizePublicTier,
-  PUBLIC_PLAN_FEATURES,
+  PLUS_PLAN_FEATURES,
+  SELLABLE_TIER,
   SUBSCRIPTION_PRODUCTS,
 } from '../src/features/premium/subscriptionProducts';
-import { messages } from '../src/i18n/appLocale';
 
 describe('public premium product system', () => {
   it('maps legacy paid tiers to Ryvo Gold without dropping entitlement', () => {
@@ -20,18 +20,18 @@ describe('public premium product system', () => {
     expect(calculateStoreDiscount(0, 260, 4)).toBe(0);
   });
 
-  it('keeps exact Plus and Gold quota matrices', () => {
-    // PUBLIC_PLAN_FEATURES now holds AppMessageKeys (translated via t() on render) rather than
-    // literal display strings -- assert on the key names, and cross-check their `tr` copy still
-    // matches what used to be hardcoded here.
-    expect(PUBLIC_PLAN_FEATURES.PLUS).toContain('planFeaturePlusSuperLike');
-    expect(PUBLIC_PLAN_FEATURES.PLUS).toContain('planFeaturePlusBoost');
-    expect(PUBLIC_PLAN_FEATURES.GOLD).toContain('planFeatureGoldSuperLike');
-    expect(PUBLIC_PLAN_FEATURES.GOLD).toContain('planFeatureGoldBoost');
-    expect(messages.tr.planFeaturePlusSuperLike).toBe('3 Super Like / hafta');
-    expect(messages.tr.planFeaturePlusBoost).toBe('1 adet 30 dk Boost / ay');
-    expect(messages.tr.planFeatureGoldSuperLike).toBe('5 Super Like / hafta');
-    expect(messages.tr.planFeatureGoldBoost).toBe('2 adet 30 dk Boost / ay');
+  it('sells only Ryvo Plus, listing real server-enforced benefits (no Super Like/Boost/Passport)', () => {
+    expect(SELLABLE_TIER).toBe('PLUS');
+    expect(PLUS_PLAN_FEATURES).toEqual([
+      'premiumFeatureQuestions',
+      'premiumFeatureConfessions',
+      'premiumFeatureHideFollowLists',
+      'premiumFeatureBadge',
+    ]);
+    expect(PLUS_PLAN_FEATURES.join(' ')).not.toMatch(/superlike|boost|passport|likes|rewind|incognito/i);
+    // The app shows no ads to anyone (rewarded ads were only on the retired swipe deck), so
+    // "ad-free" would be a benefit that does not exist.
+    expect(PLUS_PLAN_FEATURES).not.toContain('premiumFeatureAdFree');
   });
 
   it('keeps Android and iOS storefront IDs explicit without developer fallback prices', () => {

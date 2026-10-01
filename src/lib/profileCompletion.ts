@@ -1,7 +1,7 @@
 // Client-computed profile completion — derived from the fields that actually exist on the
 // user record, not a stored/fake number. Only counts fields a user can fill in from the
 // Profile screen after registration (registration itself already guarantees name, birth date,
-// gender, relationship goal, interests, and at least two photos).
+// interests, and at least two photos). Gender and "what I'm looking for" are optional and unscored.
 import type { AppMessageKey } from '../i18n/appLocale';
 
 interface CompletionUser {

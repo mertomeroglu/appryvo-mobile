@@ -1,7 +1,6 @@
-// Single shared implementation of the city/geo search used by both SocialMapScreen and
-// PassportScreen -- previously each screen had its own independent copy-pasted fetch + DTO
-// mapping, which had already drifted once (see PassportScreen's prior fix for city.city/
-// city.latitude/city.longitude/city.country vs. the name/lat/lng fields the UI used to assume).
+// Single shared implementation of the city/geo search (used by SocialMapScreen). The DTO mapping
+// lives here once: the server returns city.city/city.latitude/city.longitude/city.country, not
+// the name/lat/lng fields the UI once assumed.
 // Diacritics/transliteration (e.g. "Istanbul" -> "İstanbul", "Munchen" -> "München") is entirely
 // server-side (see Prompt 02's unaccent-based geo search) -- this only ever sends the raw query
 // string and maps whatever comes back; it never guesses at normalization itself.

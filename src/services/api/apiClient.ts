@@ -1,5 +1,6 @@
 import { secureStorage } from '../../native/secureStorage';
 import { notifyVpnBlocked } from '../security/vpnAccess';
+import { notifyAgeVerificationRequired } from '../security/ageVerification';
 import { translateSync } from '../../i18n/appLocale';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api.appryvo.online';
@@ -61,6 +62,9 @@ async function handleResponse(response: Response): Promise<any> {
   const code = data?.code || (response.status === 401 ? 'UNAUTHORIZED' : 'API_ERROR');
   if (code === 'VPN_NOT_ALLOWED') {
     notifyVpnBlocked(data?.localizedMessage);
+  }
+  if (code === 'AGE_VERIFICATION_REQUIRED' && response.status === 403) {
+    notifyAgeVerificationRequired();
   }
   throw new ApiException(message, response.status, code, data);
 }

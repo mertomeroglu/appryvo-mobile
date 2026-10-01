@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import type { Product } from '@capgo/native-purchases';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Check, Compass, Crown, Eye, Heart, RotateCcw, ShieldOff, SlidersHorizontal, Sparkles, Star, TrendingUp, Zap } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, Check, EyeOff, HelpCircle, MessagesSquare, ShieldOff, Sparkles } from 'lucide-react';
 import { findSubscriptionStoreProduct, nativeIap } from '../../native/iap';
 import { apiClient } from '../../services/api/apiClient';
 import { useEntitlementsQuery } from '../../hooks/useQueries';
@@ -13,13 +13,14 @@ import { AppLogo } from '../../components/ui/AppLogo';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { toast } from '../../stores/useToastStore';
 import { DURATION, EASE } from '../../motion/tokens';
-import { calculateStoreDiscount, getStoreProductId, getSubscriptionProduct, MIN_MEANINGFUL_DISCOUNT_PERCENT, PUBLIC_PLAN_FEATURES, PUBLIC_PLAN_NAMES, SUBSCRIPTION_PRODUCTS, type SubscriptionPeriod, type SubscriptionTier } from './subscriptionProducts';
-import { PASSPORT_LABELS, useAppLocaleStore, useAppTranslation } from '../../i18n/appLocale';
+import { calculateStoreDiscount, getStoreProductId, getSubscriptionProduct, MIN_MEANINGFUL_DISCOUNT_PERCENT, PLUS_PLAN_FEATURES, PUBLIC_PLAN_NAMES, SELLABLE_TIER, type SubscriptionPeriod, type SubscriptionTier } from './subscriptionProducts';
+import { useAppTranslation } from '../../i18n/appLocale';
+import { useSocialText } from '../social/socialLocale';
 import { LegalModal } from '../../components/LegalModal';
 import { PRIVACY_POLICY, TERMS_OF_SERVICE, type LegalDocument } from '../../lib/legalContent';
 
-const FEATURE_ICONS = [Heart, ShieldOff, RotateCcw, SlidersHorizontal, Compass, Star, Zap];
-const GOLD_FEATURE_ICONS = [Sparkles, Eye, TrendingUp, Star, Zap, ShieldOff, Crown];
+// Same order as PLUS_PLAN_FEATURES.
+const FEATURE_ICONS = [HelpCircle, MessagesSquare, ShieldOff, EyeOff, BadgeCheck];
 
 interface SubscriptionCatalogItem {
   tier: SubscriptionTier;
@@ -38,8 +39,8 @@ function formatLocalizedAmount(value: number, currencyCode: string) {
 }
 
 export const PremiumScreen: React.FC = () => {
-  const locale = useAppLocaleStore((state) => state.locale);
   const { t } = useAppTranslation();
+  const { st } = useSocialText();
   const PERIODS: Array<{ id: SubscriptionPeriod; label: string; suffix: string }> = useMemo(() => [
     { id: 'WEEKLY', label: t('periodWeeklyLabel'), suffix: t('periodWeeklySuffix') },
     { id: 'MONTHLY', label: t('periodMonthlyLabel'), suffix: t('periodMonthlySuffix') },
@@ -48,7 +49,8 @@ export const PremiumScreen: React.FC = () => {
   ], [t]);
   const [legalDoc, setLegalDoc] = useState<LegalDocument | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<SubscriptionPeriod>('MONTHLY');
-  const [selectedTier, setSelectedTier] = useState<SubscriptionTier>('GOLD');
+  // Ryvo Plus is the only plan on sale; Gold is legacy-only (see goldLegacyNotice below).
+  const selectedTier: SubscriptionTier = SELLABLE_TIER;
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [subscriptionCatalog, setSubscriptionCatalog] = useState<SubscriptionCatalogItem[]>([]);
   const [storeLoadIssue, setStoreLoadIssue] = useState<string | null>(null);
@@ -98,7 +100,6 @@ export const PremiumScreen: React.FC = () => {
 
   const periodConfig = PERIODS.find((period) => period.id === selectedPeriod)!;
   const selectedProduct = getSubscriptionProduct(selectedTier, selectedPeriod);
-  const selectedStoreProductId = storefrontIdFor(selectedTier, selectedPeriod);
   const storeProduct = findSubscriptionStoreProduct(storeProducts, selectedTier, selectedPeriod);
   const priceAvailable = hasStorePrice(storeProduct);
   const missingPriceCopy = !Capacitor.isNativePlatform()
@@ -200,11 +201,11 @@ export const PremiumScreen: React.FC = () => {
     }
   };
 
-  const featureIcons = selectedTier === 'GOLD' ? GOLD_FEATURE_ICONS : FEATURE_ICONS;
-  const features = PUBLIC_PLAN_FEATURES[selectedTier].map((key, index) => ({
-    label: key === 'Passport' ? PASSPORT_LABELS[locale] : t(key),
-    icon: featureIcons[index],
+  const features = PLUS_PLAN_FEATURES.map((key, index) => ({
+    label: st(key),
+    icon: FEATURE_ICONS[index] || Check,
   }));
+  const isLegacyGold = entitlements?.subscriptionTier === 'GOLD';
   return (
     <div className="h-full w-full overflow-y-auto bg-app text-app no-scrollbar select-none">
       <header className="pt-safe mx-4 my-2 flex items-center justify-between">
@@ -215,22 +216,20 @@ export const PremiumScreen: React.FC = () => {
 
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: DURATION.emphasis, ease: EASE.decelerate }} className="px-4 pb-[calc(var(--safe-bottom)+2rem)]">
         <div className="py-5 text-center">
-          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr from-[#F5B942] to-[#FBD98A] shadow-premium"><Crown className="h-8 w-8 fill-current text-[#3A2A05]" /></div>
+          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-brand-gradient shadow-elevated"><Sparkles className="h-8 w-8 text-white" /></div>
           <h1 className="text-title text-app">{t('choosePlanTitle')}</h1>
           <p className="mt-1 text-caption normal-case text-app-muted">{t('planSwitchHint')}</p>
         </div>
 
         {entitlements?.isPremium === true && <div className="mb-4 rounded-2xl border border-[#F5B942]/40 bg-[#F5B942]/10 p-3 text-center text-caption font-bold text-[#B57A08]">{t('activeMembershipTemplate').replace('{tier}', entitlements?.subscriptionTier === 'PLUS' ? PUBLIC_PLAN_NAMES.PLUS : PUBLIC_PLAN_NAMES.GOLD)}</div>}
 
-        <div className="grid grid-cols-2 gap-2 rounded-2xl border border-app bg-surface p-1.5 shadow-soft">
-          {(['PLUS', 'GOLD'] as const).map((tier) => <button key={tier} type="button" onClick={() => setSelectedTier(tier)} className={`rounded-xl px-3 py-3 text-caption font-extrabold ${selectedTier === tier ? tier === 'GOLD' ? 'bg-[#F5B942] text-[#3A2A05]' : 'bg-brand-gradient text-white' : 'text-app-muted'}`}>{PUBLIC_PLAN_NAMES[tier]}</button>)}
-        </div>
+        {isLegacyGold && <p className="mb-4 rounded-2xl border border-app bg-surface p-3 text-caption normal-case leading-relaxed text-app-muted" data-testid="gold-legacy-notice">{st('goldLegacyNotice')}</p>}
 
         <div ref={carouselRef} onScroll={handleCarouselScroll} aria-label={t('subscriptionPeriodAriaLabel')} className="-me-4 mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto py-3 pe-[15%] no-scrollbar">
           {periodOffers.map(({ id, label, product, discount }) => {
             const selected = selectedPeriod === id;
             const priced = hasStorePrice(product);
-            return <button data-period={id} aria-pressed={selected} key={id} type="button" onClick={() => selectPeriod(id)} className={`relative min-h-32 w-[78%] shrink-0 snap-center rounded-3xl border px-4 py-4 text-start transition-[transform,border-color,background-color,opacity,box-shadow] ${selected ? selectedTier === 'GOLD' ? 'scale-100 border-[#F5B942] bg-[#F5B942]/10 shadow-premium' : 'scale-100 border-pink-500 bg-pink-500/10 shadow-elevated' : 'scale-[0.94] border-app bg-surface opacity-70 shadow-soft'}`}>
+            return <button data-period={id} aria-pressed={selected} key={id} type="button" onClick={() => selectPeriod(id)} className={`relative min-h-32 w-[78%] shrink-0 snap-center rounded-3xl border px-4 py-4 text-start transition-[transform,border-color,background-color,opacity,box-shadow] ${selected ? 'scale-100 border-pink-500 bg-pink-500/10 shadow-elevated' : 'scale-[0.94] border-app bg-surface opacity-70 shadow-soft'}`}>
               <span className="text-caption font-extrabold text-app">{label}</span>
               <div className="mt-3">
                 {isStoreLoading ? <Skeleton className="h-7 w-24" /> : priced ? <span className="text-heading font-black text-app">{product.priceString}</span> : <span className="text-micro font-bold normal-case text-amber-600">{missingPriceCopy}</span>}
@@ -242,19 +241,19 @@ export const PremiumScreen: React.FC = () => {
           })}
         </div>
 
-        <div className={`mt-4 rounded-3xl border p-5 ${selectedTier === 'GOLD' ? 'border-[#F5B942] bg-gradient-to-br from-[#F5B942]/20 via-surface to-[#FBD98A]/10 shadow-premium' : 'border-pink-500 bg-pink-500/5 shadow-elevated'}`}>
+        <div className="mt-4 rounded-3xl border border-pink-500 bg-pink-500/5 p-5 shadow-elevated">
           <div className="flex items-start justify-between gap-3">
-            <div><div className="flex items-center gap-2">{selectedTier === 'GOLD' ? <Crown className="h-5 w-5 fill-current text-[#F5B942]" /> : <Sparkles className="h-5 w-5 text-pink-500" />}<h2 className="text-heading text-app">{PUBLIC_PLAN_NAMES[selectedTier]}</h2></div><p className="mt-1 text-micro normal-case text-app-muted">{t('periodSubscriptionTemplate').replace('{period}', periodConfig.label)}</p></div>
+            <div><div className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-pink-500" /><h2 className="text-heading text-app">{PUBLIC_PLAN_NAMES[selectedTier]}</h2></div><p className="mt-1 text-micro normal-case text-app-muted">{t('periodSubscriptionTemplate').replace('{period}', periodConfig.label)}</p></div>
             {offer.discount >= MIN_MEANINGFUL_DISCOUNT_PERCENT && <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-micro font-black text-emerald-600">{t('discountBadgeTemplate').replace('{discount}', String(offer.discount))}</span>}
           </div>
           <div className="mt-4 flex min-h-10 items-center">{isStoreLoading ? <Skeleton className="h-9 w-36" /> : priceAvailable ? <><span className="text-title font-black text-app">{storeProduct.priceString}</span><span className="ms-1 text-micro font-semibold text-app-muted">{periodConfig.suffix}</span></> : <div><p className="text-caption font-bold text-amber-600">{missingPriceCopy}</p><button type="button" onClick={() => void loadStoreProducts()} className="mt-1 text-caption font-extrabold text-pink-500 underline">{t('refreshPricesAction')}</button></div>}</div>
           {selectedPeriod !== 'WEEKLY' && offer.weeklyLabel && <p className="mt-1 text-caption normal-case text-app-muted">{t('weeklyEquivalentTemplate').replace('{amount}', offer.weeklyLabel)}</p>}
           <div className="mt-4 grid gap-2">
-            {features.map(({ icon: Icon, label }) => <div key={label} className="flex items-center gap-2.5 text-caption font-semibold text-app"><span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${selectedTier === 'GOLD' ? 'bg-[#F5B942]/15 text-[#C58A13]' : 'bg-pink-500/10 text-pink-500'}`}><Icon className="h-3.5 w-3.5" /></span><span>{label}</span><Check className="ms-auto h-4 w-4 text-emerald-500" /></div>)}
+            {features.map(({ icon: Icon, label }) => <div key={label} className="flex items-center gap-2.5 text-caption font-semibold text-app"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-pink-500/10 text-pink-500"><Icon className="h-3.5 w-3.5" /></span><span>{label}</span><Check className="ms-auto h-4 w-4 text-emerald-500" /></div>)}
           </div>
         </div>
 
-        <AppButton onClick={handlePurchase} loading={isPurchasing} disabled={isStoreLoading || !priceAvailable} variant="primary" size="lg" fullWidth className={selectedTier === 'GOLD' ? 'mt-5 bg-gradient-to-r from-[#F5B942] via-[#F0A93E] to-[#FBD98A] text-[#3A2A05] shadow-premium' : 'mt-5'}>{priceAvailable ? t('switchToTierTemplate').replace('{tier}', PUBLIC_PLAN_NAMES[selectedTier]).replace('{price}', storeProduct.priceString) : isStoreLoading ? t('pricesLoadingLabel') : t('refreshPricesAction')}</AppButton>
+        <AppButton onClick={handlePurchase} loading={isPurchasing} disabled={isStoreLoading || !priceAvailable} variant="primary" size="lg" fullWidth className="mt-5">{priceAvailable ? t('switchToTierTemplate').replace('{tier}', PUBLIC_PLAN_NAMES[selectedTier]).replace('{price}', storeProduct.priceString) : isStoreLoading ? t('pricesLoadingLabel') : t('refreshPricesAction')}</AppButton>
         <button onClick={handleRestore} disabled={isRestoring || isLoading} className="mt-3 w-full text-caption font-bold text-app-muted underline disabled:opacity-50">{isRestoring ? t('checkingEllipsisLabel') : t('restorePurchases')}</button>
         <p className="mt-4 text-micro normal-case leading-relaxed text-app-muted">
           {t('subscriptionAutoRenewDisclosure')}{' '}

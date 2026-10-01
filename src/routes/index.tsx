@@ -7,14 +7,14 @@ import { loadOwnProfileScreen } from './routePreload';
 import { measureProfileMilestone } from '../services/performance/profilePerformance';
 import { translateSync } from '../i18n/appLocale';
 
-// Critical routes loaded directly -- World/Social Discovery is the default authenticated
-// landing experience (Apple 4.3(b) remediation: reviewers must not land on a swipe deck).
+// Critical routes loaded directly -- the content-first Home feed is the default authenticated
+// landing screen; the map shows community rooms only.
 import { AuthScreen } from '../features/auth/AuthScreen';
+import { HomeFeedScreen } from '../features/home/HomeFeedScreen';
 import { SocialMapScreen } from '../features/map/SocialMapScreen';
 
 // Heavy feature routes lazy loaded
 const FullProfileScreen = lazy(() => import('../features/discovery/FullProfileScreen').then((m) => ({ default: m.FullProfileScreen })));
-const DiscoverScreen = lazy(() => import('../features/discovery/DiscoverScreen').then((m) => ({ default: m.DiscoverScreen })));
 const QuestionInboxScreen = lazy(() => import('../features/questions/QuestionInboxScreen').then((m) => ({ default: m.QuestionInboxScreen })));
 const ProfileQuestionsScreen = lazy(() => import('../features/questions/ProfileQuestionsScreen').then((m) => ({ default: m.ProfileQuestionsScreen })));
 const NotificationsScreen = lazy(() => import('../features/notifications/NotificationsScreen').then((m) => ({ default: m.NotificationsScreen })));
@@ -29,9 +29,7 @@ const VerificationScreen = lazy(() => import('../features/profile/VerificationSc
 const ProfilePreviewScreen = lazy(() => import('../features/profile/ProfilePreviewScreen').then((m) => ({ default: m.ProfilePreviewScreen })));
 const ConnectionsListScreen = lazy(() => import('../features/profile/ConnectionsListScreen').then((m) => ({ default: m.ConnectionsListScreen })));
 const PremiumScreen = lazy(() => import('../features/premium/PremiumScreen').then((m) => ({ default: m.PremiumScreen })));
-const BoostScreen = lazy(() => import('../features/boost/BoostScreen').then((m) => ({ default: m.BoostScreen })));
 const ProfileFramesScreen = lazy(() => import('../features/frames/ProfileFramesScreen').then((m) => ({ default: m.ProfileFramesScreen })));
-const PassportScreen = lazy(() => import('../features/passport/PassportScreen').then((m) => ({ default: m.PassportScreen })));
 const SupportScreen = lazy(() => import('../features/support/SupportScreen').then((m) => ({ default: m.SupportScreen })));
 const RoomDirectoryScreen = lazy(() => import('../features/rooms/RoomDirectoryScreen').then((m) => ({ default: m.RoomDirectoryScreen })));
 const CreateRoomScreen = lazy(() => import('../features/rooms/CreateRoomScreen').then((m) => ({ default: m.CreateRoomScreen })));
@@ -64,23 +62,18 @@ const router = createBrowserRouter([
     element: <AppShell />,
     children: [
       {
-        // SessionGate enforces: no session -> /auth, authenticated -> app. All onboarding
-        // Required registration fields and photos are collected inside the registration
-        // wizard. Device location is opt-in, requested later on World/Map (check-in) or
-        // Discover (global compatibility/activity ranking) — see src/features/auth/RegistrationWizard.tsx and
-        // src/app/SessionGate.tsx. World/Map is the default landing route (Apple 4.3(b)).
+        // SessionGate enforces: no session -> /auth, authenticated -> app. Registration
+        // fields and photos are collected inside the registration wizard (see
+        // src/features/auth/RegistrationWizard.tsx and src/app/SessionGate.tsx). Device location
+        // is opt-in and only used to centre the rooms map on this device.
         element: <SessionGate />,
         children: [
-          { index: true, element: <Navigate to="/map" replace /> },
+          { index: true, element: <Navigate to="/home" replace /> },
           { path: 'auth', element: <AuthScreen /> },
-          {
-            path: 'discover',
-            element: (
-              <Suspense fallback={SuspenseFallback}>
-                <DiscoverScreen />
-              </Suspense>
-            ),
-          },
+          { path: 'home', element: <HomeFeedScreen /> },
+          // The person-by-person Discover deck is gone. Old links, pushes and shortcuts land on
+          // Home; a single profile (discover/:userId) is still reachable from questions and rooms.
+          { path: 'discover', element: <Navigate to="/home" replace /> },
           {
             path: 'discover/:userId',
             element: (
@@ -211,14 +204,8 @@ const router = createBrowserRouter([
               </Suspense>
             ),
           },
-          {
-            path: 'boost',
-            element: (
-              <Suspense fallback={SuspenseFallback}>
-                <BoostScreen />
-              </Suspense>
-            ),
-          },
+          // Boost and Passport are retired products; installed-app links fall back to Profile.
+          { path: 'boost', element: <Navigate to="/profile" replace /> },
           {
             path: 'frames',
             element: (
@@ -227,14 +214,7 @@ const router = createBrowserRouter([
               </Suspense>
             ),
           },
-          {
-            path: 'passport',
-            element: (
-              <Suspense fallback={SuspenseFallback}>
-                <PassportScreen />
-              </Suspense>
-            ),
-          },
+          { path: 'passport', element: <Navigate to="/profile" replace /> },
           {
             path: 'support',
             element: (

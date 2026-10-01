@@ -1,0 +1,6 @@
+/* iOS permission prompts. Keep in sync with Info.plist (Turkish base) and tests/InfoPlistStrings.test.ts. */
+"NSCameraUsageDescription" = "Profil fotoğrafı çekmek, sohbetlerde ve hikâyelerde fotoğraf paylaşmak, görüntülü arama yapmak ve isteğe bağlı yüz doğrulamasını tamamlamak için kameranız kullanılır.";
+"NSPhotoLibraryUsageDescription" = "Profilinize, sohbetlerinize ve hikâyelerinize eklemek için seçtiğiniz fotoğraflara erişilir.";
+"NSPhotoLibraryAddUsageDescription" = "Kaydetmeyi seçtiğiniz fotoğraf ve medyaları galerinize eklemek için izin gerekir.";
+"NSLocationWhenInUseUsageDescription" = "Şehrinizi belirlemek ve bölgenizdeki topluluk odalarını ve etkinlikleri göstermek için konumunuz kullanılır.";
+"NSMicrophoneUsageDescription" = "Sesli mesaj kaydetmek, sesli ve görüntülü aramalara ve sesli odalara katılmak için mikrofonunuz kullanılır.";

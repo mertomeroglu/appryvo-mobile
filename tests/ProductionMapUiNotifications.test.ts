@@ -45,11 +45,10 @@ describe('production map, header, avatar, and local re-engagement fixes', () => 
     mocks.cancel.mockClear();
   });
 
-  it('uses PEOPLE as the environment-independent map default while retaining rooms', () => {
+  it('the map is rooms-only in every environment (no people layer to default to)', () => {
     const map = source('features/map/SocialMapScreen.tsx');
-    expect(map).toContain("useState<'people'|'rooms'>('people')");
+    expect(map).not.toContain("'people'");
     expect(map).not.toContain('import.meta.env.MODE');
-    expect(map).toContain("(['rooms','people'] as const)");
   });
 
   it('map geography selection never routes to a room directory and preserves lng,lat order', () => {
@@ -77,7 +76,7 @@ describe('production map, header, avatar, and local re-engagement fixes', () => 
     const header = source('components/ui/ScreenHeader.tsx');
     expect(header).toContain('<div className="pt-safe">');
     expect(header).toContain('min-h-14');
-    expect(header).not.toMatch(/pt-safe[^'\"]*h-16/);
+    expect(header).not.toMatch(/pt-safe[^'"]*h-16/);
     const { usefulRoomSubtitle } = await import('../src/features/rooms/roomTitle');
     expect(usefulRoomSubtitle('Şehir Odaları', '  şehir odaları ')).toBeNull();
     expect(usefulRoomSubtitle('Paris', 'Şehir Odaları')).toBe('Şehir Odaları');

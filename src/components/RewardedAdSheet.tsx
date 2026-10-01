@@ -52,13 +52,22 @@ export const RewardedAdSheet: React.FC<RewardedAdSheetProps> = ({
       // SSV callbacks typically land within a few seconds of ad completion -- poll briefly
       // rather than forcing the user to reopen the app to see their reward.
       let granted = false;
-      for (let attempt = 0; attempt < 5 && !granted; attempt += 1) {
+      for (let attempt = 0; attempt < 6 && !granted; attempt += 1) {
         await wait(2000);
-        const result = await verifySession.mutateAsync(session.sessionId);
-        if (result?.granted || result?.alreadyClaimed) {
-          granted = true;
-          toast.success(t('rewardCreditedTemplate').replace('{reward}', rewardLabel));
-          onClose();
+        try {
+          const result = await verifySession.mutateAsync(session.sessionId);
+          if (result?.granted || result?.alreadyClaimed) {
+            granted = true;
+            toast.success(t('rewardCreditedTemplate').replace('{reward}', rewardLabel));
+            onClose();
+            break;
+          }
+        } catch (pollErr: any) {
+          // If server reports SSV is still pending from Google, continue waiting
+          const isPending = pollErr?.response?.status === 409 || pollErr?.status === 409 || /409/i.test(pollErr?.message || '');
+          if (!isPending) {
+            throw pollErr;
+          }
         }
       }
       if (!granted) {

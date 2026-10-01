@@ -34,25 +34,6 @@ describe('Point-Fix V9 liveness', () => {
 });
 
 describe('Point-Fix V9 client contracts', () => {
-  // Liking or matching with someone used to delete their marker, client-side here and in the map
-  // query on the server. That belongs to the swipe deck, which is a one-pass queue; the map
-  // answers "who is around me", and it made the map shrink permanently as people used it --
-  // including for two testers who match and then cannot see each other. Both surfaces now only
-  // refetch, so the marker can pick up any state the interaction changed. Asserted negatively so
-  // the removal cannot quietly return.
-  it('refreshes but never removes map users after a like', () => {
-    const hooks = source('src/hooks/useQueries.ts');
-    expect(hooks).not.toContain("setQueriesData<any[]>({ queryKey: ['discovery', 'map'] }");
-    expect(hooks).toContain("invalidateQueries({ queryKey: ['discovery', 'map'] })");
-  });
-  it('keeps matched users on the map instead of splicing them out in realtime', () => {
-    const map = source('src/features/map/SocialMapScreen.tsx');
-    const handlerStart = map.indexOf("socketService.on('match:new'");
-    expect(handlerStart).toBeGreaterThan(-1);
-    const matchHandler = map.slice(handlerStart, handlerStart + 400);
-    expect(matchHandler).toContain("invalidateQueries({ queryKey: ['discovery', 'map'] })");
-    expect(matchHandler).not.toContain('setQueriesData');
-  });
   it('shares wallet and Coin store across profile surfaces', () => {
     expect(source('src/features/profile/OwnProfileScreen.tsx')).toContain('useWalletQuery');
     expect(source('src/features/profile/SettingsScreen.tsx')).toContain('CoinStoreSheet');
@@ -87,6 +68,7 @@ describe('Point-Fix V9 client contracts', () => {
   });
   it('configures all supported iOS localizations', () => {
     const plist = source('ios/App/App/Info.plist');
-    for (const locale of ['tr', 'en', 'es', 'fr', 'pt', 'ru', 'ar', 'hi', 'zh']) expect(plist).toContain(`<string>${locale}</string>`);
+    // Chinese is declared as zh-Hans to match the zh-Hans.lproj resource folder.
+    for (const locale of ['tr', 'en', 'es', 'fr', 'pt', 'ru', 'ar', 'hi', 'zh-Hans']) expect(plist).toContain(`<string>${locale}</string>`);
   });
 });

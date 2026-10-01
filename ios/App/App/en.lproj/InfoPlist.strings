@@ -1,0 +1,6 @@
+/* iOS permission prompts. Keep in sync with Info.plist (Turkish base) and tests/InfoPlistStrings.test.ts. */
+"NSCameraUsageDescription" = "Ryvo uses your camera to take profile photos, share photos in chats and stories, make video calls and complete optional face verification.";
+"NSPhotoLibraryUsageDescription" = "Ryvo accesses the photos you choose to add to your profile, chats and stories.";
+"NSPhotoLibraryAddUsageDescription" = "Ryvo needs permission to save the photos and media you choose to your library.";
+"NSLocationWhenInUseUsageDescription" = "Ryvo uses your location to determine your city and show community rooms and activity in your area.";
+"NSMicrophoneUsageDescription" = "Ryvo uses your microphone to record voice messages and to join voice calls, video calls and voice rooms.";
